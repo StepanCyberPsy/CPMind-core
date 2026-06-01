@@ -552,7 +552,7 @@ tab_switches_count:  1
 
 Была протестирована тестовая страница страница: `http://localhost:8080/test/banner-test.html?cpmind_debug=1`
 
-**Наблюдения в debug-оверлее (Скриншот 1 — баннер в viewport):**
+**Наблюдения в debug-оверлее (баннер в viewport):**
 
 ```
 viewport >= 50%:     true (зелёный)
@@ -565,7 +565,7 @@ Presence events:     55
 device_type:         desktop
 ```
 
-**Наблюдения (Скриншот 2 — проскроллили ниже баннера):**
+**Наблюдения (проскроллили ниже баннера):**
 
 ```
 viewport < 50%:      true (красный)
