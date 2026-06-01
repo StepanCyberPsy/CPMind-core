@@ -1,0 +1,21 @@
+{
+  "name": "cpmind-mvp",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter @cpmind/shared build && pnpm --filter @cpmind/tag build && pnpm --filter @cpmind/backend build",
+    "dev:backend": "pnpm --filter @cpmind/backend dev",
+    "dev:frontend": "pnpm --filter @cpmind/frontend dev",
+    "dev:tag": "pnpm --filter @cpmind/tag dev",
+    "test": "pnpm --filter @cpmind/shared test",
+    "db:generate": "pnpm --filter @cpmind/backend drizzle-kit generate",
+    "db:migrate": "pnpm --filter @cpmind/backend drizzle-kit migrate",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

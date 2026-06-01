@@ -1,0 +1,120 @@
+import type { ImpressionPayload } from '../schemas/impression.js';
+import { applyAnomalyCapping } from './capping.js';
+import {
+  normalizeAll,
+  getS5TopEventLabel,
+  type NormalizedSignals,
+} from './normalize.js';
+import {
+  computeEffectiveWeights,
+  detectNullSignals,
+  DEFAULT_WEIGHTS,
+  type WeightsConfig,
+  type EffectiveWeights,
+} from './weights.js';
+
+export interface ScoreResult {
+  normalized: NormalizedSignals;
+  effective_weights: EffectiveWeights;
+  f_presence: 0 | 1;
+  score_final: number;
+  weights_version: string;
+  no_events: boolean;
+  tab_mostly_hidden: boolean;
+  anomaly_duration: boolean;
+  is_suspicious: boolean;
+  s1_raw_time_in_view: number;
+  s2_raw_share_of_screen: number;
+  s3_raw_scroll_speed: number | null;
+  s4_raw_active_time_pct: number;
+  s5_raw_top_event: string;
+  s7_raw_persistence: number;
+}
+
+/**
+ * Полный pipeline расчета CPMind Score:
+ *   кэппинг -> нормализация -> F_Presence -> перераспределение весов -> Score -> флаги
+ *
+ * Единственная функция, которую вызывает backend (services/scoring.ts).
+ * Все промежуточные функции — pure, без side effects.
+ *
+ * @param payload — raw ImpressionPayload от тега (не мутируется)
+ * @param weights — конфигурация весов (по умолчанию DEFAULT_WEIGHTS v1.0_uncalibrated)
+ */
+
+export function computeScore(
+  payload: ImpressionPayload,
+  weights: WeightsConfig = DEFAULT_WEIGHTS,
+): ScoreResult {
+
+  // 1. Кэппинг аномалий (time_in_view_sec > 3600 до кэппинга)
+  const { payload: capped, anomaly_duration } = applyAnomalyCapping(payload);
+
+  // 2. Нормализация
+  const normalized = normalizeAll(capped);
+
+  // 3. Перераспределение весов: Null-сигнал (только S3 в MVP) -> его вес пропорционально переходит к остальным
+  const nullSignals = detectNullSignals(normalized);
+  const effective_weights = computeEffectiveWeights(nullSignals, weights);
+
+  // 4. F_Presence мультипликатор presence_failed: ни одного события И последнее событие было > 60 сек назад -> пользователь физически не у экрана -> импрешен невалиден -> Score = 0
+  const presence = capped.presence;
+  const presenceFailed =
+    presence.time_since_last_event_ms > 60_000 &&
+    presence.events_count_during_impression === 0;
+  const f_presence: 0 | 1 = presenceFailed ? 0 : 1;
+
+  // 5. CPMind Score §4.8
+  // Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
+  // Null-сигналы: effective_weight = 0 -> (null ?? 0) × 0 = 0 — корректно
+  // Диапазон: Si ∈ [0, 100], Σwi = 1.0 -> weightedSum ∈ [0, 100]
+  // F_Presence ∈ {0, 1} -> score_final ∈ [0, 100]
+  const weightedSum =
+    normalized.s1 * effective_weights.s1 +
+    normalized.s2 * effective_weights.s2 +
+    (normalized.s3 ?? 0) * effective_weights.s3 +
+    normalized.s4 * effective_weights.s4 +
+    normalized.s5 * effective_weights.s5 +
+    normalized.s7 * effective_weights.s7;
+
+  const score_final = weightedSum * f_presence;
+
+  const no_events = capped.presence.events_count_during_impression === 0;
+
+  // tab_mostly_hidden: вкладка неактивна более 80% времени показа ≡ (tab_active_time_ms / tab_total_time_ms) < 0.20
+  const { tab_active_time_ms, tab_total_time_ms } = capped.signals.s4;
+  const tab_mostly_hidden =
+    tab_total_time_ms > 0
+      ? (tab_active_time_ms / tab_total_time_ms) < 0.20
+      : false;
+
+  // is_suspicious: хотя бы один флаг true
+  const is_suspicious = no_events || tab_mostly_hidden || anomaly_duration;
+
+  // 7. Raw-поля для колонок таблицы
+  const origS4 = payload.signals.s4;
+  const s4_raw_active_time_pct =
+    origS4.tab_total_time_ms > 0
+      ? (origS4.tab_active_time_ms / origS4.tab_total_time_ms) * 100
+      : 0;
+
+  return {
+    normalized,
+    effective_weights,
+    f_presence,
+    score_final,
+    weights_version: weights.version,
+
+    no_events,
+    tab_mostly_hidden,
+    anomaly_duration,
+    is_suspicious,
+
+    s1_raw_time_in_view: payload.signals.s1.time_in_view_sec,
+    s2_raw_share_of_screen: payload.signals.s2.share_of_screen_avg_pct,
+    s3_raw_scroll_speed: payload.signals.s3?.scroll_speed_avg_px_s ?? null,
+    s4_raw_active_time_pct,
+    s5_raw_top_event: getS5TopEventLabel(payload.signals.s5),
+    s7_raw_persistence: payload.signals.s7.viewability_persistence_pct,
+  };
+}

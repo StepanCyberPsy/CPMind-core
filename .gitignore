@@ -1,0 +1,67 @@
+# Зависимости
+node_modules/
+
+# Сборка
+dist/
+build/
+.next/
+packages/tag/dist/
+
+# Окружение и секреты
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# Сертефикаты
+nginx/certs/*.pem
+nginx/certs/*.crt
+nginx/certs/*.key
+nginx/certs/*.cer
+nginx/certs/*.p12
+nginx/certs/*.pfx
+
+# Бэкапы БД
+backups/
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# Next.js
+.next/
+.vercel/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+
+# Тесты и покрытие
+coverage/
+.nyc_output/
+
+# Временные файлы
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Промпт-задачи
+prompt_tasks/
+
+# Drizzle Studio
+.drizzle/
+
+# Не игнорировать
+!.env.example
+!.gitkeep

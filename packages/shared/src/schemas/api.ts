@@ -1,0 +1,53 @@
+import { z } from 'zod';
+
+// Список импрешенов
+export const ImpressionRowSchema = z.object({
+  id: z.string().uuid(),
+  impression_id: z.string().uuid(),
+  campaign_id: z.string(),
+  creative_id: z.string(),
+  creative_type: z.string(),
+  device_type: z.string(),
+  timestamp_start: z.number(),
+  timestamp_end: z.number(),
+  created_at: z.string(),
+
+  s1_raw_time_in_view: z.number().nullable(), // time_in_view_sec
+  s2_raw_share_of_screen: z.number().nullable(), // share_of_screen_avg_pct
+  s3_raw_scroll_speed: z.number().nullable(), // scroll_speed_avg_px_s
+  s4_raw_active_time_pct: z.number().nullable(), // tab_active/tab_total * 100
+  s5_raw_top_event: z.string(), // label: "clicked" | "zoom/swipe" | ...
+  s7_raw_persistence: z.number().nullable(), // viewability_persistence_pct
+
+  s1_normalized: z.number().nullable(),
+  s2_normalized: z.number().nullable(),
+  s3_normalized: z.number().nullable(),
+  s4_normalized: z.number().nullable(),
+  s5_normalized: z.number().nullable(),
+  s7_normalized: z.number().nullable(),
+  f_presence: z.number().int(),
+  score_final: z.number(),
+  weights_version: z.string(),
+
+  no_events: z.boolean(),
+  tab_mostly_hidden: z.boolean(),
+  anomaly_duration: z.boolean(),
+  is_suspicious: z.boolean(),
+});
+
+export const ImpressionDetailSchema = ImpressionRowSchema.extend({
+  signals_raw: z.unknown(),
+  signals_normalized: z.unknown(),
+});
+
+export const ImpressionListResponseSchema = z.object({
+  items: z.array(ImpressionRowSchema),
+  total: z.number().int(),
+  pages: z.number().int(),
+  page: z.number().int(),
+  limit: z.number().int(),
+});
+
+export type ImpressionRow = z.infer<typeof ImpressionRowSchema>;
+export type ImpressionDetail = z.infer<typeof ImpressionDetailSchema>;
+export type ImpressionListResponse = z.infer<typeof ImpressionListResponseSchema>;

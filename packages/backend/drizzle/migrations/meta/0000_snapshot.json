@@ -1,0 +1,318 @@
+{
+  "id": "7b5753a8-adba-4cc0-89e1-0c6b2d4b54dc",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.impressions": {
+      "name": "impressions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "impression_id": {
+          "name": "impression_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creative_id": {
+          "name": "creative_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creative_type": {
+          "name": "creative_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "device_type": {
+          "name": "device_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timestamp_start": {
+          "name": "timestamp_start",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timestamp_end": {
+          "name": "timestamp_end",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signals_raw": {
+          "name": "signals_raw",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signals_normalized": {
+          "name": "signals_normalized",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "s1_raw_time_in_view": {
+          "name": "s1_raw_time_in_view",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s2_raw_share_of_screen": {
+          "name": "s2_raw_share_of_screen",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s3_raw_scroll_speed": {
+          "name": "s3_raw_scroll_speed",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s4_raw_active_time_pct": {
+          "name": "s4_raw_active_time_pct",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s5_raw_top_event": {
+          "name": "s5_raw_top_event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "s7_raw_persistence": {
+          "name": "s7_raw_persistence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s1_normalized": {
+          "name": "s1_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s2_normalized": {
+          "name": "s2_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s3_normalized": {
+          "name": "s3_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s4_normalized": {
+          "name": "s4_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s5_normalized": {
+          "name": "s5_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "s7_normalized": {
+          "name": "s7_normalized",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "f_presence": {
+          "name": "f_presence",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "score_final": {
+          "name": "score_final",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weights_version": {
+          "name": "weights_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'v1.0_uncalibrated'"
+        },
+        "no_events": {
+          "name": "no_events",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tab_mostly_hidden": {
+          "name": "tab_mostly_hidden",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "anomaly_duration": {
+          "name": "anomaly_duration",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_suspicious": {
+          "name": "is_suspicious",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uidx_impression_id": {
+          "name": "uidx_impression_id",
+          "columns": [
+            {
+              "expression": "impression_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_created_at": {
+          "name": "idx_created_at",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_campaign_id": {
+          "name": "idx_campaign_id",
+          "columns": [
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_creative_id": {
+          "name": "idx_creative_id",
+          "columns": [
+            {
+              "expression": "creative_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_device_type": {
+          "name": "idx_device_type",
+          "columns": [
+            {
+              "expression": "device_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_is_suspicious": {
+          "name": "idx_is_suspicious",
+          "columns": [
+            {
+              "expression": "is_suspicious",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_score_final": {
+          "name": "idx_score_final",
+          "columns": [
+            {
+              "expression": "score_final",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
