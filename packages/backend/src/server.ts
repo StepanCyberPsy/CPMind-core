@@ -28,17 +28,17 @@ export function buildServer(): FastifyInstance {
   });
 
   app.register(cors, {
-    hook: 'preHandler',
+    hook: 'onRequest',
     delegator: (req, callback) => {
       const origin = req.headers.origin;
       const path = req.url?.split('?')[0];
 
       if (path === '/api/impressions') {
         return callback(null, {
-          origin: '*',
+          origin: true,
           methods: ['POST', 'OPTIONS'],
           allowedHeaders: ['Content-Type'],
-          credentials: false,
+          credentials: true,
         });
       }
 

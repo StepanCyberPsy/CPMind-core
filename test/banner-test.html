@@ -5,40 +5,405 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CPMind — Тестовая страница</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-    .spacer { height: 600px; background: #f5f5f5; display: flex;
-              align-items: center; justify-content: center; color: #999; }
-    .banner-container { display: flex; justify-content: center;
-                        margin: 40px 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, 'Segoe UI', sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      line-height: 1.6;
+    }
+
+    /* ── Sticky instructions panel ───────────────────────────────────── */
+
+    .instructions {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      font-size: 12px;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .instructions-title {
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .steps {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+    }
+
+    .step-num {
+      width: 18px;
+      height: 18px;
+      background: #1e3a5f;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: #60a5fa;
+      flex-shrink: 0;
+    }
+
+    .badge {
+      margin-left: auto;
+      background: #1e3a5f;
+      color: #60a5fa;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Page layout ─────────────────────────────────────────────────── */
+
+    .page-header {
+      max-width: 900px;
+      margin: 48px auto 0;
+      padding: 0 24px;
+    }
+
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .page-header p {
+      font-size: 15px;
+      color: #64748b;
+      max-width: 560px;
+    }
+
+    /* ── Article content ─────────────────────────────────────────────── */
+
+    .article {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .section {
+      padding: 40px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .section:last-child {
+      border-bottom: none;
+    }
+
+    .section h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 12px;
+      letter-spacing: -0.3px;
+    }
+
+    .section p {
+      font-size: 15px;
+      color: #475569;
+      margin-bottom: 12px;
+      max-width: 680px;
+    }
+
+    .section p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* ── Banner slot ─────────────────────────────────────────────────── */
+
+    .banner-slot {
+      margin: 32px 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    .banner-label {
+      text-align: center;
+      font-size: 10px;
+      font-weight: 500;
+      color: #94a3b8;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .banner-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+
+    /* Контейнер тега */
+    [data-cpmind-creative] {
+      display: block;
+      overflow: hidden;
+    }
+
+    [data-cpmind-creative] iframe {
+      display: block;
+      border: none;
+    }
+
+    /* ── Highlight box ───────────────────────────────────────────────── */
+
+    .highlight {
+      background: #f0f9ff;
+      border-left: 3px solid #3b82f6;
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 14px;
+      color: #1e40af;
+      max-width: 680px;
+    }
+
+    /* ── Scroll indicator ────────────────────────────────────────────── */
+
+    .scroll-hint {
+      text-align: center;
+      padding: 32px 0;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    .scroll-hint .arrow {
+      display: block;
+      font-size: 20px;
+      animation: bounce 1.5s infinite;
+      margin-bottom: 4px;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(6px); }
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────────── */
+
+    .page-footer {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
   </style>
 </head>
 <body>
-  <h1>Тестовая страница CPMind</h1>
-  <p>Скрольте вниз, чтобы увидеть баннер.</p>
 
-  <div class="spacer">↓ Скрольте вниз ↓</div>
-  <div class="banner-container">
-    <div
-      data-cpmind-creative
-      data-campaign-id="demo_campaign_01"
-      data-creative-id="banner_728x90_static"
-      data-creative-type="banner_static"
-      data-endpoint="http://localhost:3001/api/impressions"
-      style="width: 728px; height: 90px;"
-    >
-      <a href="https://cpmind.io" id="banner-link" target="_blank"
-         style="display:block;width:100%;height:100%;">
-        <img src="banner-placeholder.html"
-             width="728" height="90"
-             alt="CPMind Test Banner"
-             style="display:block;border:1px solid #ccc;">
-      </a>
+  <!-- Sticky instructions -->
+  <div class="instructions">
+    <span class="instructions-title">CPMind Debug</span>
+    <div class="steps">
+      <div class="step">
+        <span class="step-num">1</span>
+        <span>Скрольте — дождитесь баннера в viewport</span>
+      </div>
+      <div class="step">
+        <span class="step-num">2</span>
+        <span>Наведите курсор, кликните или прокрутите мимо</span>
+      </div>
+      <div class="step">
+        <span class="step-num">3</span>
+        <span>Закройте вкладку — payload уйдёт через sendBeacon</span>
+      </div>
+      <div class="step">
+        <span class="step-num">4</span>
+        <span>Проверьте запись в панели аналитики</span>
+      </div>
     </div>
+    <span class="badge">?cpmind_debug=1</span>
   </div>
 
-  <div class="spacer">Контент после баннера</div>
-  <div class="spacer">Еще контент...</div>
-  
+  <!-- Page header -->
+  <div class="page-header">
+    <h1>Тестовая страница CPMind</h1>
+    <p>
+      Имитация реальной статьи с рекламными баннерами.
+      Баннер #1 — ниже fold, баннер #2 — в конце страницы.
+      Debug-оверлей активен в правом нижнем углу.
+    </p>
+  </div>
+
+  <div class="scroll-hint">
+    <span class="arrow">↓</span>
+    Скрольте вниз
+  </div>
+
+  <!-- Article content -->
+  <div class="article">
+
+    <div class="section">
+      <h2>Что такое CPMind Score?</h2>
+      <p>
+        CPMind Score — единая метрика качества рекламного показа от 0 до 100.
+        Она объединяет шесть поведенческих сигналов: время видимости, долю экрана,
+        скорость скролла, активность вкладки, взаимодействия пользователя
+        и контекст страницы.
+      </p>
+      <p>
+        В отличие от стандартных метрик viewability, Score учитывает реальное
+        поведение пользователя: листал ли он страницу быстро, был ли активен
+        в момент показа, нажал ли на баннер.
+      </p>
+      <div class="highlight">
+        Формула: (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05) × F_Presence
+      </div>
+    </div>
+
+    <!-- Banner #1 -->
+    <div class="banner-slot">
+      <div class="banner-wrapper">
+        <div class="banner-label">Рекламный блок · 728×90</div>
+        <div
+          data-cpmind-creative
+          data-campaign-id="demo_campaign_01"
+          data-creative-id="banner_728x90_static"
+          data-creative-type="banner_static"
+          data-endpoint="http://localhost:3001/api/impressions"
+          style="width: 728px; height: 90px;"
+        >
+          <a href="https://cpmind.io" target="_blank"
+             style="display:block;width:100%;height:100%;text-decoration:none;">
+            <iframe
+              src="banner-placeholder.html"
+              width="728"
+              height="90"
+              scrolling="no"
+              frameborder="0"
+              style="display:block;pointer-events:none;"
+            ></iframe>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Сигнал S1 — Time-in-View</h2>
+      <p>
+        Измеряет суммарное время, в течение которого не менее 50% пикселей баннера
+        находилось в видимой области экрана. Стандарт MRC: показ засчитывается
+        при ≥1 секунды и ≥50% пикселей в viewport.
+      </p>
+      <p>
+        Тег использует IntersectionObserver с порогами 0, 0.5 и 1.0.
+        Это позволяет точно фиксировать моменты входа и выхода из viewport
+        без блокировки основного потока.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>Сигнал S3 — Scroll Velocity</h2>
+      <p>
+        Анализирует паттерн скролла в зоне ±300px от баннера: среднюю скорость,
+        паузы, возвраты, серии быстрых движений. Высокая скорость без пауз —
+        признак механического пролистывания без внимания к контенту.
+      </p>
+      <p>
+        Для вычисления текущего среднего и стандартного отклонения используется
+        алгоритм Велфорда — он работает за O(1) памяти без хранения всей истории.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>Сигнал S4 — Tab Activity</h2>
+      <p>
+        Отслеживает переключения вкладок через Page Visibility API.
+        Если пользователь переключился на другую вкладку во время показа —
+        это снижает качество показа. При более 80% времени в фоне
+        флаг <code>tab_mostly_hidden</code> выставляется в true.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>Сигнал S5 — Interaction Events</h2>
+      <p>
+        Desktop: клики, наведение курсора, приближение, траектория движения.
+        Mobile: тапы, свайпы, зум жестами. Тег автоматически определяет тип
+        устройства и активирует соответствующие обработчики.
+      </p>
+      <p>
+        Попробуйте навести курсор на баннер выше и задержать его — в debug-оверлее
+        появится <code>hover Xms</code> в строке S5 top_event.
+      </p>
+    </div>
+
+    <div class="section">
+      <h2>F_Presence — множитель присутствия</h2>
+      <p>
+        Бинарный множитель (0 или 1), который обнуляет Score если пользователь
+        не проявил активности в течение 60 секунд до или во время показа.
+        Защищает от накрутки показами на открытых но неактивных вкладках.
+      </p>
+    </div>
+
+    <!-- Banner #2 — competing ad для тестирования S7 -->
+    <div class="banner-slot">
+      <div class="banner-wrapper">
+        <div class="banner-label">Рекламный блок #2 · 728×90 (competing ad)</div>
+        <div
+          data-cpmind-creative
+          data-campaign-id="demo_campaign_02"
+          data-creative-id="banner_728x90_static_b"
+          data-creative-type="banner_static"
+          data-endpoint="http://localhost:3001/api/impressions"
+          style="width: 728px; height: 90px;"
+        >
+          <a href="https://cpmind.io" target="_blank"
+             style="display:block;width:100%;height:100%;text-decoration:none;">
+            <iframe
+              src="banner-placeholder.html"
+              width="728"
+              height="90"
+              scrolling="no"
+              frameborder="0"
+              style="display:block;pointer-events:none;"
+            ></iframe>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Сигнал S7 — Page Context</h2>
+      <p>
+        Учитывает позицию баннера на странице (above/below fold), высоту страницы,
+        количество конкурирующих баннеров и persistence видимости.
+        Два баннера на этой странице — демонстрация подсчёта competing_ads_visible.
+      </p>
+    </div>
+
+  </div>
+
+  <div class="page-footer">
+    CPMind MVP · Debug page · Данные отправляются на http://localhost:3001
+  </div>
+
   <script async src="../packages/tag/dist/cpmind-tag.min.js"></script>
+
 </body>
 </html>
