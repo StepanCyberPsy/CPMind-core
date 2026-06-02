@@ -19,7 +19,7 @@
 
 ## Архитектура
 
-Система состоит из трёх логических компонентов:
+Система состоит из трех логических компонентов:
 
 ```
 Тестовая страница с баннером
@@ -28,7 +28,7 @@
         |
         | sendBeacon / fetch keepalive
         v
-   [Backend] --- валидация, нормализация, расчёт Score, хранение
+   [Backend] --- валидация, нормализация, расчет Score, хранение
         |
    [PostgreSQL] --- signals_raw (JSONB) + нормализованные колонки
         |
@@ -39,7 +39,7 @@
 
 ```
 raw payload -> кэппинг аномалий -> нормализация S1-S7 ->
-перераспределение весов (если S3=null) -> расчёт F_Presence ->
+перераспределение весов (если S3=null) -> расчет F_Presence ->
 CPMind Score -> флаги подозрительности -> сохранение в БД
 ```
 
@@ -86,7 +86,7 @@ cpmind-mvp/
 
 ### packages/shared (@cpmind/shared)
 
-Общая бизнес-логика, схемы и типы. Единственный источник истины для всех трёх других пакетов. Не содержит runtime-зависимостей кроме Zod.
+Общая бизнес-логика, схемы и типы. Единственный источник истины для всех трех других пакетов. Не содержит runtime-зависимостей кроме Zod.
 
 ```
 packages/shared/
@@ -117,7 +117,7 @@ packages/shared/
     │   │                           # computeEffectiveWeights(): перераспределение
     │   │                           # весов при null-сигналах §6.2.
     │   │                           # detectNullSignals(): определение null-сигналов
-    │   └── score.ts                # computeScore(): полный pipeline расчёта.
+    │   └── score.ts                # computeScore(): полный pipeline расчета.
     │                               # Единственная функция которую вызывает backend:
     │                               # кэппинг -> нормализация -> F_Presence ->
     │                               # веса -> Score -> флаги подозрительности
@@ -155,7 +155,7 @@ packages/tag/
 ├── dist/
 │   └── cpmind-tag.min.js           # единственный артефакт, подключается на страницу
 └── src/
-    ├── index.ts                    # entry point. IIFE-обёртка + глобальный try/catch.
+    ├── index.ts                    # entry point. IIFE-обертка + глобальный try/catch.
     │                               # Ошибка внутри тега не ломает страницу и не
     │                               # влияет на кликовую ссылку баннера
     ├── types.ts                    # TagConfig, Session, VisibilityEntry,
@@ -179,7 +179,7 @@ packages/tag/
     │   │                           # iframe -> session.s3 = null
     │   ├── s4.ts                   # initS4(): document.visibilitychange listener.
     │   │                           # Аккумулирует tab_active_time_ms по сегментам,
-    │   │                           # ведёт visibility_state_history
+    │   │                           # ведет visibility_state_history
     │   ├── s5.ts                   # initS5(): роутинг по device_type.
     │   │                           # Desktop: click, mouseenter/leave/move, proximity,
     │   │                           # trajectory entropy. Mobile: touchstart/end/move
@@ -192,7 +192,7 @@ packages/tag/
     │   └── presence.ts             # initPresence(): отслеживание 10 типов событий
     │                               # (mouse, touch, key, scroll, click).
     │                               # Throttle 100 мс для timestamp, без throttle
-    │                               # для счётчика events_count
+    │                               # для счетчика events_count
     ├── transport/
     │   └── send.ts                 # finalizeAndSend(): идемпотентная финализация.
     │                               # sendPayload(): sendBeacon (основной) +
@@ -226,13 +226,13 @@ packages/tag/
 <script async src="cpmind-tag.min.js"></script>
 ```
 
-**Mobile Safari fix (критический):** при клике по баннеру `sendBeacon` вызывается синхронно в обработчике click (capture: true) до начала навигации браузера. Это единственный надёжный способ доставки данных при переходе по ссылке в iOS Safari.
+**Mobile Safari fix (критический):** при клике по баннеру `sendBeacon` вызывается синхронно в обработчике click (capture: true) до начала навигации браузера. Это единственный надежный способ доставки данных при переходе по ссылке в iOS Safari.
 
 ---
 
 ### packages/backend (@cpmind/backend)
 
-Fastify API-сервер. Принимает payload от тега, рассчитывает Score, хранит данные, отдаёт панели аналитики.
+Fastify API-сервер. Принимает payload от тега, рассчитывает Score, хранит данные, отдает панели аналитики.
 
 ```
 packages/backend/
@@ -269,13 +269,13 @@ packages/backend/
     │   │                           # 200 если ok, 503 если БД недоступна
     │   ├── impressions.ts          # POST /api/impressions — публичный (тег, без auth).
     │   │                           # Zod-валидация -> processImpression() -> INSERT.
-    │   │                           # Ответ 202 после подтверждённой записи.
+    │   │                           # Ответ 202 после подтвержденной записи.
     │   │                           # ON CONFLICT DO NOTHING по impression_id.
-    │   │                           # GET /api/impressions — защищён JWT.
+    │   │                           # GET /api/impressions — защищен JWT.
     │   │                           # Фильтры, пагинация, сортировка.
-    │   │                           # GET /api/impressions/export/csv — защищён JWT.
+    │   │                           # GET /api/impressions/export/csv — защищен JWT.
     │   │                           # Стриминговый CSV батчами по 500 строк.
-    │   │                           # GET /api/impressions/:id — защищён JWT.
+    │   │                           # GET /api/impressions/:id — защищен JWT.
     │   │                           # Полный детальный вид с JSONB-полями
     │   └── auth.ts                 # POST /api/auth/login — bcrypt.compare пароля,
     │                               # JWT в httpOnly cookie (7 дней).
@@ -321,7 +321,7 @@ packages/backend/
 
 ### packages/frontend (@cpmind/frontend)
 
-Next.js 14 App Router. Минимальная панель аналитика, защищённая JWT-cookie.
+Next.js 14 App Router. Минимальная панель аналитика, защищенная JWT-cookie.
 
 ```
 packages/frontend/
@@ -332,10 +332,10 @@ packages/frontend/
 └── src/
     ├── middleware.ts               # Next.js edge middleware: редирект на /login
     │                               # если нет cpmind_token cookie.
-    │                               # /api/* не включён в PUBLIC_PATHS —
-    │                               # весь API трафик идёт напрямую через NGINX
+    │                               # /api/* не включен в PUBLIC_PATHS —
+    │                               # весь API трафик идет напрямую через NGINX
     ├── app/
-    │   ├── layout.tsx              # root layout, тёмная тема через inline styles
+    │   ├── layout.tsx              # root layout, темная тема через inline styles
     │   ├── page.tsx                # redirect -> /impressions
     │   ├── login/
     │   │   └── page.tsx            # страница логина
@@ -417,9 +417,9 @@ packages/frontend/
 
 ### Backend
 
-- POST /api/impressions: валидация Zod, расчёт Score, INSERT в БД, ответ 202
+- POST /api/impressions: валидация Zod, расчет Score, INSERT в БД, ответ 202
 - Полный pipeline: кэппинг -> нормализация -> перераспределение весов -> Score -> флаги
-- GET /api/impressions: фильтры, пагинация, сортировка (защищён JWT)
+- GET /api/impressions: фильтры, пагинация, сортировка (защищен JWT)
 - GET /api/impressions/export/csv: UTF-8 BOM, все поля §7.2, батчинг 500 строк
 - GET /api/impressions/:id: полный детальный вид с JSONB
 - POST /api/auth/login / logout: bcrypt + JWT httpOnly cookie
@@ -432,9 +432,12 @@ packages/frontend/
 
 ### Панель аналитика
 
+- CSS-модули: globals.css + переменные дизайн-системы, module.css для каждого компонента
+- Светлая тема: Editorial Data — нейтральная палитра, типографика Inter + IBM Plex Mono
+- Адаптивная верстка: desktop / tablet (640–1024px) / mobile (<640px)
 - JWT-авторизация (один пользователь, без ролей)
 - Таблица импрешенов с колонками: дата, campaign_id, creative_id, device_type, S1-S7 raw, score_final, is_suspicious
-- Цветовая индикация: score (зелёный/жёлтый/красный), S4 активность, S5 событие
+- Цветовая индикация: score (зеленый/желтый/красный), S4 активность, S5 событие
 - Фильтры: campaign_id, creative_id, device_type, is_suspicious, dateFrom, dateTo
 - Сортировка по дате и score_final (серверная)
 - Серверная пагинация (TanStack Table v8, manualPagination)
@@ -617,7 +620,7 @@ curl -k https://localhost/
 
 ---
 
-### Соответствие критериям приёмки §10.3 ТЗ
+### Соответствие критериям приемки §10.3 ТЗ
 
 | Критерий ТЗ | Результат |
 |---|---|
