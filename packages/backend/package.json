@@ -17,6 +17,7 @@
     "@cpmind/shared": "workspace:*",
     "@fastify/cookie": "^9.3.0",
     "@fastify/cors": "^9.0.0",
+    "@fastify/helmet": "^11",
     "bcryptjs": "^2.4.3",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.31.0",

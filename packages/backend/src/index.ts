@@ -4,12 +4,17 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const directory_name = path.dirname(fileURLToPath(import.meta.url));
 
-async function main() {
-  await migrate(db, {
-    migrationsFolder: path.join(__dirname, '..', 'drizzle', 'migrations'),
-  });
+async function main(): Promise<void> {
+  try {
+    await migrate(db, {
+      migrationsFolder: path.join(directory_name, '..', 'drizzle', 'migrations'),
+    });
+  } catch (err) {
+    console.error('[CPMind] Migration failed — server will not start:', err);
+    process.exit(1);
+  }
 
   const app = buildServer();
   const port = Number(process.env['PORT']) || 3001;
@@ -18,7 +23,7 @@ async function main() {
   try {
     await app.listen({ port, host });
   } catch (err) {
-    app.log.error(err);
+    app.log.error({ err }, 'Server failed to start');
     process.exit(1);
   }
 }

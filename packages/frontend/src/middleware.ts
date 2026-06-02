@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/api/'];
+const PUBLIC_PATHS = ['/login'];
 
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
 
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
@@ -13,7 +13,6 @@ export function middleware(request: NextRequest): NextResponse {
 
   if (!token) {
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('from', pathname);
     return NextResponse.redirect(loginUrl);
   }
 

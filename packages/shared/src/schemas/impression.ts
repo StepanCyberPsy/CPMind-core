@@ -26,7 +26,6 @@ export const SignalsS3Schema = z.object({
   reading_pattern_detected: z.boolean().nullable(),
   is_momentum_scroll: z.boolean().nullable(),
 }).nullable();
-// null означает: S3 недоступен -> backend перераспределяет веса
 
 // S4 Tab Activity
 export const VisibilityStateEntrySchema = z.object({
@@ -45,6 +44,7 @@ export const SignalsS4Schema = z.object({
 export const SignalsS5Schema = z.object({
   clicked: z.boolean(),
 
+  // Desktop
   hover_count: z.number().min(0).nullable(),
   hover_duration_max_ms: z.number().min(0).nullable(),
   hover_duration_total_ms: z.number().min(0).nullable(),
@@ -52,6 +52,7 @@ export const SignalsS5Schema = z.object({
   cursor_proximity_min_px: z.number().min(0).nullable(),
   cursor_trajectory_entropy: z.number().min(0).max(1).nullable(),
 
+  // Mobile
   tap_count: z.number().min(0).nullable(),
   touch_start_end_delta_ms: z.number().min(0).nullable(),
   zoom: z.boolean().nullable(),
@@ -74,24 +75,32 @@ export const PresenceSchema = z.object({
   events_count_during_impression: z.number().min(0),
 });
 
-export const ImpressionPayloadSchema = z.object({
-  impression_id: z.string().uuid(),
-  campaign_id: z.string().min(1).max(255),
-  creative_id: z.string().min(1).max(255),
-  creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),
-  device_type: z.enum(['desktop', 'mobile', 'tablet']),
-  timestamp_start: z.number().positive(),
-  timestamp_end: z.number().positive(),
-  signals: z.object({
-    s1: SignalsS1Schema,
-    s2: SignalsS2Schema,
-    s3: SignalsS3Schema,
-    s4: SignalsS4Schema,
-    s5: SignalsS5Schema,
-    s7: SignalsS7Schema,
-  }),
-  presence: PresenceSchema,
-});
+export const ImpressionPayloadSchema = z
+  .object({
+    impression_id: z.string().uuid(),
+    campaign_id: z.string().min(1).max(255),
+    creative_id: z.string().min(1).max(255),
+    creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),
+    device_type: z.enum(['desktop', 'mobile', 'tablet']),
+    timestamp_start: z.number().positive(),
+    timestamp_end: z.number().positive(),
+    signals: z.object({
+      s1: SignalsS1Schema,
+      s2: SignalsS2Schema,
+      s3: SignalsS3Schema,
+      s4: SignalsS4Schema,
+      s5: SignalsS5Schema,
+      s7: SignalsS7Schema,
+    }),
+    presence: PresenceSchema,
+  })
+  .refine(
+    (data) => data.timestamp_end >= data.timestamp_start,
+    {
+      path:    ['timestamp_end'],
+      message: 'timestamp_end must be greater than or equal to timestamp_start',
+    },
+  );
 
 export type ImpressionPayload = z.infer<typeof ImpressionPayloadSchema>;
 export type SignalsS1 = z.infer<typeof SignalsS1Schema>;
@@ -101,3 +110,4 @@ export type SignalsS4 = z.infer<typeof SignalsS4Schema>;
 export type SignalsS5 = z.infer<typeof SignalsS5Schema>;
 export type SignalsS7 = z.infer<typeof SignalsS7Schema>;
 export type Presence = z.infer<typeof PresenceSchema>;
+export type VisibilityStateEntry = z.infer<typeof VisibilityStateEntrySchema>;

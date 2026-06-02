@@ -1,0 +1,1 @@
+0 2 * * * pg_dump -h postgres -U cpmind cpmind > /backups/cpmind_$(date +\%Y\%m\%d_\%H\%M\%S).sql 2>>/backups/backup.log; find /backups -name "*.sql" -mtime +30 -delete >> /backups/backup.log 2>&1

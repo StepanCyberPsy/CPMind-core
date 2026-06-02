@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 
 import { healthRoute } from './routes/health.js';
 import { impressionsRoute } from './routes/impressions.js';
@@ -18,14 +19,36 @@ export function buildServer(): FastifyInstance {
     trustProxy: true,
   });
 
+  app.register(helmet, {
+    contentSecurityPolicy: false,
+  });
+
   app.register(cookie, {
     secret: process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET']!,
   });
 
   app.register(cors, {
-    origin: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true,
+    hook: 'preHandler',
+    delegator: (req, callback) => {
+      const origin = req.headers.origin;
+      const path = req.url?.split('?')[0];
+
+      if (path === '/api/impressions') {
+        return callback(null, {
+          origin: '*',
+          methods: ['POST', 'OPTIONS'],
+          allowedHeaders: ['Content-Type'],
+          credentials: false,
+        });
+      }
+
+      return callback(null, {
+        origin: origin ?? false,
+        methods: ['GET', 'POST', 'OPTIONS'],
+        allowedHeaders: ['Content-Type'],
+        credentials: true,
+      });
+    },
   });
 
   app.register(healthRoute, { prefix: '/api' });
