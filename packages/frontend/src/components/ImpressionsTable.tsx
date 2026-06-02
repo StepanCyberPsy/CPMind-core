@@ -11,6 +11,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ImpressionRow } from '@cpmind/shared';
 import type { SortParams } from '@/lib/types';
+import styles from '@/styles/table.module.css';
 
 const col = createColumnHelper<ImpressionRow>();
 
@@ -33,18 +34,14 @@ const columns = [
     header: 'Campaign',
     enableSorting: false,
     cell: ({ getValue }) => (
-      <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
-        {getValue()}
-      </span>
+      <span className={styles.cellMono}>{getValue()}</span>
     ),
   }),
   col.accessor('creative_id', {
     header: 'Creative',
     enableSorting: false,
     cell: ({ getValue }) => (
-      <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>
-        {getValue()}
-      </span>
+      <span className={styles.cellMono}>{getValue()}</span>
     ),
   }),
   col.accessor('device_type', {
@@ -65,7 +62,9 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      return v !== null ? v.toFixed(1) : '—';
+      return v !== null
+        ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+        : <span className={styles.cellNull}>—</span>;
     },
   }),
   col.accessor('s2_raw_share_of_screen', {
@@ -73,7 +72,9 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      return v !== null ? v.toFixed(1) + '%' : '—';
+      return v !== null
+        ? <span className={styles.cellMono}>{v.toFixed(1)}%</span>
+        : <span className={styles.cellNull}>—</span>;
     },
   }),
   col.accessor('s3_raw_scroll_speed', {
@@ -81,7 +82,9 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      return v !== null ? v.toFixed(0) : 'n/a';
+      return v !== null
+        ? <span className={styles.cellMono}>{v.toFixed(0)}</span>
+        : <span className={styles.cellNull}>n/a</span>;
     },
   }),
   col.accessor('s4_raw_active_time_pct', {
@@ -89,13 +92,13 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      if (v === null) return '—';
-      const color = v < 25 ? '#fc8181' : v < 50 ? '#f6ad55' : '#68d391';
-      return (
-        <span style={{ color }}>
-          {v.toFixed(1)}%
-        </span>
-      );
+      if (v === null) return <span className={styles.cellNull}>—</span>;
+      const cls = v < 50
+        ? styles.s4Low
+        : v < 80
+          ? styles.s4Moderate
+          : styles.s4Normal;
+      return <span className={`${styles.cellS4} ${cls}`}>{v.toFixed(1)}%</span>;
     },
   }),
   col.accessor('s5_raw_top_event', {
@@ -103,9 +106,12 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      const color = v === 'clicked' ? '#00ff88' :
-        v === 'none' ? '#718096' : '#f6ad55';
-      return <span style={{ color, fontSize: '12px' }}>{v}</span>;
+      const cls = v === 'clicked'
+        ? styles.s5Clicked
+        : v === 'none'
+          ? styles.s5None
+          : styles.s5Other;
+      return <span className={`${styles.cellS5} ${cls}`}>{v}</span>;
     },
   }),
   col.accessor('s7_raw_persistence', {
@@ -113,7 +119,9 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) => {
       const v = getValue();
-      return v !== null ? v.toFixed(1) + '%' : '—';
+      return v !== null
+        ? <span className={styles.cellMono}>{v.toFixed(1)}%</span>
+        : <span className={styles.cellNull}>—</span>;
     },
   }),
   col.accessor('score_final', {
@@ -121,14 +129,12 @@ const columns = [
     enableSorting: true,
     cell: ({ getValue }) => {
       const v = getValue();
-      const score = v.toFixed(1);
-      const color = v >= 70 ? '#00ff88' :
-        v >= 40 ? '#f6ad55' : '#fc8181';
-      return (
-        <span style={{ color, fontWeight: '700', fontSize: '13px' }}>
-          {score}
-        </span>
-      );
+      const cls = v >= 70
+        ? styles.scorePositive
+        : v >= 40
+          ? styles.scoreModerate
+          : styles.scoreNegative;
+      return <span className={`${styles.cellScore} ${cls}`}>{v.toFixed(1)}</span>;
     },
   }),
   col.accessor('is_suspicious', {
@@ -136,8 +142,8 @@ const columns = [
     enableSorting: false,
     cell: ({ getValue }) =>
       getValue()
-        ? <span style={{ color: '#fc8181' }}>⚠ да</span>
-        : <span style={{ color: '#68d391' }}>✓</span>,
+        ? <span className={`${styles.cellSuspicious} ${styles.suspicious}`}>⚠ Suspicious</span>
+        : <span className={`${styles.cellSuspicious} ${styles.notSuspicious}`}>Clean</span>,
   }),
 ];
 
@@ -173,10 +179,8 @@ export function ImpressionsTableClient({
   function onSortingChange(updater: SortingState | ((prev: SortingState) => SortingState)): void {
     const next = typeof updater === 'function' ? updater(sorting) : updater;
     setSorting(next);
-
     const first = next[0];
     if (!first) return;
-
     const sortBy = first.id === 'score_final' ? 'scoreFinal' : 'createdAt';
     const sortDir = first.desc ? 'desc' : 'asc';
     navigateTo({ sortBy, sortDir, page: '1' });
@@ -204,71 +208,38 @@ export function ImpressionsTableClient({
     getCoreRowModel: getCoreRowModel(),
   });
 
-  const thStyle: React.CSSProperties = {
-    padding: '10px 12px',
-    textAlign: 'left',
-    fontSize: '11px',
-    fontWeight: '600',
-    color: '#718096',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    borderBottom: '1px solid #2d3748',
-    whiteSpace: 'nowrap',
-    backgroundColor: '#1a1f2e',
-  };
-
-  const tdStyle: React.CSSProperties = {
-    padding: '10px 12px',
-    fontSize: '13px',
-    color: '#cbd5e0',
-    borderBottom: '1px solid #1a1f2e',
-    whiteSpace: 'nowrap',
-  };
-
-  const trStyle: React.CSSProperties = {
-    cursor: 'pointer',
-    transition: 'background-color 0.1s',
-  };
-
   return (
-    <div>
-      {/* Таблица */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          backgroundColor: '#151820',
-        }}>
+    <div className={styles.wrapper}>
+      <div className={styles.scrollContainer}>
+        <table className={styles.table}>
           <thead>
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id}>
-                {hg.headers.map(header => (
-                  <th
-                    key={header.id}
-                    style={{
-                      ...thStyle,
-                      cursor: header.column.getCanSort() ? 'pointer' : 'default',
-                    }}
-                    onClick={header.column.getToggleSortingHandler()}
-                  >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
-                    {header.column.getCanSort() && (
-                      <span style={{ marginLeft: '4px', opacity: 0.6 }}>
-                        {{ asc: '↑', desc: '↓' }[header.column.getIsSorted() as string] ?? '↕'}
-                      </span>
-                    )}
-                  </th>
-                ))}
+                {hg.headers.map(header => {
+                  const canSort = header.column.getCanSort();
+                  const sorted = header.column.getIsSorted();
+                  return (
+                    <th
+                      key={header.id}
+                      className={`${styles.th} ${canSort ? styles.thSortable : ''}`}
+                      onClick={header.column.getToggleSortingHandler()}
+                    >
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {canSort && (
+                        <span className={`${styles.sortIcon} ${sorted ? styles.sortIconActive : ''}`}>
+                          {sorted === 'asc' ? '↑' : sorted === 'desc' ? '↓' : '↕'}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody>
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={columns.length}
-                  style={{ ...tdStyle, textAlign: 'center', color: '#718096', padding: '40px' }}
-                >
+                <td colSpan={columns.length} className={styles.empty}>
                   Импрешены не найдены
                 </td>
               </tr>
@@ -276,17 +247,11 @@ export function ImpressionsTableClient({
               table.getRowModel().rows.map(row => (
                 <tr
                   key={row.id}
-                  style={trStyle}
+                  className={styles.tr}
                   onClick={() => onRowClick(row.original)}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor = '#1a1f2e';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent';
-                  }}
                 >
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} style={tdStyle}>
+                    <td key={cell.id} className={styles.td}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -297,49 +262,24 @@ export function ImpressionsTableClient({
         </table>
       </div>
 
-      {/* Пагинация */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '16px 12px',
-        borderTop: '1px solid #2d3748',
-        fontSize: '13px',
-        color: '#718096',
-      }}>
-        <span>
+      <div className={styles.footer}>
+        <span className={styles.pageInfo}>
           Страница {currentPage} из {pageCount || 1}
         </span>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className={styles.pageButtons}>
           <button
+            className={styles.pageBtn}
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage <= 1}
-            style={{
-              padding: '6px 14px',
-              backgroundColor: currentPage <= 1 ? '#1a1f2e' : '#2d3748',
-              color: currentPage <= 1 ? '#4a5568' : '#e2e8f0',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-              fontSize: '13px',
-            }}
           >
             ← Назад
           </button>
           <button
+            className={styles.pageBtn}
             onClick={() => onPageChange(currentPage + 1)}
             disabled={currentPage >= pageCount}
-            style={{
-              padding: '6px 14px',
-              backgroundColor: currentPage >= pageCount ? '#1a1f2e' : '#2d3748',
-              color: currentPage >= pageCount ? '#4a5568' : '#e2e8f0',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: currentPage >= pageCount ? 'not-allowed' : 'pointer',
-              fontSize: '13px',
-            }}
           >
-            Вперед
+            Вперед →
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import type { ImpressionDetail } from '@cpmind/shared';
+import styles from '@/styles/detail.module.css';
 
 interface Props {
   impression: ImpressionDetail;
@@ -15,93 +16,6 @@ function safeToIso(value: unknown): string {
   return d.toISOString();
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: '24px' }}>
-      <div style={{
-        fontSize: '11px',
-        fontWeight: '600',
-        color: '#718096',
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        marginBottom: '10px',
-        paddingBottom: '6px',
-        borderBottom: '1px solid #2d3748',
-      }}>
-        {title}
-      </div>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-        gap: '8px',
-      }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, value, mono = false, highlight = false }: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-  highlight?: boolean;
-}) {
-  return (
-    <div style={{
-      padding: '8px 12px',
-      backgroundColor: '#0f1117',
-      borderRadius: '6px',
-      border: highlight ? '1px solid rgba(0,255,136,0.3)' : '1px solid #1e2535',
-    }}>
-      <div style={{
-        fontSize: '10px',
-        color: '#4a5568',
-        marginBottom: '3px',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-      }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: mono ? '12px' : '13px',
-        color: highlight ? '#00ff88' : '#e2e8f0',
-        fontFamily: mono ? 'monospace' : 'inherit',
-        fontWeight: highlight ? '700' : '400',
-        wordBreak: 'break-all',
-      }}>
-        {value ?? '—'}
-      </div>
-    </div>
-  );
-}
-
-function Flag({ label, value }: { label: string; value: boolean }) {
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      padding: '8px 12px',
-      backgroundColor: '#0f1117',
-      borderRadius: '6px',
-      border: value ? '1px solid rgba(252,129,129,0.3)' : '1px solid #1e2535',
-    }}>
-      <span style={{ fontSize: '14px' }}>
-        {value ? '⚠' : '✓'}
-      </span>
-      <div>
-        <div style={{ fontSize: '10px', color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {label}
-        </div>
-        <div style={{ fontSize: '12px', color: value ? '#fc8181' : '#68d391', fontWeight: '600' }}>
-          {value ? 'true' : 'false'}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function fmt(v: number | null | undefined, decimals = 2, suffix = ''): string {
   if (v === null || v === undefined) return 'n/a';
   return v.toFixed(decimals) + suffix;
@@ -114,19 +28,57 @@ function fmtBool(v: boolean | null | undefined): string {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className={styles.section}>
+      <div className={styles.sectionTitle}>{title}</div>
+      <div className={styles.fieldGrid}>{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, value, mono = false, highlight = false }: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={`${styles.field} ${highlight ? styles.fieldHighlight : ''}`}>
+      <div className={styles.fieldLabel}>{label}</div>
+      <div className={[
+        styles.fieldValue,
+        mono ? styles.fieldValueMono : '',
+        highlight ? styles.fieldValueHighlight : '',
+        (value === '—' || value === 'n/a') ? styles.fieldValueNull : '',
+      ].join(' ')}>
+        {value ?? '—'}
+      </div>
+    </div>
+  );
+}
+
+function Flag({ label, value }: { label: string; value: boolean }) {
+  return (
+    <div className={styles.flag}>
+      <span className={styles.flagIcon}>{value ? '⚠' : '✓'}</span>
+      <div>
+        <div className={styles.flagLabel}>{label}</div>
+        <div className={`${styles.flagValue} ${value ? styles.flagTrue : styles.flagFalse}`}>
+          {value ? 'true' : 'false'}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function ImpressionDetail({ impression: imp }: Props) {
   const raw = imp.signals_raw as Record<string, Record<string, unknown>> | null;
-  const normalized = imp.signals_normalized as Record<string, unknown> | null;
-
   const s1 = raw?.['s1'] ?? {};
   const s2 = raw?.['s2'] ?? {};
   const s3 = raw?.['s3'] as Record<string, unknown> | null ?? null;
@@ -135,44 +87,40 @@ export function ImpressionDetail({ impression: imp }: Props) {
   const s7 = raw?.['s7'] ?? {};
   const pr = raw?.['presence'] as Record<string, unknown> ?? {};
 
-  const scoreColor = imp.score_final >= 70 ? '#00ff88' :
-    imp.score_final >= 40 ? '#f6ad55' : '#fc8181';
+  const scoreColor =
+    imp.score_final >= 70 ? styles.scorePositive :
+      imp.score_final >= 40 ? styles.scoreModerate :
+        styles.scoreNegative;
+
+  const scoreBlockColor =
+    imp.score_final >= 70 ? styles.scoreBlockPositive :
+      imp.score_final >= 40 ? styles.scoreBlockModerate :
+        styles.scoreBlockNegative;
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px' }}>
+    <div className={styles.container}>
 
-      {/* Score — главный индикатор */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '24px',
-        marginBottom: '28px',
-        padding: '20px 24px',
-        backgroundColor: '#1a1f2e',
-        borderRadius: '12px',
-        border: '1px solid #2d3748',
-      }}>
+      {/* Score block */}
+      <div className={`${styles.scoreBlock} ${scoreBlockColor}`}>
         <div>
-          <div style={{ fontSize: '11px', color: '#718096', marginBottom: '4px', textTransform: 'uppercase' }}>
-            CPMind Score
-          </div>
-          <div style={{ fontSize: '48px', fontWeight: '800', color: scoreColor, lineHeight: 1 }}>
+          <div className={styles.scoreMetaLabel}>CPMind Score</div>
+          <div className={`${styles.scoreValue} ${scoreColor}`}>
             {imp.score_final.toFixed(1)}
           </div>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '12px', color: '#718096', marginBottom: '4px' }}>
-            F_Presence: <span style={{ color: imp.f_presence === 1 ? '#68d391' : '#fc8181' }}>
+        <div className={styles.scoreMeta}>
+          <div className={styles.scoreMetaRow}>
+            F_Presence:{' '}
+            <span className={imp.f_presence === 1 ? styles.fPresenceValid : styles.fPresenceInvalid}>
               {imp.f_presence === 1 ? '✓ 1 (валиден)' : '✗ 0 (невалиден)'}
             </span>
           </div>
-          <div style={{ fontSize: '12px', color: '#718096', marginBottom: '4px' }}>
-            Weights: <span style={{ color: '#a0aec0', fontFamily: 'monospace' }}>{imp.weights_version}</span>
-          </div>
-          <div style={{ fontSize: '12px', color: '#718096' }}>
-            {fmtDate(imp.created_at)}
+          <div className={styles.scoreMetaRow}>
+            Weights:{' '}
+            <span className={styles.weightsVersion}>{imp.weights_version}</span>
           </div>
         </div>
+        <div className={styles.scoreDate}>{fmtDate(imp.created_at)}</div>
       </div>
 
       {/* Метаданные */}
@@ -186,9 +134,9 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="Timestamp End" value={safeToIso(imp.timestamp_end)} mono />
       </Section>
 
-      {/* Нормализованные значения */}
+      {/* Нормализованные */}
       <Section title="Нормализованные сигналы (0–100)">
-        <Field label="S1 Normalized" value={fmt(imp.s1_normalized)} highlight={imp.s1_normalized !== null && imp.s1_normalized > 50} />
+        <Field label="S1 Normalized" value={fmt(imp.s1_normalized)} highlight={!!imp.s1_normalized && imp.s1_normalized > 50} />
         <Field label="S2 Normalized" value={fmt(imp.s2_normalized)} />
         <Field label="S3 Normalized" value={imp.s3_normalized !== null ? fmt(imp.s3_normalized) : 'null (iframe)'} />
         <Field label="S4 Normalized" value={fmt(imp.s4_normalized)} />
@@ -197,7 +145,7 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="F_Presence" value={imp.f_presence === 1 ? '1' : '0'} highlight={imp.f_presence === 1} />
       </Section>
 
-      {/* S1 — Time-in-View */}
+      {/* S1 */}
       <Section title="S1 — Time-in-View (raw)">
         <Field label="time_in_view_sec" value={fmt(s1['time_in_view_sec'] as number, 3, ' сек')} highlight />
         <Field label="mrc_compliant" value={fmtBool(s1['mrc_compliant'] as boolean)} />
@@ -205,13 +153,13 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="max_continuous_view_sec" value={fmt(s1['max_continuous_view_sec'] as number, 3, ' сек')} />
       </Section>
 
-      {/* S2 — Share of Screen */}
+      {/* S2 */}
       <Section title="S2 — Share of Screen (raw)">
         <Field label="share_of_screen_avg_pct" value={fmt(s2['share_of_screen_avg_pct'] as number, 2, '%')} />
         <Field label="share_of_screen_max_pct" value={fmt(s2['share_of_screen_max_pct'] as number, 2, '%')} />
       </Section>
 
-      {/* S3 — Scroll Velocity */}
+      {/* S3 */}
       <Section title="S3 — Scroll Velocity (raw)">
         {s3 === null ? (
           <Field label="S3" value="null — cross-domain iframe" />
@@ -230,7 +178,7 @@ export function ImpressionDetail({ impression: imp }: Props) {
         )}
       </Section>
 
-      {/* S4 — Tab Activity */}
+      {/* S4 */}
       <Section title="S4 — Tab Activity (raw)">
         <Field label="tab_active_time_ms" value={fmt(s4['tab_active_time_ms'] as number, 0, ' мс')} />
         <Field label="tab_total_time_ms" value={fmt(s4['tab_total_time_ms'] as number, 0, ' мс')} />
@@ -238,7 +186,7 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="active_pct" value={fmt(imp.s4_raw_active_time_pct, 1, '%')} highlight />
       </Section>
 
-      {/* S5 — Interaction Events */}
+      {/* S5 */}
       <Section title="S5 — Interaction Events (raw)">
         <Field label="clicked" value={fmtBool(s5['clicked'] as boolean)} highlight={s5['clicked'] === true} />
         <Field label="hover_count" value={String(s5['hover_count'] ?? 'n/a')} />
@@ -254,7 +202,7 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="top_event" value={imp.s5_raw_top_event} highlight />
       </Section>
 
-      {/* S7 — Page Context */}
+      {/* S7 */}
       <Section title="S7 — Page Context (raw)">
         <Field label="creative_position_y_px" value={fmt(s7['creative_position_y_px'] as number, 0, ' px')} />
         <Field label="page_height_total_px" value={fmt(s7['page_height_total_px'] as number, 0, ' px')} />
@@ -270,21 +218,10 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="events_count_during_impression" value={String(pr['events_count_during_impression'] ?? 0)} highlight />
       </Section>
 
-      {/* Флаги подозрительности */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{
-          fontSize: '11px',
-          fontWeight: '600',
-          color: '#718096',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          marginBottom: '10px',
-          paddingBottom: '6px',
-          borderBottom: '1px solid #2d3748',
-        }}>
-          Флаги подозрительности §5
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {/* Флаги */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Флаги подозрительности §5</div>
+        <div className={styles.flags}>
           <Flag label="no_events" value={imp.no_events} />
           <Flag label="tab_mostly_hidden" value={imp.tab_mostly_hidden} />
           <Flag label="anomaly_duration" value={imp.anomaly_duration} />

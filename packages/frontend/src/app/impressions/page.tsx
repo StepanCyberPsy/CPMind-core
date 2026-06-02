@@ -4,6 +4,7 @@ import { ImpressionsTableClient } from '@/components/ImpressionsTable';
 import { Filters } from '@/components/Filters';
 import { ExportButton } from '@/components/ExportButton';
 import type { ListParams } from '@/lib/api';
+import styles from '@/styles/impressions.module.css';
 
 interface SearchParams {
   page?: string;
@@ -44,49 +45,22 @@ export default async function ImpressionsPage({
   const data = await fetchImpressions(params, cookieHeader);
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0f1117' }}>
-
-      {/* Шапка */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '16px 24px',
-        backgroundColor: '#1a1f2e',
-        borderBottom: '1px solid #2d3748',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}>
-        <div style={{
-          fontSize: '18px',
-          fontWeight: '700',
-          color: '#00ff88',
-          letterSpacing: '-0.3px',
-        }}>
-          ⬡ CPMind
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.logo}>
+          CP<span className={styles.logoAccent}>Mind</span>
         </div>
-
-        <div style={{
-          fontSize: '13px',
-          color: '#718096',
-        }}>
+        <div className={styles.headerCenter}>
           Импрешены:{' '}
-          <span style={{ color: '#e2e8f0', fontWeight: '600' }}>
+          <span className={styles.headerCount}>
             {data.total.toLocaleString('ru-RU')}
           </span>
         </div>
-
         <ExportButton params={params} />
-      </div>
+      </header>
 
-      {/* Фильтры */}
-      <div style={{ padding: '20px 24px 0' }}>
+      <div className={styles.content}>
         <Filters current={params} />
-      </div>
-
-      {/* Таблица */}
-      <div style={{ padding: '0 24px 24px' }}>
         <ImpressionsTableClient
           initialData={data.items}
           pageCount={data.pages}
@@ -97,7 +71,6 @@ export default async function ImpressionsPage({
           }}
         />
       </div>
-
     </div>
   );
 }

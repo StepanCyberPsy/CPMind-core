@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import '@/app/globals.css';
 
 export const metadata: Metadata = {
   title: 'CPMind Analytics',
@@ -17,16 +18,7 @@ export default function RootLayout({
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body style={{
-        margin: 0,
-        padding: 0,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
-        backgroundColor: '#0f1117',
-        color: '#e2e8f0',
-        minHeight: '100vh',
-      }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

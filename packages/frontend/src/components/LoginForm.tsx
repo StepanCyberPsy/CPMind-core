@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import styles from '@/styles/login.module.css';
 
 const BACKEND = process.env['NEXT_PUBLIC_BACKEND_URL'] ?? '';
 
@@ -42,7 +43,6 @@ export function LoginForm() {
       }
 
       setError('Ошибка сервера. Попробуйте позже.');
-
     } catch {
       setError('Нет соединения с сервером');
     } finally {
@@ -50,45 +50,10 @@ export function LoginForm() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 14px',
-    backgroundColor: '#0f1117',
-    border: '1px solid #2d3748',
-    borderRadius: '8px',
-    color: '#e2e8f0',
-    fontSize: '14px',
-    outline: 'none',
-    boxSizing: 'border-box',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '13px',
-    color: '#a0aec0',
-    marginBottom: '6px',
-    fontWeight: '500',
-  };
-
-  const buttonStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '12px',
-    backgroundColor: loading ? '#2d3748' : '#00ff88',
-    color: loading ? '#718096' : '#0f1117',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '14px',
-    fontWeight: '700',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    transition: 'background-color 0.2s',
-    marginTop: '8px',
-  };
-
   return (
     <div>
-      {/* Логин */}
-      <div style={{ marginBottom: '20px' }}>
-        <label style={labelStyle}>Логин</label>
+      <div className={styles.field}>
+        <label className={styles.label}>Логин</label>
         <input
           type="text"
           value={login}
@@ -97,13 +62,11 @@ export function LoginForm() {
           placeholder="cpmind"
           autoComplete="username"
           disabled={loading}
-          style={inputStyle}
         />
       </div>
 
-      {/* Пароль */}
-      <div style={{ marginBottom: '24px' }}>
-        <label style={labelStyle}>Пароль</label>
+      <div className={styles.field}>
+        <label className={styles.label}>Пароль</label>
         <input
           type="password"
           value={password}
@@ -112,30 +75,19 @@ export function LoginForm() {
           placeholder="••••••••"
           autoComplete="current-password"
           disabled={loading}
-          style={inputStyle}
         />
       </div>
 
-      {/* Ошибка */}
       {error !== null && (
-        <div style={{
-          marginBottom: '16px',
-          padding: '10px 14px',
-          backgroundColor: 'rgba(255, 77, 77, 0.1)',
-          border: '1px solid rgba(255, 77, 77, 0.3)',
-          borderRadius: '8px',
-          color: '#fc8181',
-          fontSize: '13px',
-        }}>
+        <div className={styles.error}>
           {error}
         </div>
       )}
 
-      {/* Кнопка */}
       <button
+        className={styles.submit}
         onClick={handleSubmit}
         disabled={loading}
-        style={buttonStyle}
       >
         {loading ? 'Вход...' : 'Войти'}
       </button>
