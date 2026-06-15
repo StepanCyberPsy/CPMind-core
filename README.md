@@ -2,6 +2,8 @@
 
 Система собирает поведенческие данные пользователей при взаимодействии с рекламными баннерами, рассчитывает единую метрику качества показа (CPMind Score, 0–100) и предоставляет аналитику с возможностью экспорта данных в CSV для ручной калибровки весов.
 
+**Продакшн:** https://app.cpmind.tech
+
 ---
 
 ## Содержание
@@ -11,9 +13,13 @@
 3. [Технический стек](#технический-стек)
 4. [Что реализовано](#что-реализовано)
 5. [Технический долг](#технический-долг)
-6. [Тестирование](#тестирование)
-7. [Локальный запуск](#локальный-запуск)
-8. [Переменные окружения](#переменные-окружения)
+6. [Dev vs Prod — различия окружений](#dev-vs-prod--различия-окружений)
+7. [Тестирование](#тестирование)
+8. [Локальный запуск (Dev)](#локальный-запуск-dev)
+9. [Production деплой](#production-деплой)
+10. [Переменные окружения](#переменные-окружения)
+11. [Калибровка весов](#калибровка-весов)
+12. [Следующие шаги — интеграция тега на сайт клиента](#следующие-шаги--интеграция-тега-на-сайт-клиента)
 
 ---
 
@@ -22,7 +28,7 @@
 Система состоит из трех логических компонентов:
 
 ```
-Тестовая страница с баннером
+Страница клиента с баннером
         |
    [JS-тег] --- сбор сигналов S1-S7 + F_Presence
         |
@@ -66,10 +72,16 @@ cpmind-mvp/
 │
 ├── nginx/                          # конфиг NGINX
 │   ├── nginx.conf
-│   └── certs/.gitkeep              # SSL-сертификаты кладутся сюда на сервере
+│   ├── certs/.gitkeep              # SSL-сертификаты кладутся сюда на сервере
+│   └── tag/                        # артефакт тега (генерируется при сборке Docker)
 │
 ├── backup/
 │   └── crontab                     # расписание pg_dump для Docker
+│
+├── backups/                        # директория для pg_dump дампов (создается на сервере)
+│
+├── scripts/
+│   └── renew-certs.sh              # скрипт обновления SSL-сертификатов + перезагрузка nginx
 │
 ├── docs/                           # документация (в разработке)
 │   ├── ARCHITECTURE.md
@@ -77,7 +89,7 @@ cpmind-mvp/
 │   └── DEPLOYMENT.md
 │
 └── test/
-    ├── banner-test.html            # тестовая страница для 5 сценариев ТЗ
+    ├── banner-test.html            # тестовая страница (для локальной отладки тега)
     ├── banner-placeholder.html     # заглушка баннера 728x90
     └── SCENARIOS.md                # пошаговые инструкции 5 сценариев §10.2
 ```
@@ -144,20 +156,24 @@ CPMind_Score = (S1*0.30 + S2*0.20 + S3*0.15 + S4*0.15 + S5*0.15 + S7*0.05) * F_P
 
 JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один файл через esbuild. Не импортирует @cpmind/shared в runtime — только браузерные API.
 
-**Выходной артефакт:** `dist/cpmind-tag.min.js` (19.2 KB, IIFE-формат)
+**Выходной артефакт:** `dist/cpmind-tag.min.js` (19.4 KB, IIFE-формат)
+
+**Важно:** артефакт тега не коммитится в git. Сборка происходит автоматически в Docker при деплое через отдельный `tag-builder` сервис. Собранный файл раздается через NGINX по адресу `https://app.cpmind.tech/tag/cpmind-tag.min.js`.
 
 ```
 packages/tag/
 ├── package.json
 ├── tsconfig.json
+├── Dockerfile                      # multi-stage: сборка тега -> копирование в volume
 ├── build.ts                        # esbuild конфиг. Целевые браузеры:
 │                                   # Chrome 90+, Firefox 90+, Safari 14+, Edge 90+
-├── dist/
-│   └── cpmind-tag.min.js           # единственный артефакт, подключается на страницу
+├── dist/                           # НЕ коммитится в git — генерируется при сборке
+│   └── cpmind-tag.min.js
 └── src/
     ├── index.ts                    # entry point. IIFE-обертка + глобальный try/catch.
-    │                               # Ошибка внутри тега не ломает страницу и не
-    │                               # влияет на кликовую ссылку баннера
+    │                               # Поддержка нескольких баннеров на одной странице
+    │                               # (querySelectorAll). Ошибка внутри тега не ломает
+    │                               # страницу и не влияет на кликовую ссылку баннера
     ├── types.ts                    # TagConfig, Session, VisibilityEntry,
     │                               # SignalsS3State — полное состояние сессии показа
     ├── config.ts                   # parseConfig(): чтение data-атрибутов контейнера.
@@ -165,12 +181,15 @@ packages/tag/
     │                               # creative_type, endpoint
     ├── session.ts                  # createSession(): начальное состояние сессии.
     │                               # buildPayload(): сборка ImpressionPayload из
-    │                               # накопленного состояния сессии для отправки
+    │                               # накопленного состояния сессии для отправки.
+    │                               # S4: tabActiveTimeMs ограничен tabTotalTimeMs
+    │                               # (Math.min — защита от overflow при баннере ниже fold)
     ├── signals/
     │   ├── s1.ts                   # initS1(): IntersectionObserver с threshold [0, 0.5, 1.0].
     │   │                           # Аккумулирует time_in_view_sec, max_continuous_view_sec,
     │   │                           # visible_pixels_pct. Стандарт MRC: >=50% пикселей
     │   ├── s2.ts                   # initS2(): сэмплирование доли экрана каждые 500 мс.
+    │   │                           # Прекращает накопление после session.sent = true.
     │   │                           # Вычисляет видимую область через getBoundingClientRect
     │   │                           # и размеры viewport
     │   ├── s3.ts                   # initS3(): rAF-throttled scroll tracking в зоне
@@ -192,14 +211,16 @@ packages/tag/
     │   └── presence.ts             # initPresence(): отслеживание 10 типов событий
     │                               # (mouse, touch, key, scroll, click).
     │                               # Throttle 100 мс для timestamp, без throttle
-    │                               # для счетчика events_count
+    │                               # для счетчика events_count.
+    │                               # Возвращает cleanup-функцию для снятия слушателей
     ├── transport/
     │   └── send.ts                 # finalizeAndSend(): идемпотентная финализация.
     │                               # sendPayload(): sendBeacon (основной) +
     │                               # fetch keepalive (fallback).
     │                               # attachUnloadHandlers(): три обработчика —
     │                               # click (capture, Mobile Safari fix),
-    │                               # visibilitychange, pagehide
+    │                               # visibilitychange, pagehide.
+    │                               # При unload вызывает cleanupPresence()
     ├── utils/
     │   ├── uuid.ts                 # generateUUID(): crypto.randomUUID() с polyfill
     │   │                           # через crypto.getRandomValues() для Safari 14
@@ -218,12 +239,12 @@ packages/tag/
   data-campaign-id="camp_123"
   data-creative-id="creat_456"
   data-creative-type="banner_static"
-  data-endpoint="https://api.cpmind.io/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/impressions"
   style="width: 728px; height: 90px;"
 >
   <!-- баннер здесь — тег не модифицирует этот HTML -->
 </div>
-<script async src="cpmind-tag.min.js"></script>
+<script async src="https://app.cpmind.tech/tag/cpmind-tag.min.js"></script>
 ```
 
 **Mobile Safari fix (критический):** при клике по баннеру `sendBeacon` вызывается синхронно в обработчике click (capture: true) до начала навигации браузера. Это единственный надежный способ доставки данных при переходе по ссылке в iOS Safari.
@@ -406,14 +427,20 @@ packages/frontend/
 - Встраивается в произвольную HTML-страницу через data-атрибуты контейнера
 - Не модифицирует HTML/CSS/JS рекламного креатива
 - Асинхронная загрузка (`<script async>`), IIFE-изоляция, глобальный try/catch
+- Поддержка нескольких баннеров на одной странице (`querySelectorAll`, независимые сессии)
 - Сбор сигналов S1, S2, S3, S4, S5, S7 и полей F_Presence
 - Генерация уникального impression_id (UUID v4, polyfill для Safari 14)
 - Гарантированная доставка: sendBeacon (основной) + fetch keepalive (fallback)
 - Mobile Safari fix: отправка в обработчике click до начала навигации
+- Корректная финализация S2 после отправки (прекращает накопление сэмплов)
+- Корректная финализация S4: tabActiveTimeMs ограничен tabTotalTimeMs (Math.min)
+- Cleanup presence-слушателей при unload (снятие всех 10 обработчиков с document)
 - Дедупликация на backend: ON CONFLICT DO NOTHING
 - Debug-режим: консольное логирование + DOM-оверлей с метриками в реальном времени
 - Поддержка браузеров: Chrome 90+, Firefox 90+, Safari 14+, Edge 90+
 - Без cookies, без localStorage пользовательских идентификаторов, без сбора IP
+- Раздается через NGINX: `https://app.cpmind.tech/tag/cpmind-tag.min.js`
+- CORS заголовок `Access-Control-Allow-Origin: *` — работает с любого домена
 
 ### Backend
 
@@ -426,15 +453,12 @@ packages/frontend/
 - GET /api/health: проверка соединения с БД
 - Автоматическое применение миграций при старте; при ошибке — явный лог + завершение
 - Retention job: удаление импрешенов старше 90 дней (03:00 UTC)
-- Pino-логирование каждого принятого payload (в т.ч. при падении БД)
-- Security headers через @fastify/helmet (X-Content-Type-Options, X-Frame-Options, Referrer-Policy и др.)
+- Pino-логирование каждого принятого payload
+- Security headers через @fastify/helmet
 - CORS: единственная точка управления в Fastify, не в NGINX
 
 ### Панель аналитика
 
-- CSS-модули: globals.css + переменные дизайн-системы, module.css для каждого компонента
-- Светлая тема: Editorial Data — нейтральная палитра, типографика Inter + IBM Plex Mono
-- Адаптивная верстка: desktop / tablet (640–1024px) / mobile (<640px)
 - JWT-авторизация (один пользователь, без ролей)
 - Таблица импрешенов с колонками: дата, campaign_id, creative_id, device_type, S1-S7 raw, score_final, is_suspicious
 - Цветовая индикация: score (зеленый/желтый/красный), S4 активность, S5 событие
@@ -449,37 +473,126 @@ packages/frontend/
 
 - pnpm monorepo с workspace-линковкой @cpmind/shared
 - Drizzle миграции (0000_sharp_mauler.sql — CREATE TABLE impressions)
-- .env.example с документацией всех переменных
+- packages/tag/Dockerfile — multi-stage сборка тега, артефакт в Docker volume
 - packages/backend/Dockerfile — протестирован, production-ready
 - packages/frontend/Dockerfile — протестирован, production-ready
 - docker-compose.yml (dev — только PostgreSQL)
-- docker-compose.prod.yml — протестирован, все 5 сервисов работают
-- nginx/nginx.conf — протестирован, SSL termination, CORS, rate limiting
-- backup/crontab — протестирован (pg_dump, ротация 30 дней)
+- docker-compose.prod.yml — 6 сервисов: tag-builder, nginx, backend, frontend, postgres, backup
+- nginx/nginx.conf — SSL termination, CORS, rate limiting, раздача тега `/tag/`
+- backup/crontab — pg_dump, ротация 30 дней
+- scripts/renew-certs.sh — автообновление SSL-сертификатов Let's Encrypt + перезагрузка nginx
+- Cron задача: `/etc/cron.d/cpmind-certs` (03:30 UTC ежедневно)
 
 ---
 
 ## Технический долг
 
-### Документация
+Ни один из перечисленных пунктов **не блокирует MVP и не влияет на корректность сбора данных**.
 
-- docs/TAG_INTEGRATION.md — инструкция по интеграции тега для команды CPMind (1-2 стр.)
-- docs/DEPLOYMENT.md — инструкция по деплою на сервер CPMind
-- docs/ARCHITECTURE.md — архитектурный документ Day 0
+### Документация (не написана)
 
-### Мелкие улучшения (не блокируют MVP)
+- docs/TAG_INTEGRATION.md — инструкция по интеграции тега для команды CPMind
+- docs/DEPLOYMENT.md — инструкция по деплою на сервер
+- docs/ARCHITECTURE.md — архитектурный документ
 
-- Drizzle Studio в dev: запуск `pnpm db:studio` требует явной передачи DATABASE_URL
-- Query-параметры GET /api/impressions без Zod-валидации (только для авторизованных)
-- `observer.disconnect()` не вызывается при финализации тега (некритично для статических страниц)
+### Мелкие улучшения тега
+
+- `IntersectionObserver.disconnect()` не вызывается при финализации тега — некритично для статических страниц; для SPA-клиентов потребуется при следующей итерации
+- Слушатели S2/S3/S7 (интервалы и scroll-обработчик) не снимаются явно при финализации — для одноразового показа на статической странице не проблема
+
+### Мелкие улучшения backend/инфраструктуры
+
+- Query-параметры GET /api/impressions без Zod-валидации (только для авторизованных пользователей — низкий приоритет)
 - `f_presence smallint` без CHECK constraint в БД (заполняется только через API)
-- healthcheck interval: текущий 10s оптимален для старта, в production рекомендуется 30s
+- Drizzle Studio в dev: запуск `pnpm db:studio` требует явной передачи DATABASE_URL
+- healthcheck interval в docker-compose.prod.yml: текущий 10s оптимален для старта, в долгосрочной перспективе рекомендуется 30s
+
+### Архитектурные ограничения MVP (целевые для следующей итерации)
+
+- Один аккаунт аналитика, нет мультитенантности
+- Один сервер без горизонтального масштабирования
+- Нет очереди сообщений (Kafka/RabbitMQ)
+- Веса хранятся в коде (`weights.ts`), не в БД — ручная правка + редеплой для калибровки
+
+---
+
+## Dev vs Prod — различия окружений
+
+### Файл окружения (.env)
+
+**Dev** — файл `.env` в корне репозитория, все переменные включая `DATABASE_URL`, `BACKEND_URL`, `NEXT_PUBLIC_BACKEND_URL`. Не коммитится в git (в `.gitignore`). Используется локально через `tsx --env-file`.
+
+**Prod** — файл `.env` содержит только пять секретов. Все остальное задано в `docker-compose.prod.yml`:
+
+```bash
+# Prod .env — только секреты
+DB_PASSWORD=
+JWT_SECRET=
+COOKIE_SECRET=
+ADMIN_LOGIN=
+ADMIN_PASSWORD_HASH=
+```
+
+Переменные `NODE_ENV`, `PORT`, `HOST`, `BACKEND_URL`, `NEXT_PUBLIC_BACKEND_URL`, `DATABASE_URL` — жестко заданы в `docker-compose.prod.yml` и в `.env` не нужны.
+
+**Важно для prod:** секреты экспортируются через `export` в shell перед запуском Compose, чтобы избежать проблем с интерпретацией `$` в bcrypt-хэшах.
+
+### База данных
+
+**Dev** — PostgreSQL запускается локально (Postgres.app или `docker-compose.yml`). Создается вручную через `psql`.
+
+**Prod** — PostgreSQL запускается как контейнер в `docker-compose.prod.yml`. База и пользователь создаются автоматически при первом запуске. Данные хранятся в Docker volume `cpmind_postgres_data`. Миграции применяются автоматически при старте backend.
+
+### Тег
+
+**Dev** — тег собирается локально командой `pnpm --filter @cpmind/tag build` и подключается напрямую из файловой системы через `python3 -m http.server`.
+
+**Prod** — тег собирается автоматически сервисом `tag-builder` при `docker compose up --build`. Артефакт копируется в Docker volume `cpmind_tag_dist`, откуда NGINX раздает его по адресу `https://app.cpmind.tech/tag/cpmind-tag.min.js` с заголовком `Access-Control-Allow-Origin: *`.
+
+### BACKEND_URL / NEXT_PUBLIC_BACKEND_URL
+
+**Dev** — `BACKEND_URL=http://localhost:3001`, `NEXT_PUBLIC_BACKEND_URL=http://localhost:3001` (прямое обращение к backend порту).
+
+**Prod** — `BACKEND_URL=http://backend:3001` (внутренняя Docker-сеть для Server Components), `NEXT_PUBLIC_BACKEND_URL=""` (пустая строка — браузер использует относительные пути `/api/...` через NGINX).
+
+### data-endpoint в теге
+
+**Dev (локальное тестирование)** — `data-endpoint="http://localhost:3001/api/impressions"`
+
+**Prod (на страницах клиента)** — `data-endpoint="https://app.cpmind.tech/api/impressions"`
+
+### Docker Compose файлы
+
+| | Dev | Prod |
+|---|---|---|
+| Файл | `docker-compose.yml` | `docker-compose.prod.yml` |
+| Сервисы | только postgres | tag-builder, nginx, backend, frontend, postgres, backup |
+| SSL | нет | Let's Encrypt, `nginx/certs/` |
+| Тег | локальная сборка | Docker volume через tag-builder |
+| Бэкапы | нет | pg_dump по crontab |
 
 ---
 
 ## Тестирование
 
-Все тесты проводились локально.
+### О параметре ?cpmind_debug=1 и локальном тестировании
+
+Файл `test/banner-test.html` предназначен для **локальной отладки тега командой CPMind**, не для клиента. При открытии через `file://` (двойной клик на файле) поведение браузера имеет ограничения:
+
+- **С параметром `?cpmind_debug=1`:** активируется DOM-оверлей, обновляющийся каждые 250 мс. Impression записывается всегда.
+- **Без параметра `?cpmind_debug=1` из `file://`:** Safari ненадежно стреляет события `visibilitychange` и `pagehide` при закрытии вкладки без активного event loop. Impression записывается надежно только при клике по баннеру.
+
+**Это не баг тега и не проблема продакшна.** На реальных HTTPS-страницах клиента все три триггера отправки (клик, visibilitychange, pagehide) работают корректно в любом браузере независимо от наличия debug-режима. Debug-оверлей в `?cpmind_debug=1` предназначен исключительно для визуальной проверки сбора сигналов командой CPMind — он не влияет на логику сбора данных.
+
+Для чистого тестирования без артефактов `file://` — открывайте тестовую страницу через HTTP-сервер:
+
+```bash
+# из корня монорепо
+python3 -m http.server 8080
+# затем: http://localhost:8080/test/banner-test.html?cpmind_debug=1
+```
+
+---
 
 ### Тест 1 — Верификация формул нормализации (синтетические данные)
 
@@ -520,7 +633,7 @@ packages/frontend/
 
 ---
 
-### Тест 2 — Реальный тег в браузере
+### Тест 2 — Реальный тег в браузере (локально)
 
 Тестовая страница: `http://localhost:8080/test/banner-test.html?cpmind_debug=1`
 
@@ -545,7 +658,30 @@ Payload доставлен через sendBeacon при закрытии вкл�
 
 ---
 
-### Тест 3 — API endpoints
+### Тест 3 — Реальный тег в браузере (production)
+
+Тег размещен на `https://app.cpmind.tech/tag/cpmind-tag.min.js`.
+
+Проверка доступности:
+```bash
+curl -I https://app.cpmind.tech/tag/cpmind-tag.min.js
+# HTTP/1.1 200 OK
+# Content-Type: application/javascript
+# Access-Control-Allow-Origin: *
+# Cache-Control: public, max-age=3600
+```
+
+Результат в БД (production):
+```
+impression_id:  814b06e8-597b-49fb-9d21-05ded347163b
+campaign_id:    demo_campaign_01
+score_final:    49.306
+created_at:     2026-06-15 12:29:28
+```
+
+---
+
+### Тест 4 — API endpoints
 
 | Endpoint | Метод | Статус | Время ответа |
 |---|---|---|---|
@@ -561,7 +697,7 @@ Payload доставлен через sendBeacon при закрытии вкл�
 
 ---
 
-### Тест 4 — CORS
+### Тест 5 — CORS
 
 | Сценарий | Ожидание | Результат |
 |---|---|---|
@@ -571,15 +707,15 @@ Payload доставлен через sendBeacon при закрытии вкл�
 
 ---
 
-### Тест 5 — Панель аналитика
+### Тест 6 — Панель аналитика
 
-- Редирект без cookie → /login (без параметра ?from=): ✅
+- Редирект без cookie → /login: ✅
 - Логин с верными данными: ✅
 - Таблица, фильтры, сортировка, детальный вид, CSV-экспорт (54 колонки): ✅
 
 ---
 
-### Тест 6 — Нагрузка (50 последовательных запросов)
+### Тест 7 — Нагрузка (50 последовательных запросов)
 
 ```bash
 for i in $(seq 1 50); do
@@ -594,29 +730,25 @@ done
 
 ---
 
-### Тест 7 — Docker production build
+### Тест 8 — Docker production build
 
 ```bash
-docker-compose -f docker-compose.prod.yml up --build
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 | Контейнер | Статус |
 |---|---|
-| postgres | healthy |
-| backend | healthy |
-| frontend | healthy |
-| nginx | up, 0.0.0.0:80->80, 0.0.0.0:443->443 |
-| backup | up |
+| cpmind-tag-builder-1 | Exited (0) — выполнил задачу и завершился штатно |
+| cpmind-postgres-1 | Healthy |
+| cpmind-backend-1 | Healthy |
+| cpmind-frontend-1 | Healthy |
+| cpmind-nginx-1 | Started (80, 443) |
+| cpmind-backup-1 | Started |
 
 ```bash
-curl -k https://localhost/api/health
-# {"ok":true,"db":"ok","ts":"..."}
-
-curl -k https://localhost/
-# редирект на /login
+curl https://app.cpmind.tech/api/health
+# {"ok":true,"db":"ok","ts":"2026-06-15T10:32:53.089Z"}
 ```
-
-Панель открыта в браузере через HTTPS, таблица рендерится, полный flow работает.
 
 ---
 
@@ -638,7 +770,7 @@ curl -k https://localhost/
 
 ---
 
-## Локальный запуск
+## Локальный запуск (Dev)
 
 ### Требования
 
@@ -671,7 +803,7 @@ GRANT ALL ON SCHEMA public TO cpmind;
 
 ```bash
 cp .env.example .env
-# Заполнить JWT_SECRET, COOKIE_SECRET, ADMIN_PASSWORD_HASH
+# Заполнить все переменные
 ```
 
 Генерация секретов:
@@ -713,21 +845,229 @@ open http://localhost:3000
 
 ---
 
+## Production деплой
+
+### Текущее состояние
+
+Продакшн развернут на сервере GCP по адресу **https://app.cpmind.tech**.
+
+SSL-сертификат Let's Encrypt действителен до 2026-09-13. Автообновление настроено через systemd timer (certbot) и cron-скрипт `scripts/renew-certs.sh` (03:30 UTC).
+
+### Обновление продакшна
+
+```bash
+cd /opt/cpmind
+git pull
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+При изменении тега (`packages/tag/src/`) Docker пересобирает `tag-builder` образ автоматически.
+
+### Полная пересборка с нуля (при необходимости)
+
+```bash
+cd /opt/cpmind
+docker compose -f docker-compose.prod.yml down --volumes --remove-orphans
+docker system prune -af --volumes
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+**Внимание:** `--volumes` удалит данные PostgreSQL. Использовать только при наличии бэкапа или если данные не нужны.
+
+### Ручной бэкап БД
+
+```bash
+docker exec cpmind-postgres-1 \
+  pg_dump -U cpmind cpmind > /opt/cpmind/backups/manual_$(date +%Y%m%d_%H%M%S).sql
+```
+
+### Просмотр логов
+
+```bash
+# Все сервисы
+docker compose -f docker-compose.prod.yml logs -f
+
+# Конкретный сервис
+docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml logs -f nginx
+```
+
+### Проверка состояния контейнеров
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker stats
+```
+
+---
+
 ## Переменные окружения
 
-| Переменная | Описание | Обязательная |
-|---|---|---|
-| DATABASE_URL | PostgreSQL connection string | да |
-| DB_PASSWORD | пароль БД (для Docker Compose) | да (prod) |
-| JWT_SECRET | секрет для подписи JWT, min 64 символа | да |
-| COOKIE_SECRET | секрет для подписи cookie | да |
-| ADMIN_LOGIN | логин единственного пользователя панели | да |
-| ADMIN_PASSWORD_HASH | bcrypt-хэш пароля (rounds=10) | да |
-| NODE_ENV | development / production | нет (default: development) |
-| LOG_LEVEL | info / debug / warn / error | нет (default: info) |
-| PORT | порт backend | нет (default: 3001) |
-| HOST | хост backend | нет (default: 0.0.0.0) |
-| BACKEND_URL | URL backend для Server Components (внутренняя сеть Docker) | да (prod) |
-| NEXT_PUBLIC_BACKEND_URL | URL backend для Client Components. Пустая строка в production — браузер использует относительные пути через NGINX. Для локальной разработки: packages/frontend/.env.local | да |
+| Переменная | Описание | Dev | Prod |
+|---|---|---|---|
+| DATABASE_URL | PostgreSQL connection string | нужна в .env | не нужна (задана в Compose) |
+| DB_PASSWORD | пароль БД | нужна в .env | нужна в .env |
+| JWT_SECRET | секрет JWT, min 64 символа | нужна в .env | нужна в .env |
+| COOKIE_SECRET | секрет cookie | нужна в .env | нужна в .env |
+| ADMIN_LOGIN | логин пользователя панели | нужна в .env | нужна в .env |
+| ADMIN_PASSWORD_HASH | bcrypt-хэш пароля (rounds=10) | нужна в .env | нужна в .env |
+| NODE_ENV | development / production | нужна в .env | задана в Compose |
+| LOG_LEVEL | info / debug / warn / error | нужна в .env | задана в Compose |
+| PORT | порт backend | нужна в .env | задана в Compose |
+| HOST | хост backend | нужна в .env | задана в Compose |
+| BACKEND_URL | URL backend для Server Components | нужна в .env | задана в Compose |
+| NEXT_PUBLIC_BACKEND_URL | URL backend для Client Components | нужна в .env | задана в Compose ("") |
 
-**Важно для production:** секреты передаются через `export` в shell, не через файл `.env`. Это исключает проблему интерпретации `$` в bcrypt-хэшах Docker Compose. Подробнее — см. `cpmind_deploy_plan.md`.
+**Важно для production:** секреты передаются через `export` в shell, не через файл `.env`. Это исключает проблему интерпретации `$` в bcrypt-хэшах Docker Compose.
+
+---
+
+## Калибровка весов
+
+### Что такое веса и зачем их калибровать
+
+CPMind Score рассчитывается по формуле с весами для каждого сигнала:
+
+```
+CPMind_Score = (S1*w1 + S2*w2 + S3*w3 + S4*w4 + S5*w5 + S7*w7) * F_Presence
+```
+
+Стартовые веса (`v1.0_uncalibrated`) — экспертные гипотезы, не подтвержденные данными. После накопления реальных импрешенов веса калибруются вручную на основе CSV-экспорта и повторно деплоятся.
+
+Текущие веса (`packages/shared/src/scoring/weights.ts`):
+
+```typescript
+export const DEFAULT_WEIGHTS = {
+  version: 'v1.0_uncalibrated',
+  s1: 0.30,   // Time-in-View — основной вес
+  s2: 0.20,   // Share of Screen
+  s3: 0.15,   // Scroll Velocity
+  s4: 0.15,   // Tab Activity
+  s5: 0.15,   // Interaction Events
+  s7: 0.05,   // Page Context
+} as const;
+```
+
+Сумма весов всегда равна 1.00. При недоступном сигнале (S3=null в cross-domain iframe) веса автоматически перераспределяются через `computeEffectiveWeights()` — вес недоступного сигнала пропорционально раздается остальным.
+
+### Процесс калибровки
+
+**Шаг 1 — экспорт данных**
+
+В панели аналитики (`https://app.cpmind.tech`): применить нужные фильтры → нажать «Экспорт CSV». CSV содержит 54 колонки: все raw-сигналы, нормализованные значения, итоговый score, флаги.
+
+**Шаг 2 — анализ**
+
+Открыть CSV в Excel/Google Sheets. Ключевые вопросы:
+- Какие сигналы коррелируют с качественными показами (высокий S5, нет флага is_suspicious)?
+- Какие сигналы имеют низкую дисперсию и не различают хорошие/плохие показы?
+- Соответствует ли итоговый score интуитивной оценке качества показа?
+
+**Шаг 3 — правка весов**
+
+Открыть файл `packages/shared/src/scoring/weights.ts`. Изменить значения `DEFAULT_WEIGHTS` и увеличить версию:
+
+```typescript
+export const DEFAULT_WEIGHTS = {
+  version: 'v1.1_calibrated',   // обновить версию
+  s1: 0.35,   // увеличили — time-in-view оказался важнее
+  s2: 0.15,   // уменьшили
+  s3: 0.15,
+  s4: 0.15,
+  s5: 0.15,
+  s7: 0.05,
+} as const;
+```
+
+**Требование:** сумма `s1 + s2 + s3 + s4 + s5 + s7` должна равняться `1.00`.
+
+**Шаг 4 — локальная проверка**
+
+```bash
+pnpm test  # запуск unit-тестов @cpmind/shared
+```
+
+Убедиться, что контрольные значения сценариев §10.2 по-прежнему в допустимых пределах.
+
+**Шаг 5 — деплой**
+
+```bash
+git add packages/shared/src/scoring/weights.ts
+git commit -m "calibrate: weights v1.1 — increase S1, decrease S2"
+git push
+```
+
+На сервере:
+```bash
+cd /opt/cpmind
+git pull
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+Новые импрешены будут записываться с полем `weights_version = 'v1.1_calibrated'`. Старые импрешены остаются с исходной версией — история сохраняется.
+
+---
+
+## Следующие шаги — интеграция тега на сайт клиента
+
+### Для клиента: что нужно сделать
+
+Система готова к приему реальных данных. Для начала сбора данных на вашем сайте нужно:
+
+**1. Подготовить рекламный креатив**
+
+Рекламный баннер — это любой HTML/изображение/анимация размером 728×90 px (или другого стандартного размера). Тег CPMind не требует изменений в самом баннере и не влияет на его внешний вид. Баннер размещается внутри контейнера тега как обычно.
+
+**2. Разместить тег на странице**
+
+На любой странице вашего сайта, где должен показываться баннер, добавить два фрагмента HTML.
+
+Первый — контейнер баннера с параметрами:
+
+```html
+<div
+  data-cpmind-creative
+  data-campaign-id="название_кампании"
+  data-creative-id="название_баннера"
+  data-creative-type="banner_static"
+  data-endpoint="https://app.cpmind.tech/api/impressions"
+  style="width: 728px; height: 90px;"
+>
+  <!-- ваш баннер или ссылка на него здесь -->
+  <a href="https://ваш-сайт.ru">
+    <img src="баннер.jpg" width="728" height="90" />
+  </a>
+</div>
+```
+
+Второй — подключение тега (один раз в конце страницы):
+
+```html
+<script async src="https://app.cpmind.tech/tag/cpmind-tag.min.js"></script>
+```
+
+**3. Проверить, что данные поступают**
+
+После размещения тега на странице — открыть страницу в браузере, посмотреть на баннер, закрыть вкладку. Затем войти в панель аналитики (`https://app.cpmind.tech`) и убедиться, что в таблице появилась новая запись с вашим `campaign_id`.
+
+**Параметры data-атрибутов:**
+
+| Атрибут | Что писать |
+|---|---|
+| data-campaign-id | произвольное название кампании, например `autumn_sale_2026` |
+| data-creative-id | произвольное название баннера, например `banner_728x90_v1` |
+| data-creative-type | тип баннера: `banner_static`, `banner_gif` или `banner_html5` |
+| data-endpoint | всегда `https://app.cpmind.tech/api/impressions` |
+
+**Что НЕ нужно делать:**
+- Не нужно устанавливать никакой код на сервер
+- Не нужно регистрироваться или создавать аккаунты
+- Не нужно менять существующий код баннеров
+- Тег не собирает персональные данные пользователей, не использует cookie и не требует согласия по 152-ФЗ в части идентификации
+
+**Доступ к панели аналитики:**
+
+Адрес: `https://app.cpmind.tech`  
+Логин и пароль предоставляются командой CPMind.
+
+В панели доступны: просмотр всех импрешенов, фильтрация по кампании и дате, просмотр детальных данных каждого показа, экспорт в CSV для анализа.
