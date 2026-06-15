@@ -48,6 +48,7 @@ export function attachUnloadHandlers(
   creativeEl: HTMLElement,
   session: Session,
   cfg: TagConfig,
+  cleanupPresence?: () => void,
 ): void {
 
   // 1. Click — Mobile Safari: отправляем в момент клика
@@ -60,11 +61,13 @@ export function attachUnloadHandlers(
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       finalizeAndSend(session, cfg);
+      cleanupPresence?.();
     }
   });
 
   // 3. pagehide — финальный резерв
   window.addEventListener('pagehide', () => {
     finalizeAndSend(session, cfg);
+    cleanupPresence?.();
   });
 }

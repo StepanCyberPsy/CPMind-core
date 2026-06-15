@@ -25,7 +25,7 @@ import type { Session, TagConfig } from '../types.js';
 export function initPresence(
   session: Session,
   cfg: TagConfig,
-): void {
+): () => void {
   const EVENT_TYPES = [
     'mousemove',
     'mousedown',
@@ -76,4 +76,10 @@ export function initPresence(
   if (cfg.debug) {
     console.log('[CPMind Presence] Initialized, tracking:', EVENT_TYPES.join(', '));
   }
+
+  return () => {
+    for (const eventType of EVENT_TYPES) {
+      document.removeEventListener(eventType, onUserEvent, { capture: false });
+    }
+  };
 }

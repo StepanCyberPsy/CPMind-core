@@ -26,6 +26,7 @@ export function initS2(
   let intervalId: ReturnType<typeof setInterval> | null = null;
 
   function sample(): void {
+    if (session.sent) return;
     if (session.viewStart === null) return;
 
     const rect = creativeEl.getBoundingClientRect();

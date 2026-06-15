@@ -89,10 +89,11 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     : 0;
 
   // S4: финализация tab activity
-  const tabTotalTimeMs  = now - (session.timestampStart || now);
-  const tabActiveTimeMs = document.visibilityState === 'visible'
+  const tabTotalTimeMs = now - (session.timestampStart || now);
+  const rawTabActiveTimeMs = document.visibilityState === 'visible'
     ? session.tabActiveTimeMs + (now - session.tabSessionStart)
     : session.tabActiveTimeMs;
+  const tabActiveTimeMs = Math.min(rawTabActiveTimeMs, tabTotalTimeMs);
 
   // S7: viewability persistence
   const persistenceSamples = session.viewabilityPersistenceSamples;
@@ -146,7 +147,7 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
           : null,
         cursor_trajectory_entropy: session.deviceType === 'desktop' ? session.cursorTrajectoryEntropy : null,
         tap_count: session.deviceType !== 'desktop' ? session.tapCount : null,
-        touch_start_end_delta_ms:  session.deviceType !== 'desktop' ? session.touchStartEndDeltaMs : null,
+        touch_start_end_delta_ms: session.deviceType !== 'desktop' ? session.touchStartEndDeltaMs : null,
         zoom: session.deviceType !== 'desktop' ? session.zoom : null,
         swipe_count: session.deviceType !== 'desktop' ? session.swipeCount : null,
       },

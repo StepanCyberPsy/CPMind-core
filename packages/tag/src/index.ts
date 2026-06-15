@@ -20,30 +20,32 @@ import { DebugOverlay } from './debug/overlay.js';
   }
 
   function init(): void {
-    const container = doc.querySelector<HTMLElement>('[data-cpmind-creative]');
-    if (!container) return;
+    const containers = doc.querySelectorAll<HTMLElement>('[data-cpmind-creative]');
+    if (containers.length === 0) return;
 
-    const cfg = parseConfig(container);
-    if (!cfg) {
-      console.warn('[CPMind] Missing required data attributes on [data-cpmind-creative]');
-      return;
+    for (const container of containers) {
+      const cfg = parseConfig(container);
+      if (!cfg) {
+        console.warn('[CPMind] Missing required data attributes on [data-cpmind-creative]:', container);
+        continue;
+      }
+
+      const session = createSession(cfg);
+
+      initS1(container, session, cfg);
+      initS2(container, session, cfg);
+      initS3(container, session, cfg);
+      initS4(session, cfg);
+      initS5(container, session, cfg);
+      initS7(container, session, cfg);
+      const cleanupPresence = initPresence(session, cfg);
+
+      if (cfg.debug) {
+        new DebugOverlay(container, session);
+      }
+
+      attachUnloadHandlers(container, session, cfg, cleanupPresence);
     }
-
-    const session = createSession(cfg);
-
-    initS1(container, session, cfg);
-    initS2(container, session, cfg);
-    initS3(container, session, cfg);
-    initS4(session, cfg);
-    initS5(container, session, cfg);
-    initS7(container, session, cfg);
-    initPresence(session, cfg);
-
-    if (cfg.debug) {
-      new DebugOverlay(container, session);
-    }
-
-    attachUnloadHandlers(container, session, cfg);
   }
 
 })(window, document);
