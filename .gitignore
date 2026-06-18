@@ -65,3 +65,8 @@ prompt_tasks/
 # Не игнорировать
 !.env.example
 !.gitkeep
+
+# Версии
+nginx/nginx_v1.conf
+packages/backend/Dockerfile_v1
+packages/frontend/Dockerfile_v1

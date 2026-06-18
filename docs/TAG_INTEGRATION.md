@@ -73,7 +73,7 @@
   data-campaign-id="название_кампании"
   data-creative-id="название_баннера"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <!-- Ваш баннер — не изменяется -->
@@ -106,7 +106,7 @@
   data-campaign-id="ВАШ_ID_КАМПАНИИ"
   data-creative-id="ВАШ_ID_БАННЕРА"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: ШИРИНА_БАННЕРА_px; height: ВЫСОТА_БАННЕРА_px;"
 >
   ВАШ БАННЕР ЗДЕСЬ
@@ -142,7 +142,7 @@
 | `data-campaign-id` | да | Название рекламной кампании. Используйте латинские буквы, цифры и `_`. Например: `autumn_promo_2026` |
 | `data-creative-id` | да | Уникальное название конкретного баннера. Например: `banner_728x90_autumn_v1` |
 | `data-creative-type` | да | Тип баннера: `banner_static`, `banner_gif` или `banner_html5` |
-| `data-endpoint` | да | Всегда указывайте: `https://app.cpmind.tech/api/impressions` |
+| `data-endpoint` | да | Всегда указывайте: `https://app.cpmind.tech/api/collect` |
 | `style` (width, height) | да | Точные размеры баннера в пикселях |
 | `data-debug` | нет | Только для тестирования командой CPMind: `data-debug="true"` |
 
@@ -166,7 +166,7 @@
   data-campaign-id="kampania_2026"
   data-creative-id="statichny_banner_728x90"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <a href="https://example.ru" target="_blank" rel="noopener">
@@ -185,7 +185,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="animirovannyy_banner_728x90"
   data-creative-type="banner_gif"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <a href="https://example.ru" target="_blank" rel="noopener">
@@ -204,7 +204,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="html5_banner_728x90"
   data-creative-type="banner_html5"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <iframe
@@ -233,7 +233,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="banner_header_728x90"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <a href="https://example.ru"><img src="header-banner.jpg" width="728" height="90" /></a>
@@ -247,7 +247,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="banner_sidebar_300x250"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 300px; height: 250px;"
 >
   <a href="https://example.ru"><img src="sidebar-banner.jpg" width="300" height="250" /></a>
@@ -297,7 +297,7 @@ GIF-анимация. Интеграция идентична статическ
 
 Убедитесь, что:
 - на сайте включен HTTPS (адрес начинается с `https://`)
-- в `data-endpoint` указан именно `https://app.cpmind.tech/api/impressions` (не `http://`)
+- в `data-endpoint` указан именно `https://app.cpmind.tech/api/collect` (не `http://`)
 - скрипт подключен внизу страницы перед `</body>`
 - вы закрыли или переключили вкладку после просмотра баннера (данные отправляются при уходе со страницы)
 

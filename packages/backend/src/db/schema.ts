@@ -60,5 +60,18 @@ export const impressions = pgTable('impressions', {
     scoreFinalIdx: index('idx_score_final').on(t.scoreFinal),
   }));
 
+export const weightConfigs = pgTable('weight_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  version: text('version').notNull().unique(),
+  weights: jsonb('weights').notNull(),
+  description: text('description'),
+  isActive: boolean('is_active').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  isActiveIdx: index('idx_weight_configs_is_active').on(t.isActive),
+}));
+
 export type ImpressionInsert = typeof impressions.$inferInsert;
 export type ImpressionSelect = typeof impressions.$inferSelect;
+export type WeightConfigInsert = typeof weightConfigs.$inferInsert;
+export type WeightConfigSelect = typeof weightConfigs.$inferSelect;

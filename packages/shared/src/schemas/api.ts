@@ -51,3 +51,22 @@ export const ImpressionListResponseSchema = z.object({
 export type ImpressionRow = z.infer<typeof ImpressionRowSchema>;
 export type ImpressionDetail = z.infer<typeof ImpressionDetailSchema>;
 export type ImpressionListResponse = z.infer<typeof ImpressionListResponseSchema>;
+
+// Конфигурация весов
+export const WeightConfigRowSchema = z.object({
+  id: z.string().uuid(),
+  version: z.string(),
+  weights: z.object({
+    s1: z.number(),
+    s2: z.number(),
+    s3: z.number(),
+    s4: z.number(),
+    s5: z.number(),
+    s7: z.number(),
+  }),
+  description: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+});
+
+export type WeightConfigRow = z.infer<typeof WeightConfigRowSchema>;

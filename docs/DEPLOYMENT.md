@@ -54,10 +54,86 @@
 
 ## Подключение к серверу
 
+## Инструкция подключения к серверу по SSH на macOS
+
+### Данные
+
 ```bash
-ssh admin-cpmind@ПУБЛИЧНЫЙ_IP_СЕРВЕРА
+Пользователь: admin-cpmind
+IP сервера: 51.250.120.191
+Путь к ключу (если в "Загрузки"): /Users/{user}/Downloads/ssh-key-cpmindtest/ssh-key-cpmindtest
 ```
 
+`{user}` заменить на имя пользователя на Mac.
+
+---
+
+### Вариант 1. Подключение с ключом из папки Downloads - рекомендуется на старте
+
+**1. Проверить, что ключ лежит по пути**
+
+```bash
+/Users/{user}/Downloads/ssh-key-cpmindtest/ssh-key-cpmindtest
+```
+
+**2. Выдать правильные права на ключ**
+
+```bash
+chmod 600 /Users/{user}/Downloads/ssh-key-cpmindtest/ssh-key-cpmindtest
+```
+
+**3. Подключиться к серверу**
+
+```bash
+ssh -i /Users/{user}/Downloads/ssh-key-cpmindtest/ssh-key-cpmindtest admin-cpmind@51.250.120.191
+```
+
+---
+
+### Вариант 2. Перенос ключа в системную папку `.ssh`
+
+**0. Проверить наличие папки `.ssh`**
+
+```bash
+ls -la ~/.ssh
+```
+
+**1. Создать папку `.ssh`, если ее нет**
+
+```bash
+mkdir -p ~/.ssh
+```
+
+**2. Скопировать ключ в `.ssh`**
+
+```bash
+cp /Users/{user}/Downloads/ssh-key-cpmindtest/ssh-key-cpmindtest ~/.ssh/ssh-key-cpmindtest
+```
+
+**3. Выдать правильные права**
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/ssh-key-cpmindtest
+```
+
+**4. Подключиться к серверу**
+
+```bash
+ssh -i ~/.ssh/ssh-key-cpmindtest admin-cpmind@51.250.120.191
+```
+
+---
+
+### Если появится вопрос `Are you sure you want to continue connecting?`
+
+Введите:
+
+```bash
+yes или y
+```
+
+Затем нажмите `Enter`.
 Все последующие команды выполняются на сервере, если не указано иное.
 
 **Важно о правах:** большинство команд требует `sudo`. Команды без `sudo` работают только в директориях, принадлежащих текущему пользователю.

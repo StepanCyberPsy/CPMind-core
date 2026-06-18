@@ -39,6 +39,4 @@ USER cpmind
 
 EXPOSE 3001
 
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=5 CMD node -e "async function h(){try{const r=await fetch('http://localhost:3001/api/health');process.exit(r.ok?0:1)}catch{process.exit(1)}}h()"
-
 CMD ["node", "dist/index.js"]

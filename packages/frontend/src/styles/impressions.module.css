@@ -45,6 +45,33 @@
   padding: 20px 24px 24px;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weightsBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 16px;
+  background-color: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.weightsBtn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
 /* Responsive */
 
 @media (max-width: 640px) {
@@ -58,5 +85,9 @@
 
   .content {
     padding: 16px 16px 24px;
+  }
+
+  .weightsBtn span {
+    display: none;
   }
 }

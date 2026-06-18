@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import Link from 'next/link';
 import { fetchImpressions } from '@/lib/api';
 import { ImpressionsTableClient } from '@/components/ImpressionsTable';
 import { Filters } from '@/components/Filters';
@@ -56,7 +57,12 @@ export default async function ImpressionsPage({
             {data.total.toLocaleString('ru-RU')}
           </span>
         </div>
-        <ExportButton params={params} />
+        <div className={styles.headerActions}>
+          <Link href="/weights" className={styles.weightsBtn}>
+            Калибровка весов
+          </Link>
+          <ExportButton params={params} />
+        </div>
       </header>
 
       <div className={styles.content}>

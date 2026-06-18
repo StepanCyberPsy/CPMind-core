@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { ImpressionPayloadSchema } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { processImpression } from '../services/scoring.js';
+import { getActiveWeightsConfig } from '../services/weights_config.js';
 import { listImpressions, getImpression } from '../services/impressions.js';
 import { buildCsvResponse } from '../services/csv.js';
 import { db } from '../db/index.js';
@@ -9,8 +10,8 @@ import { impressions } from '../db/schema.js';
 
 export const impressionsRoute: FastifyPluginAsync = async (app) => {
 
-  // POST /api/impressions
-  app.post('/impressions', async (request, reply) => {
+  // POST /api/collect
+  app.post('/collect', async (request, reply) => {
     const parsed = ImpressionPayloadSchema.safeParse(request.body);
 
     if (!parsed.success) {
@@ -23,7 +24,8 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       'Impression received',
     );
 
-    const record = processImpression(parsed.data);
+    const config = await getActiveWeightsConfig();
+    const record = processImpression(parsed.data, config);
 
     try {
       await db.insert(impressions)

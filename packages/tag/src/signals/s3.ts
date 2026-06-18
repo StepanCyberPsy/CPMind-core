@@ -249,6 +249,14 @@ export function initS3(
   // passive: true — не блокируем scroll, не влияем на производительность страницы
   window.addEventListener('scroll', onScroll, { passive: true });
 
+  window.addEventListener('pagehide', () => {
+    window.removeEventListener('scroll', onScroll);
+    if (pauseTimeout !== null) {
+      clearTimeout(pauseTimeout);
+      pauseTimeout = null;
+    }
+  }, { once: true });
+
   if (session.s3 !== null) {
     session.s3.scroll_speed_avg_px_s = 0;
     session.s3.scroll_speed_max_px_s = 0;

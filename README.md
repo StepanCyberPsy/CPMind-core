@@ -47,6 +47,9 @@
 raw payload -> кэппинг аномалий -> нормализация S1-S7 ->
 перераспределение весов (если S3=null) -> расчет F_Presence ->
 CPMind Score -> флаги подозрительности -> сохранение в БД
+
+Активная конфигурация весов загружается из таблицы weight_configs (БД)
+при каждом импрешене. Изменение весов через панель не требует редеплоя.
 ```
 
 ---
@@ -115,7 +118,8 @@ packages/shared/
     │   │                           # timestamp_end >= timestamp_start
     │   ├── auth.ts                 # Zod-схема LoginPayload
     │   └── api.ts                  # Zod-схемы ответов API: ImpressionRow,
-    │                               # ImpressionDetail, ImpressionListResponse
+    │                               # ImpressionDetail, ImpressionListResponse,
+    │                               # WeightConfigRow
     ├── scoring/
     │   ├── capping.ts              # applyAnomalyCapping(): кэппинг аномальных
     │   │                           # значений согласно таблице §6.3 ТЗ.
@@ -125,7 +129,9 @@ packages/shared/
     │   │                           # Все функции — pure, без side effects.
     │   │                           # normalizeAll(): агрегатор всех сигналов.
     │   │                           # getS5TopEventLabel(): текстовая метка для таблицы
-    │   ├── weights.ts              # DEFAULT_WEIGHTS (v1.0_uncalibrated).
+    │   ├── weights.ts              # DEFAULT_WEIGHTS (v1.0_uncalibrated) — fallback.
+    │   │                           # WeightsValues interface — тип для конфигурации
+    │   │                           # из БД и DEFAULT_WEIGHTS.
     │   │                           # computeEffectiveWeights(): перераспределение
     │   │                           # весов при null-сигналах §6.2.
     │   │                           # detectNullSignals(): определение null-сигналов
@@ -239,7 +245,7 @@ packages/tag/
   data-campaign-id="camp_123"
   data-creative-id="creat_456"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <!-- баннер здесь — тег не модифицирует этот HTML -->
@@ -263,8 +269,10 @@ packages/backend/
 ├── Dockerfile                      # multi-stage build: deps -> builder (pnpm deploy) -> runner
 ├── drizzle/
 │   └── migrations/
-│       └── 0000_sharp_mauler.sql   # первая миграция: CREATE TABLE impressions
-│                                   # со всеми 30 колонками и 7 индексами
+│       ├── 0000_sharp_mauler.sql   # первая миграция: CREATE TABLE impressions
+│       │                           # со всеми 30 колонками и 7 индексами
+│       └── 0001_weight_configs.sql # вторая миграция: CREATE TABLE weight_configs
+│                                   # + seed v1.0_uncalibrated (is_active=true)
 └── src/
     ├── index.ts                    # entry point. Применяет миграции при старте
     │                               # через drizzle-orm/node-postgres/migrator,
@@ -279,17 +287,21 @@ packages/backend/
     ├── db/
     │   ├── index.ts                # drizzle client (singleton), pg.Pool с max=20
     │   └── schema.ts               # таблица impressions: 30 колонок.
+    │                               # таблица weight_configs: id, version, weights
+    │                               # (JSONB), description, is_active, created_at.
     │                               # JSONB: signals_raw, signals_normalized.
     │                               # Отдельные колонки для фильтров/сортировки:
     │                               # s1-s7 normalized, raw-поля для таблицы панели.
     │                               # Индексы: impression_id (UNIQUE), created_at,
     │                               # campaign_id, creative_id, device_type,
-    │                               # is_suspicious, score_final
+    │                               # is_suspicious, score_final,
+    │                               # idx_weight_configs_is_active
     ├── routes/
     │   ├── health.ts               # GET /api/health — проверка БД через SELECT 1.
     │   │                           # 200 если ok, 503 если БД недоступна
-    │   ├── impressions.ts          # POST /api/impressions — публичный (тег, без auth).
-    │   │                           # Zod-валидация -> processImpression() -> INSERT.
+    │   ├── impressions.ts          # POST /api/collect — публичный (тег, без auth).
+    │   │                           # Zod-валидация -> getActiveWeightsConfig() ->
+    │   │                           # processImpression() -> INSERT.
     │   │                           # Ответ 202 после подтвержденной записи.
     │   │                           # ON CONFLICT DO NOTHING по impression_id.
     │   │                           # GET /api/impressions — защищен JWT.
@@ -298,13 +310,22 @@ packages/backend/
     │   │                           # Стриминговый CSV батчами по 500 строк.
     │   │                           # GET /api/impressions/:id — защищен JWT.
     │   │                           # Полный детальный вид с JSONB-полями
+    │   ├── weights_config.ts       # GET /api/weights-config — список версий (JWT).
+    │   │                           # POST /api/weights-config — создать версию (JWT).
+    │   │                           # POST /api/weights-config/:id/activate (JWT).
+    │   │                           # DELETE /api/weights-config/:id (JWT).
     │   └── auth.ts                 # POST /api/auth/login — bcrypt.compare пароля,
     │                               # JWT в httpOnly cookie (7 дней).
     │                               # POST /api/auth/logout — clearCookie
     ├── services/
-    │   ├── scoring.ts              # processImpression(): вызывает computeScore()
-    │   │                           # из @cpmind/shared, формирует ImpressionInsert
-    │   │                           # для вставки в БД
+    │   ├── scoring.ts              # processImpression(): принимает активный
+    │   │                           # WeightsValues, вызывает computeScore(),
+    │   │                           # формирует ImpressionInsert для вставки в БД
+    │   ├── weights_config.ts       # getActiveWeightsConfig(): кэш + SELECT активной
+    │   │                           # конфигурации. Fallback на DEFAULT_WEIGHTS.
+    │   │                           # invalidateWeightsCache(): сброс кэша.
+    │   │                           # listWeightsConfigs(), createWeightsConfig(),
+    │   │                           # activateWeightsConfig(), deleteWeightsConfig()
     │   ├── impressions.ts          # listImpressions(): параллельные запросы данных
     │   │                           # и COUNT через Promise.all. Explicit select —
     │   │                           # JSONB не тянется в список.
@@ -324,7 +345,9 @@ packages/backend/
                                     # Логирует результат через pino
 ```
 
-**Схема БД — таблица impressions:**
+**Схема БД**
+
+Таблица `impressions`:
 
 | Группа колонок | Колонки |
 |---|---|
@@ -337,6 +360,17 @@ packages/backend/
 | Score | f_presence, score_final, weights_version |
 | Флаги | no_events, tab_mostly_hidden, anomaly_duration, is_suspicious |
 | Системное | created_at |
+
+Таблица `weight_configs`:
+
+| Колонка | Тип | Описание |
+|---|---|---|
+| id | uuid PK | первичный ключ |
+| version | text UNIQUE | название версии, например v1.1_calibrated |
+| weights | jsonb | объект {s1, s2, s3, s4, s5, s7} |
+| description | text | комментарий аналитика (необязательно) |
+| is_active | boolean | ровно одна запись true в любой момент |
+| created_at | timestamptz | дата создания |
 
 ---
 
@@ -356,16 +390,21 @@ packages/frontend/
     │                               # /api/* не включен в PUBLIC_PATHS —
     │                               # весь API трафик идет напрямую через NGINX
     ├── app/
-    │   ├── layout.tsx              # root layout, темная тема через inline styles
+    │   ├── layout.tsx              # root layout
     │   ├── page.tsx                # redirect -> /impressions
     │   ├── login/
     │   │   └── page.tsx            # страница логина
-    │   └── impressions/
-    │       ├── page.tsx            # Server Component: fetchImpressions() на сервере,
-    │       │                       # cookie forwarding в backend-запрос
-    │       └── [id]/
-    │           └── page.tsx        # Server Component: fetchImpressionById(),
-    │                               # notFound() если 404
+    │   ├── impressions/
+    │   │   ├── page.tsx            # Server Component: fetchImpressions() на сервере,
+    │   │   │                       # cookie forwarding в backend-запрос.
+    │   │   │                       # Header содержит кнопку перехода на /weights
+    │   │   └── [id]/
+    │   │       └── page.tsx        # Server Component: fetchImpressionById(),
+    │   │                           # notFound() если 404
+    │   └── weights/
+    │       └── page.tsx            # Server Component: fetchWeightsConfigs() на сервере,
+    │                               # cookie forwarding в backend-запрос.
+    │                               # Передает данные в WeightsConfigPanel
     ├── components/
     │   ├── LoginForm.tsx           # Client Component. POST /api/auth/login,
     │   │                           # credentials: include для JWT cookie.
@@ -382,16 +421,24 @@ packages/frontend/
     │   │                           # с ellipsis (delta=2 вокруг текущей)
     │   ├── ExportButton.tsx        # Client Component. fetch с credentials: include,
     │   │                           # blob download через объектный URL
-    │   └── ImpressionDetail.tsx    # Client Component. Полный детальный вид:
-    │                               # все секции S1-S7 raw, normalized, F_Presence,
-    │                               # флаги. Извлечение данных из JSONB signals_raw
+    │   ├── ImpressionDetail.tsx    # Client Component. Полный детальный вид:
+    │   │                           # все секции S1-S7 raw, normalized, F_Presence,
+    │   │                           # флаги. Извлечение данных из JSONB signals_raw
+    │   └── WeightsConfigPanel.tsx  # Client Component. Таблица версий конфигурации
+    │                               # весов. Форма создания новой версии с live-валидацией
+    │                               # суммы весов. Активация/удаление через клиентский
+    │                               # fetch + router.refresh()
     └── lib/
         ├── api.ts                  # fetchImpressions(), fetchImpressionById():
         │                           # Server-side fetch с cookie forwarding.
+        │                           # fetchWeightsConfigs(): Server-side fetch.
+        │                           # createWeightsConfig(), activateWeightsConfig(),
+        │                           # deleteWeightsConfig(): Client-side fetch через
+        │                           # CLIENT_BACKEND (NEXT_PUBLIC_BACKEND_URL).
         │                           # buildCsvUrl(): формирование URL для экспорта
-        │                           # с NEXT_PUBLIC_BACKEND_URL как base
-        └── types.ts                # re-export типов из @cpmind/shared +
-                                    # frontend-специфичные: SortParams, FilterValues,
+        └── types.ts                # re-export типов из @cpmind/shared включая
+                                    # WeightConfigRow. Frontend-специфичные:
+                                    # SortParams, FilterValues, WeightsConfigPanelProps,
                                     # пропсы компонентов
 ```
 
@@ -444,18 +491,23 @@ packages/frontend/
 
 ### Backend
 
-- POST /api/impressions: валидация Zod, расчет Score, INSERT в БД, ответ 202
+- POST /api/collect: валидация Zod, загрузка активных весов, расчет Score, INSERT в БД, ответ 202
 - Полный pipeline: кэппинг -> нормализация -> перераспределение весов -> Score -> флаги
+- Веса загружаются из weight_configs (БД) через in-memory кэш; инвалидация при активации новой версии
 - GET /api/impressions: фильтры, пагинация, сортировка (защищен JWT)
 - GET /api/impressions/export/csv: UTF-8 BOM, все поля §7.2, батчинг 500 строк
 - GET /api/impressions/:id: полный детальный вид с JSONB
+- GET /api/weights-config: список всех версий конфигурации весов (защищен JWT)
+- POST /api/weights-config: создать новую версию, валидация суммы весов = 1.00 (защищен JWT)
+- POST /api/weights-config/:id/activate: активировать версию, транзакция + инвалидация кэша (защищен JWT)
+- DELETE /api/weights-config/:id: удалить неактивную версию (защищен JWT)
 - POST /api/auth/login / logout: bcrypt + JWT httpOnly cookie
 - GET /api/health: проверка соединения с БД
 - Автоматическое применение миграций при старте; при ошибке — явный лог + завершение
 - Retention job: удаление импрешенов старше 90 дней (03:00 UTC)
 - Pino-логирование каждого принятого payload
 - Security headers через @fastify/helmet
-- CORS: единственная точка управления в Fastify, не в NGINX
+- CORS: wildcard для /api/collect, reflect origin + credentials для панели
 
 ### Панель аналитика
 
@@ -468,17 +520,21 @@ packages/frontend/
 - Детальный вид: все поля raw, normalized, score, флаги по секциям S1-S7
 - CSV-экспорт с текущими фильтрами
 - URL-based state: фильтры и сортировка синхронизированы с query params
+- Страница калибровки весов (/weights): таблица версий конфигурации, создание новой версии,
+  активация, удаление. Изменение весов без редеплоя — мгновенно применяется к новым импрешенам
 
 ### Инфраструктура
 
 - pnpm monorepo с workspace-линковкой @cpmind/shared
-- Drizzle миграции (0000_sharp_mauler.sql — CREATE TABLE impressions)
+- Drizzle миграции (0000_sharp_mauler.sql — CREATE TABLE impressions,
+  0001_weight_configs.sql — CREATE TABLE weight_configs + seed v1.0_uncalibrated)
 - packages/tag/Dockerfile — multi-stage сборка тега, артефакт в Docker volume
 - packages/backend/Dockerfile — протестирован, production-ready
 - packages/frontend/Dockerfile — протестирован, production-ready
 - docker-compose.yml (dev — только PostgreSQL)
 - docker-compose.prod.yml — 6 сервисов: tag-builder, nginx, backend, frontend, postgres, backup
-- nginx/nginx.conf — SSL termination, CORS, rate limiting, раздача тега `/tag/`
+- nginx/nginx.conf — SSL termination, security headers, CORS, rate limiting (429),
+  раздача тега `/tag/`, разделение beacon /api/collect и панельного /api/
 - backup/crontab — pg_dump, ротация 30 дней
 - scripts/renew-certs.sh — автообновление SSL-сертификатов Let's Encrypt + перезагрузка nginx
 - Cron задача: `/etc/cron.d/cpmind-certs` (03:30 UTC ежедневно)
@@ -488,12 +544,6 @@ packages/frontend/
 ## Технический долг
 
 Ни один из перечисленных пунктов **не блокирует MVP и не влияет на корректность сбора данных**.
-
-### Документация (не написана)
-
-- docs/TAG_INTEGRATION.md — инструкция по интеграции тега для команды CPMind
-- docs/DEPLOYMENT.md — инструкция по деплою на сервер
-- docs/ARCHITECTURE.md — архитектурный документ
 
 ### Мелкие улучшения тега
 
@@ -505,14 +555,14 @@ packages/frontend/
 - Query-параметры GET /api/impressions без Zod-валидации (только для авторизованных пользователей — низкий приоритет)
 - `f_presence smallint` без CHECK constraint в БД (заполняется только через API)
 - Drizzle Studio в dev: запуск `pnpm db:studio` требует явной передачи DATABASE_URL
-- healthcheck interval в docker-compose.prod.yml: текущий 10s оптимален для старта, в долгосрочной перспективе рекомендуется 30s
+- Валидация переменных окружения: вынести в `packages/frontend/src/lib/env.ts` с явным `requireEnv()` — актуально при переходе к мультитенантности
+- Мониторинг успешности cron-бэкапов: контейнер backup остается alive при сбое крона
 
 ### Архитектурные ограничения MVP (целевые для следующей итерации)
 
 - Один аккаунт аналитика, нет мультитенантности
 - Один сервер без горизонтального масштабирования
 - Нет очереди сообщений (Kafka/RabbitMQ)
-- Веса хранятся в коде (`weights.ts`), не в БД — ручная правка + редеплой для калибровки
 
 ---
 
@@ -557,9 +607,9 @@ ADMIN_PASSWORD_HASH=
 
 ### data-endpoint в теге
 
-**Dev (локальное тестирование)** — `data-endpoint="http://localhost:3001/api/impressions"`
+**Dev (локальное тестирование)** — `data-endpoint="http://localhost:3001/api/collect"`
 
-**Prod (на страницах клиента)** — `data-endpoint="https://app.cpmind.tech/api/impressions"`
+**Prod (на страницах клиента)** — `data-endpoint="https://app.cpmind.tech/api/collect"`
 
 ### Docker Compose файлы
 
@@ -686,8 +736,8 @@ created_at:     2026-06-15 12:29:28
 | Endpoint | Метод | Статус | Время ответа |
 |---|---|---|---|
 | /api/health | GET | 200 {"ok":true,"db":"ok"} | 8 мс |
-| /api/impressions | POST (невалидный payload) | 422 + fieldErrors | 2 мс |
-| /api/impressions | POST (timestamp_end < timestamp_start) | 422 + fieldErrors.timestamp_end | 2 мс |
+| /api/collect | POST (невалидный payload) | 422 + fieldErrors | 2 мс |
+| /api/collect | POST (timestamp_end < timestamp_start) | 422 + fieldErrors.timestamp_end | 2 мс |
 | /api/auth/login | POST (верные данные) | 200 {"ok":true} + cookie | 105 мс |
 | /api/auth/login | POST (неверные данные) | 401 | — |
 | /api/impressions | GET (без cookie) | 401 | — |
@@ -701,8 +751,8 @@ created_at:     2026-06-15 12:29:28
 
 | Сценарий | Ожидание | Результат |
 |---|---|---|
-| OPTIONS /api/impressions (произвольный origin) | origin: *, без credentials | ✅ |
-| POST /api/impressions (произвольный origin) | origin: *, 202 | ✅ |
+| OPTIONS /api/collect (произвольный origin) | origin: *, без credentials | ✅ |
+| POST /api/collect (произвольный origin) | origin: *, 202 | ✅ |
 | GET /api/impressions (origin: localhost:3000) | reflect origin, credentials: true, 401 | ✅ |
 
 ---
@@ -720,7 +770,7 @@ created_at:     2026-06-15 12:29:28
 ```bash
 for i in $(seq 1 50); do
   curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" \
-    -X POST http://localhost:3001/api/impressions \
+    -X POST http://localhost:3001/api/collect \
     -H "Content-Type: application/json" \
     -d '{...}'
 done
@@ -756,7 +806,7 @@ curl https://app.cpmind.tech/api/health
 
 | Критерий ТЗ | Результат |
 |---|---|
-| POST /api/impressions < 200 мс (p95) | 2-19 мс — выполнено |
+| POST /api/collect < 200 мс (p95) | 2-19 мс — выполнено |
 | Тег не блокирует рендеринг | async загрузка, IIFE — выполнено |
 | Тег не ломает страницу при ошибке | глобальный try/catch — реализовано |
 | Формулы S1-S7 по ТЗ §4 | верифицированы по контрольным значениям — выполнено |
@@ -950,7 +1000,45 @@ export const DEFAULT_WEIGHTS = {
 
 Сумма весов всегда равна 1.00. При недоступном сигнале (S3=null в cross-domain iframe) веса автоматически перераспределяются через `computeEffectiveWeights()` — вес недоступного сигнала пропорционально раздается остальным.
 
-### Процесс калибровки
+Стартовые веса (`v1.0_uncalibrated`) — экспертные гипотезы, не подтвержденные данными. После накопления реальных импрешенов веса калибруются через панель аналитики без редеплоя.
+
+Веса хранятся в таблице `weight_configs`. В любой момент ровно одна версия активна (`is_active=true`). Каждый импрешен записывается с полем `weights_version` — история сохраняется при смене весов.
+
+`DEFAULT_WEIGHTS` в `packages/shared/src/scoring/weights.ts` — аварийный fallback если таблица недоступна. В штатном режиме не используется.
+
+### Процесс калибровки (калибровка через UI, создание версий весов)
+
+**Шаг 1 — экспорт данных**
+
+В панели аналитики (`https://app.cpmind.tech`): применить нужные фильтры → нажать «Экспорт CSV». CSV содержит все raw-сигналы, нормализованные значения, итоговый score, флаги.
+
+**Шаг 2 — анализ**
+
+Открыть CSV в Excel/Google Sheets. Ключевые вопросы:
+- Какие сигналы коррелируют с качественными показами (высокий S5, нет флага is_suspicious)?
+- Какие сигналы имеют низкую дисперсию и не различают хорошие/плохие показы?
+- Соответствует ли итоговый score интуитивной оценке качества показа?
+
+**Шаг 3 — создать новую версию весов**
+
+В панели аналитики перейти на страницу «Калибровка весов» (`https://app.cpmind.tech/weights`):
+- Нажать «+ Новая версия»
+- Указать название версии (например, `v1.1_calibrated`)
+- Ввести значения весов S1-S7 (сумма должна равняться 1.00 — проверяется автоматически)
+- Добавить описание (необязательно)
+- Нажать «Создать»
+
+**Шаг 4 — активировать версию**
+
+В таблице версий нажать «Активировать» напротив новой версии. Изменение применяется немедленно — следующий импрешен будет записан с новыми весами. Редеплой не требуется.
+
+**Требование:** сумма `s1 + s2 + s3 + s4 + s5 + s7` должна равняться `1.00`. Проверяется на клиенте (live) и на сервере (при сохранении).
+
+#### Версионирование
+
+Все версии конфигурации хранятся в БД. Старые импрешены сохраняют `weights_version` на момент записи — история не переписывается. Неактивные версии можно удалить через панель (активную удалить нельзя).
+
+### Процесс калибровки (ручная калибровка, перекалибровка дефолтов)
 
 **Шаг 1 — экспорт данных**
 
@@ -1030,7 +1118,7 @@ docker compose -f docker-compose.prod.yml up --build -d
   data-campaign-id="название_кампании"
   data-creative-id="название_баннера"
   data-creative-type="banner_static"
-  data-endpoint="https://app.cpmind.tech/api/impressions"
+  data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
   <!-- ваш баннер или ссылка на него здесь -->
@@ -1057,7 +1145,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 | data-campaign-id | произвольное название кампании, например `autumn_sale_2026` |
 | data-creative-id | произвольное название баннера, например `banner_728x90_v1` |
 | data-creative-type | тип баннера: `banner_static`, `banner_gif` или `banner_html5` |
-| data-endpoint | всегда `https://app.cpmind.tech/api/impressions` |
+| data-endpoint | всегда `https://app.cpmind.tech/api/collect` |
 
 **Что НЕ нужно делать:**
 - Не нужно устанавливать никакой код на сервер

@@ -2,6 +2,7 @@ export type {
   ImpressionRow,
   ImpressionDetail,
   ImpressionListResponse,
+  WeightConfigRow,
 } from '@cpmind/shared';
 export type { ListParams } from './api.js';
 
@@ -41,4 +42,8 @@ export interface PaginationProps {
 
 export interface ImpressionDetailProps {
   impression: import('@cpmind/shared').ImpressionDetail;
+}
+
+export interface WeightsConfigPanelProps {
+  initialConfigs: import('@cpmind/shared').WeightConfigRow[];
 }

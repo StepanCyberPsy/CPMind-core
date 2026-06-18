@@ -16,7 +16,17 @@ export const DEFAULT_WEIGHTS = {
   s7: 0.05,
 } as const;
 
-export type WeightsConfig = typeof DEFAULT_WEIGHTS;
+export interface WeightsValues {
+  version: string;
+  s1: number;
+  s2: number;
+  s3: number;
+  s4: number;
+  s5: number;
+  s7: number;
+}
+
+export type WeightsConfig = WeightsValues;
 export type SignalKey = 's1' | 's2' | 's3' | 's4' | 's5' | 's7';
 
 /**

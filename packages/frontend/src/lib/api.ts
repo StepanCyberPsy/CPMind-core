@@ -1,11 +1,14 @@
 import type {
   ImpressionListResponse,
   ImpressionDetail,
+  WeightConfigRow,
 } from '@cpmind/shared';
 
-// BACKEND_URL используется только на сервере (Server Components)
+// BACKEND_URL, CLIENT_BACKEND используется только на сервере (Server Components)
 // На клиенте запросы идут через /api proxy в next.config (или через NGINX напрямую)
+// Для текущей версии продукта - приемлемо, но для юзеров записали в техдолг
 const BACKEND = process.env['BACKEND_URL'] ?? 'http://localhost:3001';
+const CLIENT_BACKEND = process.env['NEXT_PUBLIC_BACKEND_URL'] ?? 'http://localhost:3001';
 
 export interface ListParams {
   page?: number;
@@ -69,4 +72,64 @@ export async function fetchImpressionById(
 export function buildCsvUrl(params: ListParams): string {
   const base = process.env['NEXT_PUBLIC_BACKEND_URL'] ?? '';
   return `${base}/api/impressions/export/csv?${buildQuery(params)}`;
+}
+
+export async function fetchWeightsConfigs(
+  cookie?: string,
+): Promise<WeightConfigRow[]> {
+  const res = await fetch(`${BACKEND}/api/weights-config`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createWeightsConfig(
+  body: {
+    version: string;
+    weights: {
+      s1: number;
+      s2: number;
+      s3: number;
+      s4: number;
+      s5: number;
+      s7: number
+    };
+    description?: string;
+  },
+): Promise<WeightConfigRow> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/weights-config`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.message ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function activateWeightsConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/weights-config/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.message ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deleteWeightsConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/weights-config/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.message ?? `API error: ${res.status}`);
+  }
 }

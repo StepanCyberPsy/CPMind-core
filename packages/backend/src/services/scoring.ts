@@ -1,9 +1,16 @@
 import { computeScore, getS5TopEventLabel } from '@cpmind/shared';
-import type { ImpressionPayload } from '@cpmind/shared';
+import type { ImpressionPayload, WeightsValues } from '@cpmind/shared';
 import type { ImpressionInsert } from '../db/schema.js';
 
-export function processImpression(payload: ImpressionPayload): ImpressionInsert {
-  const result = computeScore(payload);
+/**
+ * Запускает полный pipeline расчета CPMind Score для одного импрешена.
+ * Принимает активную конфигурацию весов из weights_config.ts.
+ */
+export function processImpression(
+  payload: ImpressionPayload,
+  config: WeightsValues,
+): ImpressionInsert {
+  const result = computeScore(payload, config);
 
   return {
     impressionId: payload.impression_id,

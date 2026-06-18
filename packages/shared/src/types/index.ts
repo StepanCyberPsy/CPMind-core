@@ -14,6 +14,7 @@ export type {
   ImpressionRow,
   ImpressionDetail,
   ImpressionListResponse,
+  WeightConfigRow,
 } from '../schemas/api.js';
 
 export type {
@@ -22,5 +23,6 @@ export type {
 
 export type {
   WeightsConfig,
+  WeightsValues,
   EffectiveWeights,
 } from '../scoring/weights.js';

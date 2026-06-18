@@ -86,4 +86,8 @@ export function initS1(
   );
 
   observer.observe(creativeEl);
+
+  window.addEventListener('pagehide', () => {
+    observer.disconnect();
+  }, { once: true });
 }

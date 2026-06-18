@@ -6,6 +6,7 @@ import helmet from '@fastify/helmet';
 import { healthRoute } from './routes/health.js';
 import { impressionsRoute } from './routes/impressions.js';
 import { authRoute } from './routes/auth.js';
+import { weightsConfigRoute } from './routes/weights_config.js';
 import { startRetentionJob } from './jobs/retention.js';
 
 export function buildServer(): FastifyInstance {
@@ -33,7 +34,7 @@ export function buildServer(): FastifyInstance {
       const origin = req.headers.origin;
       const path = req.url?.split('?')[0];
 
-      if (path === '/api/impressions') {
+      if (path === '/api/collect') {
         return callback(null, {
           origin: true,
           methods: ['POST', 'OPTIONS'],
@@ -44,7 +45,12 @@ export function buildServer(): FastifyInstance {
 
       return callback(null, {
         origin: origin ?? false,
-        methods: ['GET', 'POST', 'OPTIONS'],
+        methods: [
+          'GET',
+          'POST',
+          'DELETE',
+          'OPTIONS'
+        ],
         allowedHeaders: ['Content-Type'],
         credentials: true,
       });
@@ -54,6 +60,7 @@ export function buildServer(): FastifyInstance {
   app.register(healthRoute, { prefix: '/api' });
   app.register(impressionsRoute, { prefix: '/api' });
   app.register(authRoute, { prefix: '/api' });
+  app.register(weightsConfigRoute, { prefix: '/api' });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Unhandled error');

@@ -29,7 +29,8 @@ pnpm dev:tag         # Terminal 3
 python3 -m http.server 8080  # Terminal 4 (из корня монорепо)
 ```
 
-Тестовая страница: `http://localhost:8080/test/banner-test.html?cpmind_debug=1`
+Тестовая страница **ПРОД**: `http://localhost:8080/test/banner-test.html?cpmind_debug=1`
+Тестовая страница **ЛОКАЛЬНО**: `http://localhost:8080/test/banner-test_local.html?cpmind_debug=1`
 
 ### Production
 

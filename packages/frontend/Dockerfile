@@ -43,7 +43,5 @@ USER cpmind
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "async function h(){try{const r=await fetch('http://localhost:3000/');process.exit(r.ok?0:1)}catch{process.exit(1)}}h()"
-
 WORKDIR /app/packages/frontend
 CMD ["node", "server.js"]

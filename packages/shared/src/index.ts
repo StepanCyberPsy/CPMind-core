@@ -4,7 +4,8 @@ export { LoginSchema } from './schemas/auth.js';
 export {
     ImpressionRowSchema,
     ImpressionDetailSchema,
-    ImpressionListResponseSchema
+    ImpressionListResponseSchema,
+    WeightConfigRowSchema,
 } from './schemas/api.js';
 
 // Скоринг
