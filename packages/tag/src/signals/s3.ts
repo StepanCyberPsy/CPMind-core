@@ -21,6 +21,7 @@ const SCROLL_ZONE_PX = 300; // ±300px от центра баннера
 const PAUSE_THRESHOLD_MS = 500; // пауза скролла > 500 мс
 const STREAK_WINDOW_MS = 2000;  // окно для серии быстрых скроллов
 const STREAK_MIN_EVENTS = 3; // минимум событий за окно = серия
+const STREAK_MIN_SPEED = 300; // px/s — порог быстрого скролла для streak (P-01, P-02)
 const READING_SPEED_MAX = 150; // px/s — медленный скролл (режим чтения)
 const READING_TIME_MIN = 2000; // мс — минимальное время медленного скролла
 
@@ -55,7 +56,8 @@ function isInsideCrossDomainIframe(): boolean {
 function isInScrollZone(creativeEl: HTMLElement): boolean {
   const rect = creativeEl.getBoundingClientRect();
   const bannerCenterY = rect.top + rect.height / 2;
-  return Math.abs(bannerCenterY) <= SCROLL_ZONE_PX;
+  const viewportCenterY = window.innerHeight / 2;
+  return Math.abs(bannerCenterY - viewportCenterY) <= SCROLL_ZONE_PX;
 }
 
 export function initS3(
@@ -130,6 +132,12 @@ export function initS3(
         session.s3.scroll_speed_std_dev = getStdDev(speedStats);
       }
 
+      // is_momentum_scroll: iOS инерционный скролл. Вычисляем до streaks — инерция пальца не должна засчитываться как "пролистал не глядя" (P-02)
+      const isMomentum = !isTouchActive && (now - touchEndTime) < 3000 && touchEndTime > 0;
+      if (isMomentum && session.s3 !== null) {
+        session.s3.is_momentum_scroll = true;
+      }
+
       // direction_changes: разворот down->up в зоне баннера
       const direction = currentY > lastScrollY ? 1 : currentY < lastScrollY ? -1 : 0;
       if (direction !== 0) {
@@ -142,17 +150,20 @@ export function initS3(
         lastDirection = direction;
       }
 
-      // scroll_streaks: >=3 событий за 2 сек
-      const cutoff = now - STREAK_WINDOW_MS;
-      while (recentEventTimes.length > 0 && (recentEventTimes[0] ?? 0) < cutoff) {
-        recentEventTimes.shift();
-      }
-      recentEventTimes.push(now);
-      if (recentEventTimes.length >= STREAK_MIN_EVENTS) {
-        if (session.s3 !== null) {
-          session.s3.scroll_streaks = (session.s3.scroll_streaks ?? 0) + 1;
+      // scroll_streaks: >=3 БЫСТРЫХ не-momentum событий за 2 сек (P-01, P-02).
+      // Раньше streak считался по частоте независимо от скорости — ложные срабатывания на медленном чтении и на инерционном скролле mobile
+      if (speed > STREAK_MIN_SPEED && !isMomentum) {
+        const cutoff = now - STREAK_WINDOW_MS;
+        while (recentEventTimes.length > 0 && (recentEventTimes[0] ?? 0) < cutoff) {
+          recentEventTimes.shift();
         }
-        recentEventTimes.length = 0;
+        recentEventTimes.push(now);
+        if (recentEventTimes.length >= STREAK_MIN_EVENTS) {
+          if (session.s3 !== null) {
+            session.s3.scroll_streaks = (session.s3.scroll_streaks ?? 0) + 1;
+          }
+          recentEventTimes.length = 0;
+        }
       }
 
       // reading_pattern_detected: медленный скролл > 2 сек
@@ -166,12 +177,6 @@ export function initS3(
         }
       } else {
         slowScrollStart = null;
-      }
-
-      // is_momentum_scroll: iOS инерционный скролл
-      const isMomentum = !isTouchActive && (now - touchEndTime) < 3000 && touchEndTime > 0;
-      if (isMomentum && session.s3 !== null) {
-        session.s3.is_momentum_scroll = true;
       }
 
       if (cfg.debug) {

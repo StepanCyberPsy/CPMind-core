@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { FastifyPluginAsync } from 'fastify';
 import { ImpressionPayloadSchema } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
@@ -7,6 +8,19 @@ import { listImpressions, getImpression } from '../services/impressions.js';
 import { buildCsvResponse } from '../services/csv.js';
 import { db } from '../db/index.js';
 import { impressions } from '../db/schema.js';
+
+const ImpressionListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  sortBy: z.enum(['createdAt', 'scoreFinal']).default('createdAt'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
+  campaignId: z.string().min(1).optional(),
+  creativeId: z.string().min(1).optional(),
+  deviceType: z.enum(['desktop', 'mobile', 'tablet']).optional(),
+  isSuspicious: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+  dateFrom: z.string().datetime({ offset: true }).optional().transform(v => v ? new Date(v) : undefined),
+  dateTo: z.string().datetime({ offset: true }).optional().transform(v => v ? new Date(v) : undefined),
+});
 
 export const impressionsRoute: FastifyPluginAsync = async (app) => {
 
@@ -43,24 +57,36 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
 
   // GET /api/impressions
   app.get('/impressions', { preHandler: requireAuth }, async (request, reply) => {
-    const query = request.query as Record<string, string>;
+    const parsed = ImpressionListQuerySchema.safeParse(request.query);
 
-    const params = {
-      page: Math.max(1, Number(query['page'] ?? 1)),
-      limit: Math.min(200, Math.max(1, Number(query['limit'] ?? 50))),
-      sortBy: (query['sortBy'] as 'createdAt' | 'scoreFinal') ?? 'createdAt',
-      sortDir: (query['sortDir'] as 'asc' | 'desc') ?? 'desc',
-      ...(query['campaignId'] !== undefined && { campaignId: query['campaignId'] }),
-      ...(query['creativeId'] !== undefined && { creativeId: query['creativeId'] }),
-      ...(query['deviceType'] !== undefined && { deviceType: query['deviceType'] }),
-      ...(query['isSuspicious'] !== undefined && {
-        isSuspicious: query['isSuspicious'] === 'true',
-      }),
-      ...(query['dateFrom'] !== undefined && { dateFrom: new Date(query['dateFrom']) }),
-      ...(query['dateTo'] !== undefined && { dateTo: new Date(query['dateTo']) }),
-    };
+    if (!parsed.success) {
+      return reply.status(422).send({ errors: parsed.error.flatten() });
+    }
 
-    const result = await listImpressions(params);
+    const {
+      page,
+      limit,
+      sortBy,
+      sortDir,
+      campaignId,
+      creativeId,
+      deviceType,
+      isSuspicious,
+      dateFrom,
+      dateTo
+    } = parsed.data;
+    const result = await listImpressions({
+      page,
+      limit,
+      sortBy,
+      sortDir,
+      ...(campaignId !== undefined && { campaignId }),
+      ...(creativeId !== undefined && { creativeId }),
+      ...(deviceType !== undefined && { deviceType }),
+      ...(isSuspicious !== undefined && { isSuspicious }),
+      ...(dateFrom !== undefined && { dateFrom }),
+      ...(dateTo !== undefined && { dateTo }),
+    });
     return reply.send(result);
   });
 

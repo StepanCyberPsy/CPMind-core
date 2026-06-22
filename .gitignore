@@ -70,3 +70,5 @@ prompt_tasks/
 nginx/nginx_v1.conf
 packages/backend/Dockerfile_v1
 packages/frontend/Dockerfile_v1
+packages/backend/drizzle_v1.config.ts
+packages/backend/src/routes/impressions_v1.ts

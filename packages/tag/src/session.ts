@@ -88,9 +88,12 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     ? samples.reduce((a, b) => a + b, 0) / samples.length
     : 0;
 
-  // S4: финализация tab activity
+  // S4: финализация tab activity. Источник состояния — последняя запись
+  // visibilityStateHistory, не живой document.visibilityState
   const tabTotalTimeMs = now - (session.timestampStart || now);
-  const rawTabActiveTimeMs = document.visibilityState === 'visible'
+  const lastVisibilityEntry =
+    session.visibilityStateHistory[session.visibilityStateHistory.length - 1];
+  const rawTabActiveTimeMs = lastVisibilityEntry?.state === 'visible'
     ? session.tabActiveTimeMs + (now - session.tabSessionStart)
     : session.tabActiveTimeMs;
   const tabActiveTimeMs = Math.min(rawTabActiveTimeMs, tabTotalTimeMs);

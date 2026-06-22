@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const SAFE_ID_REGEX = /^[A-Za-zА-Яа-яЁё0-9_-]+$/u;
+
 // S1 Time-in-View
 export const SignalsS1Schema = z.object({
   time_in_view_sec: z.number().min(0),
@@ -78,8 +80,8 @@ export const PresenceSchema = z.object({
 export const ImpressionPayloadSchema = z
   .object({
     impression_id: z.string().uuid(),
-    campaign_id: z.string().min(1).max(255),
-    creative_id: z.string().min(1).max(255),
+    campaign_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
+    creative_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),
     device_type: z.enum(['desktop', 'mobile', 'tablet']),
     timestamp_start: z.number().positive(),

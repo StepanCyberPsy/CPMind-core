@@ -68,7 +68,7 @@ curl https://app.cpmind.tech/api/health
 - Закрыть вкладку
 
 **Ожидаемый результат:**
-- В Network (DevTools) виден запрос типа «маячок» к `impressions`
+- В Network (DevTools) виден запрос типа "маячок" к `impressions`
 - В БД появилась запись с `s1_raw_time_in_view ≈ 5–7 сек`
 - `score_final > 30` (базовый показ без взаимодействия)
 - `no_events = false` (был скролл = было событие)
@@ -438,7 +438,7 @@ access-control-allow-methods: POST, OPTIONS
 
 1. Открыть `https://app.cpmind.tech/login`
 2. Ввести логин и пароль
-3. Нажать «Войти»
+3. Нажать "Войти"
 
 **Ожидаемый результат:** редирект на `/impressions`, таблица с данными.
 
@@ -447,7 +447,7 @@ access-control-allow-methods: POST, OPTIONS
 ### Сценарий P-03 — Фильтрация по campaign_id
 
 1. В поле фильтра Campaign ID ввести `demo_campaign_01`
-2. Нажать «Применить»
+2. Нажать "Применить"
 
 **Ожидаемый результат:** в таблице только записи с `campaign_id = demo_campaign_01`. URL обновился — параметр фильтра виден в адресной строке.
 
@@ -481,7 +481,7 @@ access-control-allow-methods: POST, OPTIONS
 ### Сценарий P-07 — Экспорт CSV с фильтрами
 
 1. Установить фильтр по campaign_id
-2. Нажать «Экспорт CSV»
+2. Нажать "Экспорт CSV"
 
 **Ожидаемый результат:** скачался файл с данными только по выбранной кампании. 54 колонки, UTF-8 BOM (корректно открывается в Excel).
 

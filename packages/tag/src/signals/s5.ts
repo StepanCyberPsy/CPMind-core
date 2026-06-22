@@ -224,8 +224,8 @@ function initMobile(
     }
   }, { passive: true });
 
-  // zoom: gesturechange (iOS Safari) + pinch via touch scale
-  window.addEventListener('gesturechange', () => {
+  // zoom: gesturechange (iOS Safari) + pinch via touch scale.
+  creativeEl.addEventListener('gesturechange', () => {
     session.zoom = true;
     if (cfg.debug) {
       console.log('[CPMind S5] Zoom detected (gesturechange)');
