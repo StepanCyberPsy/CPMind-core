@@ -10,9 +10,14 @@
 
 import type { Session, TagConfig } from '../types.js';
 
-const SWIPE_MIN_DISTANCE_PX = 30; // минимальная дистанция для свайпа
+const SWIPE_MIN_DISTANCE_PX = 60; // минимальная дистанция для свайпа. Было 30
 const ENTROPY_ANGLE_THRESHOLD = 30; // градусы — значимое изменение направления
 const PROXIMITY_TRACK_ZONE_PX = 300; // зона отслеживания курсора вокруг баннера
+const PINCH_DELTA_MIN_PX = 10; // минимальное изменение дистанции между пальцами для pinch fallback
+const GESTURE_SCALE_DELTA_MIN = 0.15; // минимальное отклонение scale от 1.0 для срабатывания zoom
+const TAP_MAX_OFFSET_PX = 10; // максимальное смещение пальца для распознавания tap
+const TAP_MAX_DURATION_MS = 300; // максимальная длительность касания для tap
+const MOUSE_MOVE_DEDUP_PX = 1; // порог дедупликации mousemove
 
 /** Расстояние от точки (px, py) до прямоугольника rect */
 function distanceToRect(px: number, py: number, rect: DOMRect): number {
@@ -112,7 +117,10 @@ function initDesktop(
         const dx = pendingX - lastMouseX;
         const dy = pendingY - lastMouseY;
 
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        if (
+          Math.abs(dx) > MOUSE_MOVE_DEDUP_PX ||
+          Math.abs(dy) > MOUSE_MOVE_DEDUP_PX
+        ) {
           const angle = vectorAngle(dx, dy);
           totalMoves++;
 
@@ -148,6 +156,10 @@ function initDesktop(
   }, { passive: true });
 }
 
+interface GestureEvent extends Event {
+  scale: number;
+}
+
 function initMobile(
   creativeEl: HTMLElement,
   session: Session,
@@ -174,13 +186,17 @@ function initMobile(
     const touchDuration = Date.now() - touchStartTime;
     session.touchStartEndDeltaMs = touchDuration;
 
-    // tap: короткое касание (< 300 мс) без значимого движения
+    // tap: короткое касание без значимого смещения пальца
     const touch = e.changedTouches[0];
     if (touch && touchStartX !== null && touchStartY !== null) {
       const dx = Math.abs(touch.clientX - touchStartX);
       const dy = Math.abs(touch.clientY - touchStartY);
 
-      if (dx < 10 && dy < 10 && touchDuration < 300) {
+      if (
+        dx < TAP_MAX_OFFSET_PX &&
+        dy < TAP_MAX_OFFSET_PX &&
+        touchDuration < TAP_MAX_DURATION_MS
+      ) {
         session.tapCount++;
         session.clicked = true;
 
@@ -224,11 +240,15 @@ function initMobile(
     }
   }, { passive: true });
 
-  // zoom: gesturechange (iOS Safari) + pinch via touch scale.
-  creativeEl.addEventListener('gesturechange', () => {
-    session.zoom = true;
-    if (cfg.debug) {
-      console.log('[CPMind S5] Zoom detected (gesturechange)');
+  // zoom: gesturechange (iOS Safari) + pinch через touch scale
+  creativeEl.addEventListener('gesturechange', (e: Event) => {
+    const scale = (e as GestureEvent).scale;
+
+    if (Math.abs(scale - 1) > GESTURE_SCALE_DELTA_MIN) {
+      session.zoom = true;
+      if (cfg.debug) {
+        console.log('[CPMind S5] Zoom detected (gesturechange):', { scale });
+      }
     }
   }, { passive: true });
 
@@ -254,7 +274,9 @@ function initMobile(
       const currentDistance = Math.sqrt(dx * dx + dy * dy);
 
       // Значимое изменение расстояния между пальцами = pinch zoom
-      if (Math.abs(currentDistance - initialPinchDistance) > 10) {
+      if (
+        Math.abs(currentDistance - initialPinchDistance) > PINCH_DELTA_MIN_PX
+      ) {
         session.zoom = true;
         if (cfg.debug) {
           console.log('[CPMind S5] Zoom detected (pinch)');

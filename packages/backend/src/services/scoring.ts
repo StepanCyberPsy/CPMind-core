@@ -21,7 +21,10 @@ export function processImpression(
     timestampStart: payload.timestamp_start,
     timestampEnd: payload.timestamp_end,
 
-    signalsRaw: payload.signals as unknown as Record<string, unknown>,
+    signalsRaw: {
+      ...payload.signals,
+      presence: payload.presence
+    } as unknown as Record<string, unknown>,
     signalsNormalized: result.normalized as unknown as Record<string, unknown>,
 
     s1RawTimeInView: payload.signals.s1.time_in_view_sec,
