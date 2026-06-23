@@ -86,10 +86,13 @@ cpmind-mvp/
 ├── scripts/
 │   └── renew-certs.sh              # скрипт обновления SSL-сертификатов + перезагрузка nginx
 │
-├── docs/                           # документация (в разработке)
+├── docs/                           # документация (дополняется в процессе)
 │   ├── ARCHITECTURE.md
 │   ├── TAG_INTEGRATION.md
-│   └── DEPLOYMENT.md
+│   ├── DEPLOYMENT.md
+│   └── development_history/        # отчеты по итогам клиентского тестирования
+│       ├── BUG_FIXING_V1.md        # итерация 1 (21.06.2026)
+│       └── BUG_FIXING_V2.md        # итерация 2 (23.06.2026) — P-15, P-18, P-05
 │
 └── test/
     ├── banner-test.html            # тестовая страница (для локальной отладки тега)
@@ -162,7 +165,7 @@ CPMind_Score = (S1*0.30 + S2*0.20 + S3*0.15 + S4*0.15 + S5*0.15 + S7*0.05) * F_P
 
 JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один файл через esbuild. Не импортирует @cpmind/shared в runtime — только браузерные API.
 
-**Выходной артефакт:** `dist/cpmind-tag.min.js` (19.4 KB, IIFE-формат)
+**Выходной артефакт:** `dist/cpmind-tag.min.js` (21.9 KB, IIFE-формат)
 
 **Важно:** артефакт тега не коммитится в git. Сборка происходит автоматически в Docker при деплое через отдельный `tag-builder` сервис. Собранный файл раздается через NGINX по адресу `https://app.cpmind.tech/tag/cpmind-tag.min.js`.
 
@@ -181,46 +184,85 @@ packages/tag/
     │                               # (querySelectorAll). Ошибка внутри тега не ломает
     │                               # страницу и не влияет на кликовую ссылку баннера
     ├── types.ts                    # TagConfig, Session, VisibilityEntry,
-    │                               # SignalsS3State — полное состояние сессии показа
+    │                               # SignalsS3State — полное состояние сессии показа.
+    │                               # sessionGroupId — сквозной id показа, неизменен
+    │                               # при сбросе сегмента. segmentIndex — порядковый
+    │                               # номер сегмента внутри показа (P-15)
     ├── config.ts                   # parseConfig(): чтение data-атрибутов контейнера.
     │                               # Обязательные поля: campaign_id, creative_id,
     │                               # creative_type, endpoint
     ├── session.ts                  # createSession(): начальное состояние сессии.
     │                               # buildPayload(): сборка ImpressionPayload из
     │                               # накопленного состояния сессии для отправки.
-    │                               # S4: tabActiveTimeMs ограничен tabTotalTimeMs
-    │                               # (Math.min — защита от overflow при баннере ниже fold)
+    │                               # computeActiveTimeMsInRange(): пересчет S4 active
+    │                               # time строго в границах показа из истории
+    │                               # visibilityStateHistory — фикс P-05 (старый Math.min
+    │                               # маскировал рассинхрон таймеров, не устранял его).
+    │                               # resetSessionForNewSegment(): сброс полей сессии
+    │                               # in-place при разрыве показа по простою (P-15)
+    ├── segment.ts                  # startNewSegment(): оркестратор разрыва показа —
+    │                               # финализация и отправка текущего сегмента (isFinal=false),
+    │                               # сброс сессии, вызов resetSegmentSX() каждого сигнала.
+    │                               # Вызывается из onIdle() callback в presence.ts (P-15)
     ├── signals/
     │   ├── s1.ts                   # initS1(): IntersectionObserver с threshold [0, 0.5, 1.0].
     │   │                           # Аккумулирует time_in_view_sec, max_continuous_view_sec,
-    │   │                           # visible_pixels_pct. Стандарт MRC: >=50% пикселей
+    │   │                           # visible_pixels_pct. Стандарт MRC: >=50% пикселей.
+    │   │                           # resetSegmentS1(): пересоздает observer при сбросе
+    │   │                           # сегмента — гарантирует свежий intersection-callback
+    │   │                           # для нового сегмента (P-15)
     │   ├── s2.ts                   # initS2(): сэмплирование доли экрана каждые 500 мс.
     │   │                           # Прекращает накопление после session.sent = true.
     │   │                           # Вычисляет видимую область через getBoundingClientRect
-    │   │                           # и размеры viewport
+    │   │                           # и размеры viewport.
+    │   │                           # resetSegmentS2(): очистка накопленных сэмплов
+    │   │                           # при разрыве показа — sampler сам наполнит заново
     │   ├── s3.ts                   # initS3(): rAF-throttled scroll tracking в зоне
     │   │                           # +-300px от баннера. Welford's online algorithm
     │   │                           # для running mean/std_dev. Детектирует cross-domain
-    │   │                           # iframe -> session.s3 = null
+    │   │                           # iframe -> session.s3 = null.
+    │   │                           # resetSegmentS3(): сброс running stats, таймеров
+    │   │                           # пауз и pauseCheckInterval при разрыве показа (P-15)
     │   ├── s4.ts                   # initS4(): document.visibilitychange listener.
-    │   │                           # Аккумулирует tab_active_time_ms по сегментам,
-    │   │                           # ведет visibility_state_history
+    │   │                           # Ведет visibility_state_history — единственный
+    │   │                           # источник для пересчета active time (см. session.ts).
+    │   │                           # resetSegmentS4(): сброс истории и счетчиков
+    │   │                           # переключений при разрыве показа (P-15)
     │   ├── s5.ts                   # initS5(): роутинг по device_type.
     │   │                           # Desktop: click, mouseenter/leave/move, proximity,
     │   │                           # trajectory entropy. Mobile: touchstart/end/move
-    │   │                           # (tap, swipe), gesturechange + pinch (zoom)
+    │   │                           # (tap, swipe), gesturechange + pinch (zoom).
+    │   │                           # Пороги детекции вынесены в именованные константы
+    │   │                           # и подняты против случайных микрожестов (P-18):
+    │   │                           # SWIPE_MIN_DISTANCE_PX 30->60, добавлен
+    │   │                           # GESTURE_SCALE_DELTA_MIN для gesturechange (ранее
+    │   │                           # срабатывал без всякого порога).
+    │   │                           # resetSegmentS5(): сброс счетчиков взаимодействия
+    │   │                           # и приватных замыканий (траектория, touch-state) (P-15)
     │   ├── s7.ts                   # initS7(): статические поля при инициализации
     │   │                           # (position, page_height, above_the_fold).
     │   │                           # Динамический сэмплинг каждые 1000 мс:
     │   │                           # competing_ads (эвристика AdTech-доменов + CSS),
-    │   │                           # viewability_persistence
+    │   │                           # viewability_persistence.
+    │   │                           # resetSegmentS7(): сброс persistence-сэмплов при
+    │   │                           # разрыве показа (is_above_the_fold не сбрасывается —
+    │   │                           # свойство загрузки страницы, не сегмента)
     │   └── presence.ts             # initPresence(): отслеживание 10 типов событий
     │                               # (mouse, touch, key, scroll, click).
     │                               # Throttle 100 мс для timestamp, без throttle
     │                               # для счетчика events_count.
-    │                               # Возвращает cleanup-функцию для снятия слушателей
+    │                               # Таймер простоя 60 сек (debounce, перезапускается
+    │                               # на каждом raw-событии) — вызывает onIdle() при
+    │                               # истечении, разрывает показ на сегменты (P-15).
+    │                               # Возвращает { cleanup, resetSegment } вместо
+    │                               # одной cleanup-функции
     ├── transport/
-    │   └── send.ts                 # finalizeAndSend(): идемпотентная финализация.
+    │   └── send.ts                 # finalizeAndSend(session, cfg, isFinal): идемпотентная
+    │                               # финализация. isFinal=true (click/visibilitychange/
+    │                               # pagehide) — session.sent залипает навсегда.
+    │                               # isFinal=false (вызов из segment.ts при простое) —
+    │                               # session.sent не залипает, следующий сегмент
+    │                               # тоже отправится (P-15).
     │                               # sendPayload(): sendBeacon (основной) +
     │                               # fetch keepalive (fallback).
     │                               # attachUnloadHandlers(): три обработчика —
@@ -271,8 +313,12 @@ packages/backend/
 │   └── migrations/
 │       ├── 0000_sharp_mauler.sql   # первая миграция: CREATE TABLE impressions
 │       │                           # со всеми 30 колонками и 7 индексами
-│       └── 0001_weight_configs.sql # вторая миграция: CREATE TABLE weight_configs
-│                                   # + seed v1.0_uncalibrated (is_active=true)
+│       ├── 0001_weight_configs.sql # вторая миграция: CREATE TABLE weight_configs
+│       │                           # + seed v1.0_uncalibrated (is_active=true)
+│       ├── 0002_elite_puppet_master.sql # ADD COLUMN session_group_id, segment_index
+│       │                           # + idx_session_group_id (P-15)
+│       └── 0003_f_presence_check_guarded.sql # CHECK (f_presence IN (0,1)),
+│                                   # перенумерована из ручной правки прошлой итерации
 └── src/
     ├── index.ts                    # entry point. Применяет миграции при старте
     │                               # через drizzle-orm/node-postgres/migrator,
@@ -281,31 +327,37 @@ packages/backend/
     ├── server.ts                   # buildServer(): Fastify instance.
     │                               # Регистрирует плагины: @fastify/helmet,
     │                               # @fastify/cookie, @fastify/cors (delegator).
-    │                               # CORS: wildcard для /api/impressions (тег),
+    │                               # CORS: wildcard для /api/collect (тег),
     │                               # reflect origin + credentials для панели.
     │                               # Единственная точка управления CORS — не в NGINX
     ├── db/
     │   ├── index.ts                # drizzle client (singleton), pg.Pool с max=20
-    │   └── schema.ts               # таблица impressions: 30 колонок.
+    │   └── schema.ts               # таблица impressions: 32 колонки.
     │                               # таблица weight_configs: id, version, weights
     │                               # (JSONB), description, is_active, created_at.
-    │                               # JSONB: signals_raw, signals_normalized.
+    │                               # JSONB: signals_raw (включает presence — ранее
+    │                               # отсутствовал, баг найден и закрыт), signals_normalized.
+    │                               # session_group_id, segment_index — сегментация
+    │                               # показа при разрыве по простою (P-15).
     │                               # Отдельные колонки для фильтров/сортировки:
     │                               # s1-s7 normalized, raw-поля для таблицы панели.
-    │                               # Индексы: impression_id (UNIQUE), created_at,
-    │                               # campaign_id, creative_id, device_type,
+    │                               # Индексы: impression_id (UNIQUE), session_group_id,
+    │                               # created_at, campaign_id, creative_id, device_type,
     │                               # is_suspicious, score_final,
     │                               # idx_weight_configs_is_active
     ├── routes/
     │   ├── health.ts               # GET /api/health — проверка БД через SELECT 1.
     │   │                           # 200 если ok, 503 если БД недоступна
     │   ├── impressions.ts          # POST /api/collect — публичный (тег, без auth).
+    │   │                           # session_group_id/segment_index в payload — опциональны
+    │   │                           # (обратная совместимость со старыми закэшированными
+    │   │                           # версиями тега без этих полей, fallback в scoring.ts).
     │   │                           # Zod-валидация -> getActiveWeightsConfig() ->
     │   │                           # processImpression() -> INSERT.
     │   │                           # Ответ 202 после подтвержденной записи.
     │   │                           # ON CONFLICT DO NOTHING по impression_id.
     │   │                           # GET /api/impressions — защищен JWT.
-    │   │                           # Фильтры, пагинация, сортировка.
+    │   │                           # Фильтры (включая sessionGroupId), пагинация, сортировка.
     │   │                           # GET /api/impressions/export/csv — защищен JWT.
     │   │                           # Стриминговый CSV батчами по 500 строк.
     │   │                           # GET /api/impressions/:id — защищен JWT.
@@ -320,7 +372,12 @@ packages/backend/
     ├── services/
     │   ├── scoring.ts              # processImpression(): принимает активный
     │   │                           # WeightsValues, вызывает computeScore(),
-    │   │                           # формирует ImpressionInsert для вставки в БД
+    │   │                           # формирует ImpressionInsert для вставки в БД.
+    │   │                           # signalsRaw = { ...payload.signals, presence } —
+    │   │                           # presence ранее отсутствовал в JSONB (баг найден
+    │   │                           # и закрыт этой сессией).
+    │   │                           # sessionGroupId/segmentIndex с fallback
+    │   │                           # (?? impression_id, ?? 0) для старых версий тега
     │   ├── weights_config.ts       # getActiveWeightsConfig(): кэш + SELECT активной
     │   │                           # конфигурации. Fallback на DEFAULT_WEIGHTS.
     │   │                           # invalidateWeightsCache(): сброс кэша.
@@ -328,12 +385,13 @@ packages/backend/
     │   │                           # activateWeightsConfig(), deleteWeightsConfig()
     │   ├── impressions.ts          # listImpressions(): параллельные запросы данных
     │   │                           # и COUNT через Promise.all. Explicit select —
-    │   │                           # JSONB не тянется в список.
+    │   │                           # JSONB не тянется в список. Поддерживает фильтр
+    │   │                           # по sessionGroupId (просмотр сегментов показа, P-15).
     │   │                           # getImpression(): полный объект по id.
     │   │                           # buildWhereClause(): Drizzle WHERE из query params
     │   ├── csv.ts                  # buildCsvResponse(): UTF-8 BOM, порядок колонок
-    │   │                           # строго по §7.2 ТЗ, батчинг по 500 строк,
-    │   │                           # экранирование спецсимволов
+    │   │                           # строго по §7.2 ТЗ + session_group_id, segment_index,
+    │   │                           # батчинг по 500 строк, экранирование спецсимволов
     │   └── auth.ts                 # verifyCredentials(): bcrypt.compare.
     │                               # signToken() / verifyToken(): jsonwebtoken
     ├── middleware/
@@ -352,8 +410,9 @@ packages/backend/
 | Группа колонок | Колонки |
 |---|---|
 | Идентификаторы | id (PK), impression_id (UNIQUE) |
+| Сегментация показа | session_group_id, segment_index — разрыв показа на сегменты при простое ≥60 сек (P-15) |
 | Метаданные | campaign_id, creative_id, creative_type, device_type, timestamp_start, timestamp_end |
-| Сигналы raw | signals_raw (JSONB) |
+| Сигналы raw | signals_raw (JSONB, включает presence) |
 | Сигналы normalized | signals_normalized (JSONB) |
 | Raw для таблицы | s1_raw_time_in_view, s2_raw_share_of_screen, s3_raw_scroll_speed, s4_raw_active_time_pct, s5_raw_top_event, s7_raw_persistence |
 | Нормализованные | s1_normalized ... s7_normalized (real, отдельные колонки для ORDER BY) |
@@ -413,9 +472,14 @@ packages/frontend/
     │   │                           # серверная пагинация (manualPagination: true),
     │   │                           # серверная сортировка (manualSorting: true).
     │   │                           # Состояние синхронизируется с URL через router.push.
+    │   │                           # Колонка "Сегмент" — кликабельный бейдж,
+    │   │                           # фильтрует список по session_group_id (P-15).
     │   │                           # Клик по строке -> /impressions/:id
-    │   ├── Filters.tsx             # Client Component. Фильтры: campaign_id, creative_id,
-    │   │                           # device_type, is_suspicious, dateFrom, dateTo.
+    │   ├── Filters.tsx             # Client Component. Фильтры: sessionGroupId,
+    │   │                           # campaign_id, creative_id, device_type,
+    │   │                           # is_suspicious, dateFrom, dateTo.
+    │   │                           # Контекстный баннер "режим сегментов" с выходом,
+    │   │                           # когда sessionGroupId активен.
     │   │                           # Применение и сброс через URL query params
     │   ├── Pagination.tsx          # Client Component. Генерация номеров страниц
     │   │                           # с ellipsis (delta=2 вокруг текущей)
@@ -423,7 +487,9 @@ packages/frontend/
     │   │                           # blob download через объектный URL
     │   ├── ImpressionDetail.tsx    # Client Component. Полный детальный вид:
     │   │                           # все секции S1-S7 raw, normalized, F_Presence,
-    │   │                           # флаги. Извлечение данных из JSONB signals_raw
+    │   │                           # флаги. Извлечение данных из JSONB signals_raw.
+    │   │                           # Таймлайн сегментов показа с видимым простоем
+    │   │                           # между ними, переход между сегментами (P-15)
     │   └── WeightsConfigPanel.tsx  # Client Component. Таблица версий конфигурации
     │                               # весов. Форма создания новой версии с live-валидацией
     │                               # суммы весов. Активация/удаление через клиентский
@@ -480,7 +546,8 @@ packages/frontend/
 - Гарантированная доставка: sendBeacon (основной) + fetch keepalive (fallback)
 - Mobile Safari fix: отправка в обработчике click до начала навигации
 - Корректная финализация S2 после отправки (прекращает накопление сэмплов)
-- Корректная финализация S4: tabActiveTimeMs ограничен tabTotalTimeMs (Math.min)
+- Корректная финализация S4: active time пересчитывается из visibility_state_history строго в границах показа — устраняет рассинхрон таймеров, не просто маскирует его потолком (P-05)
+- Разрыв показа на сегменты при непрерывном простое ≥60 сек: финализация текущего сегмента, сброс накопителей S1-S7 in-place (без потери event-листенеров), новый сегмент с тем же session_group_id (P-15)
 - Cleanup presence-слушателей при unload (снятие всех 10 обработчиков с document)
 - Дедупликация на backend: ON CONFLICT DO NOTHING
 - Debug-режим: консольное логирование + DOM-оверлей с метриками в реальном времени
@@ -508,6 +575,9 @@ packages/frontend/
 - Pino-логирование каждого принятого payload
 - Security headers через @fastify/helmet
 - CORS: wildcard для /api/collect, reflect origin + credentials для панели
+- signals_raw включает presence (ранее отсутствовал в JSONB — баг найден и закрыт)
+- F_Presence: скользящее окно — обнуление по факту простоя ≥60 сек независимо от количества событий до него, согласовано с клиентом
+- Фильтр по session_group_id в GET /api/impressions и CSV-экспорте
 
 ### Панель аналитика
 
@@ -518,6 +588,7 @@ packages/frontend/
 - Сортировка по дате и score_final (серверная)
 - Серверная пагинация (TanStack Table v8, manualPagination)
 - Детальный вид: все поля raw, normalized, score, флаги по секциям S1-S7
+- Просмотр сегментов одного показа: бейдж в таблице, фильтр по session_group_id, таймлайн с видимым простоем в детальном виде
 - CSV-экспорт с текущими фильтрами
 - URL-based state: фильтры и сортировка синхронизированы с query params
 - Страница калибровки весов (/weights): таблица версий конфигурации, создание новой версии,
@@ -545,7 +616,7 @@ packages/frontend/
 
 Ни один из перечисленных пунктов **не блокирует MVP и не влияет на корректность сбора данных**.
 
-См. также `docs/BUG_FIXING_V1.md` — список доработок по итогам клиентского тестирования 21.06.2026, что исправлено и что осталось в техдолге по решению формул/калибровки.
+См. также `docs/development_history/BUG_FIXING_V1.md` (итерация 1, 21.06.2026) и `docs/development_history/BUG_FIXING_V2.md` (итерация 2, 23.06.2026) — список доработок по итогам клиентского тестирования и реализации P-15.
 
 ### Мелкие улучшения тега
 
@@ -558,12 +629,13 @@ packages/frontend/
 - Валидация переменных окружения: вынести в `packages/frontend/src/lib/env.ts` с явным `requireEnv()` — актуально при переходе к мультитенантности
 - Мониторинг успешности cron-бэкапов: контейнер backup остается alive при сбое крона
 
-### По итогам клиентского тестирования (21.06.2026)
+### По итогам клиентского тестирования
 
 - P-17 (баннер крупнее вьюпорта): обнаружено по сценарию B05b. Логика видимости признана корректной — нужен предупреждающий флаг для рекламодателя, не правка измерения. Отложено до согласования семантики флага и объема миграции БД
 - P-03 (mobile S5 — нет аналога hover): `touch_start_end_delta_ms` собирается тегом, но не используется в иерархии нормализации S5. Требует новой шкалы уровней — запланировано на вторую итерацию калибровки
-- P-15 (F_Presence не обнуляет мертвый показ): требует пересмотра условия в `shared/scoring/score.ts` — изменение формулы против ТЗ, ждет согласования с клиентом
-- P-19 (`competing_ads_visible` = 0 на стенде "теснота"): не баг, ограничение тестового стенда — подробности в `docs/BUG_FIXING_V1.md`
+- P-19 (`competing_ads_visible` = 0 на стенде "теснота"): не баг, ограничение тестового стенда — подробности в `docs/development_history/BUG_FIXING_V1.md`
+- Короткие полностью пассивные показы (длительность < 60 сек, событий 0): не обнуляются текущей формулой F_Presence. Оставлено без отдельного условия, согласовано с клиентом. Подробности — `docs/development_history/BUG_FIXING_V2.md`
+- P-10 (пересчет Score на исторических данных при смене весов): отмечен клиентом как критичный в `test/TESTING_v1.md`, не зафиксирован ни в одном из отчетов по фиксам — статус требует уточнения с клиентом
 
 ### Архитектурные ограничения MVP (целевые для следующей итерации)
 

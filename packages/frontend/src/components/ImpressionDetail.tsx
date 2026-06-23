@@ -1,10 +1,12 @@
 'use client';
 
-import type { ImpressionDetail } from '@cpmind/shared';
+import Link from 'next/link';
+import type { ImpressionDetail, ImpressionRow } from '@cpmind/shared';
 import styles from '@/styles/detail.module.css';
 
 interface Props {
   impression: ImpressionDetail;
+  siblingSegments?: ImpressionRow[];
 }
 
 function safeToIso(value: unknown): string {
@@ -77,7 +79,11 @@ function Flag({ label, value }: { label: string; value: boolean }) {
   );
 }
 
-export function ImpressionDetail({ impression: imp }: Props) {
+export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
+  const sortedSegments = siblingSegments
+    ? [...siblingSegments].sort((a, b) => a.segment_index - b.segment_index)
+    : [];
+
   const raw = imp.signals_raw as Record<string, Record<string, unknown>> | null;
   const s1 = raw?.['s1'] ?? {};
   const s2 = raw?.['s2'] ?? {};
@@ -132,7 +138,39 @@ export function ImpressionDetail({ impression: imp }: Props) {
         <Field label="Device Type" value={imp.device_type} />
         <Field label="Timestamp Start" value={safeToIso(imp.timestamp_start)} mono />
         <Field label="Timestamp End" value={safeToIso(imp.timestamp_end)} mono />
+        <Field label="Session Group ID" value={imp.session_group_id} mono />
+        <Field label="Segment Index" value={String(imp.segment_index)} highlight={imp.segment_index > 0} />
       </Section>
+
+      {sortedSegments.length > 1 && (
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>Сегменты показа ({sortedSegments.length})</div>
+          <div className={styles.segmentsTimeline}>
+            {sortedSegments.map((seg, i) => {
+              const isCurrent = seg.id === imp.id;
+              const prev = sortedSegments[i - 1];
+              const idleGapMs = prev ? seg.timestamp_start - prev.timestamp_end : null;
+              return (
+                <div key={seg.id} className={styles.segmentTimelineItem}>
+                  {idleGapMs !== null && idleGapMs > 0 && (
+                    <div className={styles.segmentGap}>
+                      простой {(idleGapMs / 1000).toFixed(0)} сек
+                    </div>
+                  )}
+                  <Link
+                    href={`/impressions/${seg.id}`}
+                    className={`${styles.segmentCard} ${isCurrent ? styles.segmentCardCurrent : ''}`}
+                  >
+                    <div className={styles.segmentCardIndex}>Сегмент {seg.segment_index + 1}</div>
+                    <div className={styles.segmentCardScore}>{seg.score_final.toFixed(1)}</div>
+                    <div className={styles.segmentCardDate}>{fmtDate(seg.created_at)}</div>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Нормализованные */}
       <Section title="Нормализованные сигналы (0–100)">

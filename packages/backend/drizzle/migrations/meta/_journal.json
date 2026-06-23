@@ -15,6 +15,20 @@
       "when": 1781780685407,
       "tag": "0001_secret_whiplash",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782212148740,
+      "tag": "0002_elite_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782213644493,
+      "tag": "0003_f_presence_check_guarded",
+      "breakpoints": true
     }
   ]
 }

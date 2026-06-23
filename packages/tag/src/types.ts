@@ -28,6 +28,8 @@ export interface SignalsS3State {
 
 export interface Session {
   impressionId: string;
+  sessionGroupId: string;
+  segmentIndex: number;
   deviceType: DeviceType;
   timestampStart: number;
   timestampEnd: number;

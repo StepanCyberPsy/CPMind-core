@@ -80,6 +80,8 @@ export const PresenceSchema = z.object({
 export const ImpressionPayloadSchema = z
   .object({
     impression_id: z.string().uuid(),
+    session_group_id: z.string().uuid().optional(),
+    segment_index: z.number().int().min(0).optional(),
     campaign_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),

@@ -8,9 +8,60 @@
 
 .grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 12px;
     margin-bottom: 14px;
+}
+
+/* Session context banner */
+
+.sessionContext {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    background-color: var(--accent-bg);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    flex-wrap: wrap;
+}
+
+.sessionContextLabel {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-dark);
+    white-space: nowrap;
+}
+
+.sessionContextId {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.sessionContextClear {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-dark);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.sessionContextClear:hover {
+    background-color: var(--accent);
+    color: #ffffff;
 }
 
 .label {
@@ -65,24 +116,12 @@
 
 /* Responsive */
 
-@media (max-width: 1024px) {
-    .grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
-}
-
 @media (max-width: 640px) {
-    .grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-
     .filters {
         padding: 14px 16px;
     }
-}
 
-@media (max-width: 400px) {
-    .grid {
-        grid-template-columns: 1fr;
+    .sessionContext {
+        padding: 10px 12px;
     }
 }

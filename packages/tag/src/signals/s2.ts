@@ -74,3 +74,8 @@ export function initS2(
     }
   }, { once: true });
 }
+
+export function resetSegmentS2(session: Session): void {
+  session.shareOfScreenSamples = [];
+  session.shareOfScreenMax = 0;
+}

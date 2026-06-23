@@ -49,6 +49,7 @@ backups/
 # Тесты и покрытие
 coverage/
 .nyc_output/
+cookies.txt
 
 # Временные файлы
 *.log

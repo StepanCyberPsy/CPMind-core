@@ -17,6 +17,8 @@
 
 import type { Session, TagConfig } from '../types.js';
 
+const resetters = new WeakMap<HTMLElement, () => void>();
+
 const SCROLL_ZONE_PX = 300; // ±300px от центра баннера
 const PAUSE_THRESHOLD_MS = 500; // пауза скролла > 500 мс
 const STREAK_WINDOW_MS = 2000;  // окно для серии быстрых скроллов
@@ -82,6 +84,7 @@ export function initS3(
 
   // Паузы
   let pauseTimeout: ReturnType<typeof setTimeout> | null = null;
+  let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
   let pauseStart: number | null = null;
 
   // Серии скроллов
@@ -211,14 +214,16 @@ export function initS3(
       }
 
       // Измеряем длительность паузы — завершается при следующем скролл-событии
-      const pauseCheckInterval = setInterval(() => {
+      pauseCheckInterval = setInterval(() => {
         if (pauseStart === null) {
-          clearInterval(pauseCheckInterval);
+          if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
+          pauseCheckInterval = null;
           return;
         }
         if (!isInScrollZone(creativeEl)) {
           pauseStart = null;
-          clearInterval(pauseCheckInterval);
+          if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
+          pauseCheckInterval = null;
           return;
         }
         const pauseDuration = performance.now() - pauseStart;
@@ -227,7 +232,8 @@ export function initS3(
         }
         if (pauseDuration > 30_000) {
           // Защита: пауза не может быть бесконечной
-          clearInterval(pauseCheckInterval);
+          if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
+          pauseCheckInterval = null;
         }
       }, 100);
 
@@ -260,17 +266,49 @@ export function initS3(
       clearTimeout(pauseTimeout);
       pauseTimeout = null;
     }
+    if (pauseCheckInterval !== null) {
+      clearInterval(pauseCheckInterval);
+      pauseCheckInterval = null;
+    }
   }, { once: true });
 
-  if (session.s3 !== null) {
-    session.s3.scroll_speed_avg_px_s = 0;
-    session.s3.scroll_speed_max_px_s = 0;
-    session.s3.scroll_speed_std_dev = 0;
-    session.s3.pause_count = 0;
-    session.s3.pause_duration_total_ms = 0;
-    session.s3.scroll_streaks = 0;
-    session.s3.direction_changes = 0;
-    session.s3.reading_pattern_detected = false;
-    session.s3.is_momentum_scroll = false;
+  function resetState(): void {
+    speedStats.count = 0;
+    speedStats.mean = 0;
+    speedStats.m2 = 0;
+    lastScrollY = window.scrollY;
+    lastScrollTime = performance.now();
+    lastDirection = 0;
+    recentEventTimes.length = 0;
+    slowScrollStart = null;
+
+    if (pauseTimeout !== null) {
+      clearTimeout(pauseTimeout);
+      pauseTimeout = null;
+    }
+    if (pauseCheckInterval !== null) {
+      clearInterval(pauseCheckInterval);
+      pauseCheckInterval = null;
+    }
+    pauseStart = null;
+
+    if (session.s3 !== null) {
+      session.s3.scroll_speed_avg_px_s = 0;
+      session.s3.scroll_speed_max_px_s = 0;
+      session.s3.scroll_speed_std_dev = 0;
+      session.s3.pause_count = 0;
+      session.s3.pause_duration_total_ms = 0;
+      session.s3.scroll_streaks = 0;
+      session.s3.direction_changes = 0;
+      session.s3.reading_pattern_detected = false;
+      session.s3.is_momentum_scroll = false;
+    }
   }
+
+  resetters.set(creativeEl, resetState);
+  resetState();
+}
+
+export function resetSegmentS3(creativeEl: HTMLElement): void {
+  resetters.get(creativeEl)?.();
 }

@@ -13,14 +13,14 @@
 
 import type { Session, TagConfig } from '../types.js';
 
-export function initS1(
+const resetters = new WeakMap<HTMLElement, IntersectionObserver>();
+
+function createObserver(
   creativeEl: HTMLElement,
   session: Session,
   cfg: TagConfig,
-): void {
-  if (typeof IntersectionObserver === 'undefined') return;
-
-  const observer = new IntersectionObserver(
+): IntersectionObserver {
+  return new IntersectionObserver(
     (entries) => {
       const entry = entries[entries.length - 1];
       if (!entry) return;
@@ -84,10 +84,39 @@ export function initS1(
       threshold: [0, 0.5, 1.0],
     },
   );
+}
 
+export function initS1(
+  creativeEl: HTMLElement,
+  session: Session,
+  cfg: TagConfig,
+): void {
+  if (typeof IntersectionObserver === 'undefined') return;
+
+  const observer = createObserver(creativeEl, session, cfg);
+  resetters.set(creativeEl, observer);
   observer.observe(creativeEl);
 
   window.addEventListener('pagehide', () => {
-    observer.disconnect();
+    resetters.get(creativeEl)?.disconnect();
   }, { once: true });
+}
+
+export function resetSegmentS1(
+  creativeEl: HTMLElement,
+  session: Session,
+  cfg: TagConfig,
+): void {
+  session.timeInViewSec = 0;
+  session.maxContinuousViewSec = 0;
+  session.viewStart = null;
+  session.timestampStart = 0;
+
+  resetters.get(creativeEl)?.disconnect();
+
+  if (typeof IntersectionObserver === 'undefined') return;
+
+  const observer = createObserver(creativeEl, session, cfg);
+  resetters.set(creativeEl, observer);
+  observer.observe(creativeEl);
 }

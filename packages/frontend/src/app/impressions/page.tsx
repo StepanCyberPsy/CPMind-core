@@ -9,6 +9,7 @@ import styles from '@/styles/impressions.module.css';
 
 interface SearchParams {
   page?: string;
+  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
   deviceType?: string;
@@ -33,6 +34,7 @@ export default async function ImpressionsPage({
     limit: 50,
     sortBy: (searchParams.sortBy as 'createdAt' | 'scoreFinal') ?? 'createdAt',
     sortDir: (searchParams.sortDir as 'asc' | 'desc') ?? 'desc',
+    ...(searchParams.sessionGroupId && { sessionGroupId: searchParams.sessionGroupId }),
     ...(searchParams.campaignId && { campaignId: searchParams.campaignId }),
     ...(searchParams.creativeId && { creativeId: searchParams.creativeId }),
     ...(searchParams.deviceType && { deviceType: searchParams.deviceType }),

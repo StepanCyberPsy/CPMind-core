@@ -7,7 +7,9 @@ import { initS4 } from './signals/s4.js';
 import { initS5 } from './signals/s5.js';
 import { initS7 } from './signals/s7.js';
 import { initPresence } from './signals/presence.js';
+import type { PresenceHandle } from './signals/presence.js';
 import { attachUnloadHandlers } from './transport/send.js';
+import { startNewSegment } from './segment.js';
 import { DebugOverlay } from './debug/overlay.js';
 
 (function (win: Window, doc: Document) {
@@ -38,13 +40,16 @@ import { DebugOverlay } from './debug/overlay.js';
       initS4(session, cfg);
       initS5(container, session, cfg);
       initS7(container, session, cfg);
-      const cleanupPresence = initPresence(session, cfg);
+
+      const presenceHandle = initPresence(session, cfg, () => {
+        startNewSegment(container, session, cfg, presenceHandle);
+      });
 
       if (cfg.debug) {
         new DebugOverlay(container, session);
       }
 
-      attachUnloadHandlers(container, session, cfg, cleanupPresence);
+      attachUnloadHandlers(container, session, cfg, presenceHandle.cleanup);
     }
   }
 

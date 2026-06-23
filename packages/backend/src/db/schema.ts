@@ -1,12 +1,25 @@
 import {
-  pgTable, uuid, text, bigint, jsonb,
-  real, smallint, boolean, timestamp,
-  index, uniqueIndex,
+  pgTable,
+  uuid,
+  text,
+  bigint,
+  jsonb,
+  real,
+  smallint,
+  integer,
+  boolean,
+  timestamp,
+  index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const impressions = pgTable('impressions', {
   id: uuid('id').primaryKey().defaultRandom(),
   impressionId: uuid('impression_id').notNull(),
+
+  // Сегментация показа: группа сегментов одного показа при разрыве на простое
+  sessionGroupId: uuid('session_group_id').notNull().defaultRandom(),
+  segmentIndex: integer('segment_index').notNull().default(0),
 
   // Метаданные кампании
   campaignId: text('campaign_id').notNull(),
@@ -52,6 +65,7 @@ export const impressions = pgTable('impressions', {
 },
   (t) => ({
     impressionIdIdx: uniqueIndex('uidx_impression_id').on(t.impressionId),
+    sessionGroupIdIdx: index('idx_session_group_id').on(t.sessionGroupId),
     createdAtIdx: index('idx_created_at').on(t.createdAt),
     campaignIdIdx: index('idx_campaign_id').on(t.campaignId),
     creativeIdIdx: index('idx_creative_id').on(t.creativeId),

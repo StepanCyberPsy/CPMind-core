@@ -37,6 +37,8 @@ function angleDiff(a: number, b: number): number {
   return d > 180 ? 360 - d : d;
 }
 
+const resetters = new WeakMap<HTMLElement, () => void>();
+
 function initDesktop(
   creativeEl: HTMLElement,
   session: Session,
@@ -154,6 +156,25 @@ function initDesktop(
       requestAnimationFrame(processMouseFrame);
     }
   }, { passive: true });
+
+  function resetState(): void {
+    lastMouseX = null;
+    lastMouseY = null;
+    lastAngle = null;
+    totalMoves = 0;
+    significantChanges = 0;
+
+    session.clicked = false;
+    session.hoverCount = 0;
+    session.hoverDurationMaxMs = 0;
+    session.hoverDurationTotalMs = 0;
+    session.hoverToClickLatencyMs = null;
+    session.cursorProximityMinPx = Infinity;
+    session.cursorTrajectoryEntropy = 0;
+    session.lastHoverStart = null;
+  }
+
+  resetters.set(creativeEl, resetState);
 }
 
 interface GestureEvent extends Event {
@@ -288,6 +309,21 @@ function initMobile(
   creativeEl.addEventListener('touchend', () => {
     initialPinchDistance = null;
   }, { passive: true });
+
+  function resetState(): void {
+    touchStartY = null;
+    touchStartX = null;
+    touchStartTime = null;
+    initialPinchDistance = null;
+
+    session.clicked = false;
+    session.tapCount = 0;
+    session.touchStartEndDeltaMs = null;
+    session.zoom = false;
+    session.swipeCount = 0;
+  }
+
+  resetters.set(creativeEl, resetState);
 }
 
 export function initS5(
@@ -300,4 +336,8 @@ export function initS5(
   } else {
     initMobile(creativeEl, session, cfg);
   }
+}
+
+export function resetSegmentS5(creativeEl: HTMLElement): void {
+  resetters.get(creativeEl)?.();
 }

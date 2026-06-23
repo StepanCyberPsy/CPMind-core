@@ -173,6 +173,41 @@
     font-size: 12px;
 }
 
+/* Segment badge */
+
+.segmentBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background-color: var(--bg-subtle);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.segmentBadge:hover {
+    border-color: var(--border-strong);
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.segmentBadgeContinuation {
+    background-color: var(--accent-bg);
+    border-color: var(--accent);
+    color: var(--accent-dark);
+}
+
+.segmentBadgeContinuation:hover {
+    background-color: var(--accent-bg);
+    border-color: var(--accent-dark);
+}
+
 /* Empty state */
 
 .empty {

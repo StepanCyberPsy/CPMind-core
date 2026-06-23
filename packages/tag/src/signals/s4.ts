@@ -66,3 +66,13 @@ export function initS4(
     });
   }
 }
+
+export function resetSegmentS4(session: Session): void {
+  session.tabActiveTimeMs = 0;
+  session.tabSwitchesCount = 0;
+  session.tabSessionStart = Date.now();
+  session.visibilityStateHistory = [{
+    state: document.visibilityState === 'visible' ? 'visible' : 'hidden',
+    timestamp: Date.now(),
+  }];
+}

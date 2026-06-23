@@ -167,3 +167,7 @@ export function initS7(
     clearInterval(intervalId);
   }, { once: true });
 }
+
+export function resetSegmentS7(session: Session): void {
+  session.viewabilityPersistenceSamples = [];
+}

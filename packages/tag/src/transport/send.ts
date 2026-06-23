@@ -1,12 +1,16 @@
 import type { Session, TagConfig } from '../types.js';
 import { buildPayload } from '../session.js';
 
-export function finalizeAndSend(session: Session, cfg: TagConfig): void {
+export function finalizeAndSend(
+  session: Session,
+  cfg: TagConfig,
+  isFinal: boolean,
+): void {
   if (session.sent) return;
   if (session.timestampStart === 0) return;
 
   session.timestampEnd = Date.now();
-  session.sent = true;
+  session.sent = isFinal;
 
   const payload = buildPayload(session, cfg);
 
@@ -53,21 +57,21 @@ export function attachUnloadHandlers(
 
   // 1. Click — Mobile Safari: отправляем в момент клика
   creativeEl.addEventListener('click', () => {
-    finalizeAndSend(session, cfg);
+    finalizeAndSend(session, cfg, true);
   }, { capture: true });
   // capture: true — обрабатываем до того как событие дойдет до ссылки внутри баннера
 
   // 2. visibilitychange -> hidden
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      finalizeAndSend(session, cfg);
+      finalizeAndSend(session, cfg, true);
       cleanupPresence?.();
     }
   });
 
   // 3. pagehide — финальный резерв
   window.addEventListener('pagehide', () => {
-    finalizeAndSend(session, cfg);
+    finalizeAndSend(session, cfg, true);
     cleanupPresence?.();
   });
 }

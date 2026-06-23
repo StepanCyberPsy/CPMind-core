@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { fetchImpressionById } from '@/lib/api';
+import { fetchImpressionById, fetchImpressions } from '@/lib/api';
 import { ImpressionDetail } from '@/components/ImpressionDetail';
 import styles from '@/styles/detail-page.module.css';
 
@@ -16,6 +16,13 @@ export default async function ImpressionDetailPage({ params }: Props) {
 
   const impression = await fetchImpressionById(params.id, cookieHeader);
   if (!impression) notFound();
+
+  const siblingSegments = (
+    await fetchImpressions(
+      { sessionGroupId: impression.session_group_id, limit: 50 },
+      cookieHeader,
+    )
+  ).items;
 
   const scoreClass =
     impression.score_final >= 70 ? styles.scorePositive :
@@ -42,7 +49,7 @@ export default async function ImpressionDetailPage({ params }: Props) {
         </div>
       </header>
 
-      <ImpressionDetail impression={impression} />
+      <ImpressionDetail impression={impression} siblingSegments={siblingSegments} />
     </div>
   );
 }

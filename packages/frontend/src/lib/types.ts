@@ -12,6 +12,7 @@ export interface SortParams {
 }
 
 export interface FilterValues {
+  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
   deviceType?: 'desktop' | 'mobile' | 'tablet' | '';
@@ -42,6 +43,7 @@ export interface PaginationProps {
 
 export interface ImpressionDetailProps {
   impression: import('@cpmind/shared').ImpressionDetail;
+  siblingSegments?: import('@cpmind/shared').ImpressionRow[];
 }
 
 export interface WeightsConfigPanelProps {

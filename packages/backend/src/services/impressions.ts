@@ -11,6 +11,7 @@ import type {
 export interface ListParams {
   page: number;
   limit: number;
+  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
   deviceType?: string;
@@ -22,6 +23,7 @@ export interface ListParams {
 }
 
 interface FilterParams {
+  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
   deviceType?: string;
@@ -32,6 +34,7 @@ interface FilterParams {
 
 function buildWhereFromFilters(filters: FilterParams): SQL | undefined {
   return and(
+    filters.sessionGroupId !== undefined ? eq(impressions.sessionGroupId, filters.sessionGroupId) : undefined,
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
     filters.creativeId !== undefined ? eq(impressions.creativeId, filters.creativeId) : undefined,
     filters.deviceType !== undefined ? eq(impressions.deviceType, filters.deviceType) : undefined,
@@ -43,6 +46,7 @@ function buildWhereFromFilters(filters: FilterParams): SQL | undefined {
 
 export function buildWhereClause(queryParams: Record<string, string>): SQL | undefined {
   const filters: FilterParams = {
+    ...(queryParams['sessionGroupId'] !== undefined && { sessionGroupId: queryParams['sessionGroupId'] }),
     ...(queryParams['campaignId'] !== undefined && { campaignId: queryParams['campaignId'] }),
     ...(queryParams['creativeId'] !== undefined && { creativeId: queryParams['creativeId'] }),
     ...(queryParams['deviceType'] !== undefined && { deviceType: queryParams['deviceType'] }),
@@ -68,6 +72,8 @@ function toImpressionDetail(row: ImpressionSelect): ImpressionDetail {
   return {
     id: row.id,
     impression_id: row.impressionId,
+    session_group_id: row.sessionGroupId,
+    segment_index: row.segmentIndex,
     campaign_id: row.campaignId,
     creative_id: row.creativeId,
     creative_type: row.creativeType,
@@ -106,6 +112,7 @@ function toImpressionDetail(row: ImpressionSelect): ImpressionDetail {
 
 export async function listImpressions(params: ListParams): Promise<ImpressionListResponse> {
   const filters: FilterParams = {
+    ...(params.sessionGroupId !== undefined && { sessionGroupId: params.sessionGroupId }),
     ...(params.campaignId !== undefined && { campaignId: params.campaignId }),
     ...(params.creativeId !== undefined && { creativeId: params.creativeId }),
     ...(params.deviceType !== undefined && { deviceType: params.deviceType }),
@@ -126,6 +133,8 @@ export async function listImpressions(params: ListParams): Promise<ImpressionLis
     db.select({
       id: impressions.id,
       impressionId: impressions.impressionId,
+      sessionGroupId: impressions.sessionGroupId,
+      segmentIndex: impressions.segmentIndex,
       campaignId: impressions.campaignId,
       creativeId: impressions.creativeId,
       creativeType: impressions.creativeType,
@@ -174,6 +183,8 @@ export async function listImpressions(params: ListParams): Promise<ImpressionLis
   const items: ImpressionRow[] = rows.map((row) => ({
     id: row.id,
     impression_id: row.impressionId,
+    session_group_id: row.sessionGroupId,
+    segment_index: row.segmentIndex,
     campaign_id: row.campaignId,
     creative_id: row.creativeId,
     creative_type: row.creativeType,

@@ -11,6 +11,7 @@ interface Props {
 
 export function Filters({ current }: Props) {
   const router = useRouter();
+  const [sessionGroupId, setSessionGroupId] = useState(current.sessionGroupId ?? '');
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
   const [creativeId, setCreativeId] = useState(current.creativeId ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
@@ -24,6 +25,7 @@ export function Filters({ current }: Props) {
   const applyFilters = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', '1');
+    sessionGroupId ? url.searchParams.set('sessionGroupId', sessionGroupId) : url.searchParams.delete('sessionGroupId');
     campaignId ? url.searchParams.set('campaignId', campaignId) : url.searchParams.delete('campaignId');
     creativeId ? url.searchParams.set('creativeId', creativeId) : url.searchParams.delete('creativeId');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
@@ -31,9 +33,18 @@ export function Filters({ current }: Props) {
     dateFrom ? url.searchParams.set('dateFrom', dateFrom) : url.searchParams.delete('dateFrom');
     dateTo ? url.searchParams.set('dateTo', dateTo) : url.searchParams.delete('dateTo');
     router.push(url.pathname + url.search);
-  }, [router, campaignId, creativeId, deviceType, isSuspicious, dateFrom, dateTo]);
+  }, [router, sessionGroupId, campaignId, creativeId, deviceType, isSuspicious, dateFrom, dateTo]);
+
+  const exitSegmentView = useCallback(() => {
+    setSessionGroupId('');
+    const url = new URL(window.location.href);
+    url.searchParams.delete('sessionGroupId');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
 
   const resetFilters = useCallback(() => {
+    setSessionGroupId('');
     setCampaignId('');
     setCreativeId('');
     setDeviceType('');
@@ -41,7 +52,7 @@ export function Filters({ current }: Props) {
     setDateFrom('');
     setDateTo('');
     const url = new URL(window.location.href);
-    ['campaignId', 'creativeId', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach(k =>
+    ['sessionGroupId', 'campaignId', 'creativeId', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach(k =>
       url.searchParams.delete(k),
     );
     url.searchParams.set('page', '1');
@@ -50,7 +61,26 @@ export function Filters({ current }: Props) {
 
   return (
     <div className={styles.filters}>
+      {current.sessionGroupId && (
+        <div className={styles.sessionContext}>
+          <span className={styles.sessionContextLabel}>Просмотр сегментов показа</span>
+          <span className={styles.sessionContextId}>{current.sessionGroupId}</span>
+          <button type="button" className={styles.sessionContextClear} onClick={exitSegmentView}>
+            Выйти из режима сегментов ×
+          </button>
+        </div>
+      )}
       <div className={styles.grid}>
+        <div className={styles.field}>
+          <label className={styles.label}>Session Group ID</label>
+          <input
+            type="text"
+            value={sessionGroupId}
+            onChange={(e) => setSessionGroupId(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
+            placeholder="uuid сессии показа"
+          />
+        </div>
         <div className={styles.field}>
           <label className={styles.label}>Campaign ID</label>
           <input

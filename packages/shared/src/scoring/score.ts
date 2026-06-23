@@ -61,9 +61,7 @@ export function computeScore(
 
   // 4. F_Presence мультипликатор presence_failed: ни одного события И последнее событие было > 60 сек назад -> пользователь физически не у экрана -> импрешен невалиден -> Score = 0
   const presence = capped.presence;
-  const presenceFailed =
-    presence.time_since_last_event_ms > PRESENCE_IDLE_THRESHOLD_MS &&
-    presence.events_count_during_impression === 0;
+  const presenceFailed = presence.time_since_last_event_ms > PRESENCE_IDLE_THRESHOLD_MS;
   const f_presence: 0 | 1 = presenceFailed ? 0 : 1;
 
   // 5. CPMind Score §4.8

@@ -13,6 +13,7 @@ const CLIENT_BACKEND = process.env['NEXT_PUBLIC_BACKEND_URL'] ?? 'http://localho
 export interface ListParams {
   page?: number;
   limit?: number;
+  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
   deviceType?: string;
@@ -27,6 +28,7 @@ function buildQuery(params: ListParams): string {
   const q = new URLSearchParams();
   if (params.page) q.set('page', String(params.page));
   if (params.limit) q.set('limit', String(params.limit));
+  if (params.sessionGroupId) q.set('sessionGroupId', params.sessionGroupId);
   if (params.campaignId) q.set('campaignId', params.campaignId);
   if (params.creativeId) q.set('creativeId', params.creativeId);
   if (params.deviceType) q.set('deviceType', params.deviceType);

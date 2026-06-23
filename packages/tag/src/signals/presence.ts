@@ -22,10 +22,18 @@
 
 import type { Session, TagConfig } from '../types.js';
 
+const PRESENCE_IDLE_TIMEOUT_MS = 60_000; // дублирует PRESENCE_IDLE_THRESHOLD_MS в shared/scoring/score.ts — при калибровке менять оба места
+
+export interface PresenceHandle {
+  cleanup: () => void;
+  resetSegment: () => void;
+}
+
 export function initPresence(
   session: Session,
   cfg: TagConfig,
-): () => void {
+  onIdle: () => void,
+): PresenceHandle {
   const EVENT_TYPES = [
     'mousemove',
     'mousedown',
@@ -39,18 +47,23 @@ export function initPresence(
     'click',
   ] as const;
 
-  // Throttle: не обновляем чаще раза в 100 мс
-  // Для presence нам важен факт события, а не каждое движение курсора
   let lastUpdateTime = 0;
   const THROTTLE_MS = 100;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function armIdleTimer(): void {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(onIdle, PRESENCE_IDLE_TIMEOUT_MS);
+  }
 
   function onUserEvent(): void {
     const now = Date.now();
 
-    // Всегда инкрементируем счетчик (без throttle)
+    armIdleTimer();
     session.eventsDuringImpression++;
 
-    // Throttle для обновления timestamp
     if (now - lastUpdateTime >= THROTTLE_MS) {
       session.lastUserEventTimestamp = now;
       lastUpdateTime = now;
@@ -64,8 +77,6 @@ export function initPresence(
     }
   }
 
-  // Регистрируем все обработчики на document
-  // passive: true — не блокируем scroll и touch-события
   for (const eventType of EVENT_TYPES) {
     document.addEventListener(eventType, onUserEvent, {
       passive: true,
@@ -73,13 +84,28 @@ export function initPresence(
     });
   }
 
+  armIdleTimer();
+
   if (cfg.debug) {
     console.log('[CPMind Presence] Initialized, tracking:', EVENT_TYPES.join(', '));
   }
 
-  return () => {
+  function cleanup(): void {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
     for (const eventType of EVENT_TYPES) {
       document.removeEventListener(eventType, onUserEvent, { capture: false });
     }
-  };
+  }
+
+  function resetSegment(): void {
+    lastUpdateTime = 0;
+    session.lastUserEventTimestamp = null;
+    session.eventsDuringImpression = 0;
+    armIdleTimer();
+  }
+
+  return { cleanup, resetSegment };
 }

@@ -1,10 +1,43 @@
-import type { Session, TagConfig } from './types.js';
+import type { Session, TagConfig, VisibilityEntry } from './types.js';
 import { generateUUID } from './utils/uuid.js';
 import { detectDeviceType } from './utils/device.js';
+
+/**
+ * Считает суммарное "активное" (visible) время вкладки строго в диапазоне [rangeStart, rangeEnd].
+ * Решает P-05: tabSessionStart стартует от загрузки страницы, а не от начала показа —
+ * пересчет от истории переключений устраняет рассинхрон вместо того чтобы его обрезать.
+ */
+export function computeActiveTimeMsInRange(
+  history: VisibilityEntry[],
+  rangeStart: number,
+  rangeEnd: number,
+): number {
+  let activeMs = 0;
+
+  for (let i = 0; i < history.length; i++) {
+    const entry = history[i];
+    if (entry === undefined) continue;
+
+    const nextEntry = history[i + 1];
+    const segmentStart = Math.max(entry.timestamp, rangeStart);
+    const segmentEnd = Math.min(
+      nextEntry !== undefined ? nextEntry.timestamp : rangeEnd,
+      rangeEnd,
+    );
+
+    if (entry.state === 'visible' && segmentEnd > segmentStart) {
+      activeMs += segmentEnd - segmentStart;
+    }
+  }
+
+  return activeMs;
+}
 
 export function createSession(cfg: TagConfig): Session {
   return {
     impressionId: generateUUID(),
+    sessionGroupId: generateUUID(),
+    segmentIndex: 0,
     deviceType: detectDeviceType(),
     timestampStart: 0,
     timestampEnd: 0,
@@ -69,6 +102,19 @@ export function createSession(cfg: TagConfig): Session {
   };
 }
 
+/**
+ * Сброс служебных полей сессии на новый сегмент показа.
+ * session_group_id не трогаем — сквозная связка через весь показ.
+ * timestampStart — ответственность s1.ts (привязан к первому входу в viewport).
+ * Поля F_Presence — ответственность presence.ts.
+ */
+export function resetSessionForNewSegment(session: Session): void {
+  session.impressionId = generateUUID();
+  session.segmentIndex++;
+  session.timestampEnd = 0;
+  session.sent = false;
+}
+
 export function buildPayload(session: Session, cfg: TagConfig): object {
   const now = session.timestampEnd || Date.now();
 
@@ -88,15 +134,15 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     ? samples.reduce((a, b) => a + b, 0) / samples.length
     : 0;
 
-  // S4: финализация tab activity. Источник состояния — последняя запись
-  // visibilityStateHistory, не живой document.visibilityState
-  const tabTotalTimeMs = now - (session.timestampStart || now);
-  const lastVisibilityEntry =
-    session.visibilityStateHistory[session.visibilityStateHistory.length - 1];
-  const rawTabActiveTimeMs = lastVisibilityEntry?.state === 'visible'
-    ? session.tabActiveTimeMs + (now - session.tabSessionStart)
-    : session.tabActiveTimeMs;
-  const tabActiveTimeMs = Math.min(rawTabActiveTimeMs, tabTotalTimeMs);
+  // S4: финализация tab activity. Активное время считается строго в границах
+  // [timestampStart, now] из visibilityStateHistory — не от загрузки страницы (P-05)
+  const impressionStart = session.timestampStart || now;
+  const tabTotalTimeMs = now - impressionStart;
+  const tabActiveTimeMs = computeActiveTimeMsInRange(
+    session.visibilityStateHistory,
+    impressionStart,
+    now,
+  );
 
   // S7: viewability persistence
   const persistenceSamples = session.viewabilityPersistenceSamples;
@@ -114,6 +160,8 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
 
   return {
     impression_id: session.impressionId,
+    session_group_id: session.sessionGroupId,
+    segment_index: session.segmentIndex,
     campaign_id: cfg.campaignId,
     creative_id: cfg.creativeId,
     creative_type: cfg.creativeType,

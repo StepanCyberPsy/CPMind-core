@@ -6,7 +6,8 @@ import type { ImpressionSelect } from '../db/schema.js';
 import { buildWhereClause } from './impressions.js';
 
 const CSV_HEADER = [
-  'impression_id', 'campaign_id', 'creative_id', 'creative_type', 'device_type',
+  'impression_id', 'session_group_id', 'segment_index',
+  'campaign_id', 'creative_id', 'creative_type', 'device_type',
   'timestamp_start', 'timestamp_end', 'weights_version',
   'time_in_view_sec', 'mrc_compliant', 'visible_pixels_pct', 'max_continuous_view_sec',
   'share_of_screen_avg_pct', 'share_of_screen_max_pct',
@@ -45,7 +46,8 @@ function rowToCsvLine(row: ImpressionSelect): string {
   const pr = (row.signalsRaw as Record<string, unknown>)['presence'] as Record<string, unknown> ?? {};
 
   const fields: unknown[] = [
-    row.impressionId, row.campaignId, row.creativeId, row.creativeType, row.deviceType,
+    row.impressionId, row.sessionGroupId, row.segmentIndex,
+    row.campaignId, row.creativeId, row.creativeType, row.deviceType,
     row.timestampStart, row.timestampEnd, row.weightsVersion,
     s1['time_in_view_sec'], s1['mrc_compliant'], s1['visible_pixels_pct'], s1['max_continuous_view_sec'],
     s2['share_of_screen_avg_pct'], s2['share_of_screen_max_pct'],

@@ -7,7 +7,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ImpressionRow } from '@cpmind/shared';
 import type { SortParams } from '@/lib/types';
@@ -15,7 +15,8 @@ import styles from '@/styles/table.module.css';
 
 const col = createColumnHelper<ImpressionRow>();
 
-const columns = [
+function buildColumns(navigateTo: (params: Record<string, string>) => void) {
+  return [
   col.accessor('created_at', {
     header: 'Дата',
     enableSorting: true,
@@ -55,6 +56,28 @@ const columns = [
       };
       const v = getValue();
       return `${icons[v] ?? ''} ${v}`;
+    },
+  }),
+  col.accessor('segment_index', {
+    header: 'Сегмент',
+    enableSorting: false,
+    cell: ({ row }) => {
+      const segmentIndex = row.original.segment_index;
+      const sessionGroupId = row.original.session_group_id;
+      const isContinuation = segmentIndex > 0;
+      return (
+        <button
+          type="button"
+          className={`${styles.segmentBadge} ${isContinuation ? styles.segmentBadgeContinuation : styles.segmentBadgeSingle}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigateTo({ sessionGroupId, page: '1' });
+          }}
+          title="Показать все сегменты этого показа"
+        >
+          {isContinuation ? `↻ сегмент ${segmentIndex + 1}` : 'сегмент 1'}
+        </button>
+      );
     },
   }),
   col.accessor('s1_raw_time_in_view', {
@@ -145,7 +168,8 @@ const columns = [
         ? <span className={`${styles.cellSuspicious} ${styles.suspicious}`}>⚠ Suspicious</span>
         : <span className={`${styles.cellSuspicious} ${styles.notSuspicious}`}>Clean</span>,
   }),
-];
+  ];
+}
 
 interface Props {
   initialData: ImpressionRow[];
@@ -175,6 +199,8 @@ export function ImpressionsTableClient({
     }
     router.push(url.pathname + url.search);
   }, [router]);
+
+  const columns = useMemo(() => buildColumns(navigateTo), [navigateTo]);
 
   function onSortingChange(updater: SortingState | ((prev: SortingState) => SortingState)): void {
     const next = typeof updater === 'function' ? updater(sorting) : updater;

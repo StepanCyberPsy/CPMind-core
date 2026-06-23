@@ -14,6 +14,8 @@ export function processImpression(
 
   return {
     impressionId: payload.impression_id,
+    sessionGroupId: payload.session_group_id ?? payload.impression_id,
+    segmentIndex: payload.segment_index ?? 0,
     campaignId: payload.campaign_id,
     creativeId: payload.creative_id,
     creativeType: payload.creative_type,

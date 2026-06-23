@@ -10,6 +10,7 @@
  */
 
 import type { Session } from '../types.js';
+import { computeActiveTimeMsInRange } from '../session.js';
 
 const OVERLAY_STYLES: Partial<CSSStyleDeclaration> = {
   position: 'fixed',
@@ -75,9 +76,11 @@ export class DebugOverlay {
   }
 
   private getTabActivePct(): string {
-    const active = this.session.tabActiveTimeMs;
-    const total = Date.now() - (this.session.timestampStart || Date.now());
+    const now = Date.now();
+    const impressionStart = this.session.timestampStart || now;
+    const total = now - impressionStart;
     if (total === 0) return '100%';
+    const active = computeActiveTimeMsInRange(this.session.visibilityStateHistory, impressionStart, now);
     return ((active / total) * 100).toFixed(1) + '%';
   }
 

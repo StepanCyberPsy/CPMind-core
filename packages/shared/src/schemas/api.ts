@@ -4,6 +4,8 @@ import { z } from 'zod';
 export const ImpressionRowSchema = z.object({
   id: z.string().uuid(),
   impression_id: z.string().uuid(),
+  session_group_id: z.string().uuid(),
+  segment_index: z.number().int().min(0),
   campaign_id: z.string(),
   creative_id: z.string(),
   creative_type: z.string(),
