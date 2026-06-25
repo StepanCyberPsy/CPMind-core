@@ -13,6 +13,11 @@ import {
   type EffectiveWeights,
 } from './weights.js';
 
+export interface RecomputeScoreResult {
+  score_final: number;
+  effective_weights: EffectiveWeights;
+}
+
 export interface ScoreResult {
   normalized: NormalizedSignals;
   effective_weights: EffectiveWeights;
@@ -42,11 +47,10 @@ export interface ScoreResult {
  * @param weights — конфигурация весов (по умолчанию DEFAULT_WEIGHTS v1.0_uncalibrated)
  */
 
-const PRESENCE_IDLE_THRESHOLD_MS = 60_000;
-
 export function computeScore(
   payload: ImpressionPayload,
-  weights: WeightsConfig = DEFAULT_WEIGHTS,
+  weights: WeightsConfig,
+  presenceIdleThresholdMs: number,
 ): ScoreResult {
 
   // 1. Кэппинг аномалий (time_in_view_sec > 3600 до кэппинга)
@@ -59,9 +63,9 @@ export function computeScore(
   const nullSignals = detectNullSignals(normalized);
   const effective_weights = computeEffectiveWeights(nullSignals, weights);
 
-  // 4. F_Presence мультипликатор presence_failed: ни одного события И последнее событие было > 60 сек назад -> пользователь физически не у экрана -> импрешен невалиден -> Score = 0
+  // 4. F_Presence мультипликатор presence_failed: ни одного события И последнее событие было > порога назад (порог из активной версии констант тега, см. tag_constants.ts) -> пользователь физически не у экрана -> импрешен невалиден -> Score = 0
   const presence = capped.presence;
-  const presenceFailed = presence.time_since_last_event_ms > PRESENCE_IDLE_THRESHOLD_MS;
+  const presenceFailed = presence.time_since_last_event_ms > presenceIdleThresholdMs;
   const f_presence: 0 | 1 = presenceFailed ? 0 : 1;
 
   // 5. CPMind Score §4.8
@@ -116,5 +120,38 @@ export function computeScore(
     s4_raw_active_time_pct,
     s5_raw_top_event: getS5TopEventLabel(payload.signals.s5),
     s7_raw_persistence: payload.signals.s7.viewability_persistence_pct,
+  };
+}
+
+/**
+ * Пересчет CPMind Score на новых весах для уже существующего импрешена.
+ * Используется только калибровкой (services/calibrations.ts) — берет уже
+ * сохраненные normalized-значения и f_presence из БД, не трогает сырые
+ * сигналы и не повторяет кэппинг/нормализацию: эти шаги не зависят от весов
+ * и их результат не меняется при смене весов (см. computeScore §1–2).
+ *
+ * @param normalized — сохраненные signals_normalized импрешена (s3 может быть null — cross-domain iframe)
+ * @param fPresence  — сохраненный f_presence импрешена, не пересчитывается
+ * @param weights    — целевая конфигурация весов батча калибровки
+ */
+export function recomputeScoreFromNormalized(
+  normalized: NormalizedSignals,
+  fPresence: 0 | 1,
+  weights: WeightsConfig,
+): RecomputeScoreResult {
+  const nullSignals = detectNullSignals(normalized);
+  const effective_weights = computeEffectiveWeights(nullSignals, weights);
+
+  const weightedSum =
+    normalized.s1 * effective_weights.s1 +
+    normalized.s2 * effective_weights.s2 +
+    (normalized.s3 ?? 0) * effective_weights.s3 +
+    normalized.s4 * effective_weights.s4 +
+    normalized.s5 * effective_weights.s5 +
+    normalized.s7 * effective_weights.s7;
+
+  return {
+    score_final: weightedSum * fPresence,
+    effective_weights,
   };
 }

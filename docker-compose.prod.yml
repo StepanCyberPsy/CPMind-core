@@ -1,13 +1,5 @@
 services:
 
-  tag-builder:
-    build:
-      context: .
-      dockerfile: packages/tag/Dockerfile
-      target: export
-    volumes:
-      - tag_dist:/output
-
   nginx:
     image: nginx:1.27-alpine
     restart: always
@@ -23,8 +15,6 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
-      tag-builder:
-        condition: service_completed_successfully
     networks:
       - internal
 
@@ -42,9 +32,13 @@ services:
       COOKIE_SECRET: ${COOKIE_SECRET}
       ADMIN_LOGIN: ${ADMIN_LOGIN}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
+      CALIBRATION_DRAFT_TTL_MINUTES: ${CALIBRATION_DRAFT_TTL_MINUTES:-60}
+      TAG_DIST_DIR: /tag_dist
       LOG_LEVEL: info
       PORT: "3001"
       HOST: "0.0.0.0"
+    volumes:
+      - tag_dist:/tag_dist
     depends_on:
       postgres:
         condition: service_healthy

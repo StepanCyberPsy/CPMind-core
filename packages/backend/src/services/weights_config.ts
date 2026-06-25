@@ -3,6 +3,8 @@ import { DEFAULT_WEIGHTS, type WeightsValues } from '@cpmind/shared';
 import { db } from '../db/index.js';
 import { weightConfigs, type WeightConfigSelect } from '../db/schema.js';
 
+const FOREIGN_KEY_VIOLATION_CODE = '23503';
+
 /**
  * Ошибка сервиса конфигурации весов с HTTP-статусом и кодом для errorHandler.
  */
@@ -141,6 +143,15 @@ export async function activateWeightsConfig(id: string): Promise<void> {
  * Активную конфигурацию удалить нельзя — 409.
  */
 
+function isForeignKeyViolation(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code: unknown }).code === FOREIGN_KEY_VIOLATION_CODE
+    );
+}
+
 export async function deleteWeightsConfig(id: string): Promise<void> {
     const rows = await db
         .select()
@@ -164,7 +175,18 @@ export async function deleteWeightsConfig(id: string): Promise<void> {
         );
     }
 
-    await db
-        .delete(weightConfigs)
-        .where(eq(weightConfigs.id, id));
+    try {
+        await db
+            .delete(weightConfigs)
+            .where(eq(weightConfigs.id, id));
+    } catch (err) {
+        if (isForeignKeyViolation(err)) {
+            throw new WeightsConfigError(
+                'Конфигурация использовалась в калибровке импрешенов и не может быть удалена',
+                409,
+                'WEIGHTS_CONFIG_REFERENCED',
+            );
+        }
+        throw err;
+    }
 }

@@ -1,21 +1,30 @@
 import { computeScore, getS5TopEventLabel } from '@cpmind/shared';
 import type { ImpressionPayload, WeightsValues } from '@cpmind/shared';
 import type { ImpressionInsert } from '../db/schema.js';
+import type { ActiveTagOwner } from './tags.js';
 
 /**
- * Запускает полный pipeline расчета CPMind Score для одного импрешена.
- * Принимает активную конфигурацию весов из weights_config.ts.
+ * Запускает полный pipeline расчета CPMind Score для одного импрессена.
+ * Принимает активную конфигурацию весов из weights_config.ts, владельца,
+ * полученного через resolveActiveTagOwner(), и presence-порог активной версии
+ * констант тега (resolveActiveTagConstantsVersion в tag_constants.ts) — все три
+ * резолвятся до вызова этой функции, сама processImpression не обращается к БД.
  */
 export function processImpression(
   payload: ImpressionPayload,
   config: WeightsValues,
+  owner: ActiveTagOwner,
+  presenceIdleThresholdMs: number,
 ): ImpressionInsert {
-  const result = computeScore(payload, config);
+  const result = computeScore(payload, config, presenceIdleThresholdMs);
 
   return {
     impressionId: payload.impression_id,
     sessionGroupId: payload.session_group_id ?? payload.impression_id,
     segmentIndex: payload.segment_index ?? 0,
+    tagId: owner.tagId,
+    userId: owner.userId,
+    tagConstantsVersion: payload.tag_constants_version,
     campaignId: payload.campaign_id,
     creativeId: payload.creative_id,
     creativeType: payload.creative_type,

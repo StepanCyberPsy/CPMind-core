@@ -7,7 +7,12 @@ import { healthRoute } from './routes/health.js';
 import { impressionsRoute } from './routes/impressions.js';
 import { authRoute } from './routes/auth.js';
 import { weightsConfigRoute } from './routes/weights_config.js';
+import { usersRoute } from './routes/users.js';
+import { tagsRoute } from './routes/tags.js';
+import { calibrationsRoute } from './routes/calibrations.js';
+import { tagConstantsRoute } from './routes/tag_constants.js';
 import { startRetentionJob } from './jobs/retention.js';
+import { startCalibrationCleanupJob } from './jobs/calibration_cleanup.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -27,6 +32,8 @@ export function buildServer(): FastifyInstance {
   app.register(cookie, {
     secret: process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET']!,
   });
+
+  app.decorateRequest('authUser', null);
 
   app.register(cors, {
     hook: 'onRequest',
@@ -48,6 +55,7 @@ export function buildServer(): FastifyInstance {
         methods: [
           'GET',
           'POST',
+          'PATCH',
           'DELETE',
           'OPTIONS'
         ],
@@ -61,6 +69,10 @@ export function buildServer(): FastifyInstance {
   app.register(impressionsRoute, { prefix: '/api' });
   app.register(authRoute, { prefix: '/api' });
   app.register(weightsConfigRoute, { prefix: '/api' });
+  app.register(usersRoute, { prefix: '/api' });
+  app.register(tagsRoute, { prefix: '/api' });
+  app.register(calibrationsRoute, { prefix: '/api' });
+  app.register(tagConstantsRoute, { prefix: '/api' });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Unhandled error');
@@ -72,6 +84,7 @@ export function buildServer(): FastifyInstance {
 
   app.ready().then(() => {
     startRetentionJob();
+    startCalibrationCleanupJob();
   });
 
   return app;

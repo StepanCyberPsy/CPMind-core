@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TagUuidSchema } from './tag.js';
 
 const SAFE_ID_REGEX = /^[A-Za-zА-Яа-яЁё0-9_-]+$/u;
 
@@ -82,6 +83,8 @@ export const ImpressionPayloadSchema = z
     impression_id: z.string().uuid(),
     session_group_id: z.string().uuid().optional(),
     segment_index: z.number().int().min(0).optional(),
+    tag_uuid: TagUuidSchema,
+    tag_constants_version: z.string().min(1),
     campaign_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),

@@ -2,9 +2,16 @@ import { z } from 'zod';
 import { FastifyPluginAsync } from 'fastify';
 import { ImpressionPayloadSchema } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
 import { getActiveWeightsConfig } from '../services/weights_config.js';
-import { listImpressions, getImpression } from '../services/impressions.js';
+import { resolveActiveTagOwner } from '../services/tags.js';
+import { resolveActiveTagConstantsVersion } from '../services/tag_constants.js';
+import {
+  listImpressionsForAdmin,
+  listImpressionsForUser,
+  getImpressionForAdmin,
+} from '../services/impressions.js';
 import { buildCsvResponse } from '../services/csv.js';
 import { db } from '../db/index.js';
 import { impressions } from '../db/schema.js';
@@ -34,13 +41,35 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       return reply.status(422).send({ errors: parsed.error.flatten() });
     }
 
+    const owner = await resolveActiveTagOwner(parsed.data.tag_uuid);
+
+    if (!owner) {
+      request.log.warn(
+        { tagUuid: parsed.data.tag_uuid, code: 'UNKNOWN_TAG' },
+        'Rejected impression — unknown or inactive tag',
+      );
+      return reply.status(422).send({ error: 'Unknown or inactive tag' });
+    }
+
+    const constantsVersionResolution = await resolveActiveTagConstantsVersion(
+      parsed.data.tag_constants_version,
+    );
+
+    if (!constantsVersionResolution) {
+      request.log.warn(
+        { tagConstantsVersion: parsed.data.tag_constants_version, code: 'UNKNOWN_TAG_CONSTANTS_VERSION' },
+        'Rejected impression — unknown or inactive tag constants version',
+      );
+      return reply.status(422).send({ error: 'Unknown or inactive tag constants version' });
+    }
+
     request.log.info(
       { impressionId: parsed.data.impression_id },
       'Impression received',
     );
 
     const config = await getActiveWeightsConfig();
-    const record = processImpression(parsed.data, config);
+    const record = processImpression(parsed.data, config, owner, constantsVersionResolution.presenceIdleThresholdMs);
 
     try {
       await db.insert(impressions)
@@ -56,8 +85,12 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     return reply.status(202).send({ ok: true });
   });
 
-  // GET /api/impressions
+  // GET /api/impressions — admin видит все, user только свои с урезанным набором полей
   app.get('/impressions', { preHandler: requireAuth }, async (request, reply) => {
+    if (!request.authUser) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
     const parsed = ImpressionListQuerySchema.safeParse(request.query);
 
     if (!parsed.success) {
@@ -77,7 +110,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       dateFrom,
       dateTo
     } = parsed.data;
-    const result = await listImpressions({
+    const listParams = {
       page,
       limit,
       sortBy,
@@ -89,20 +122,29 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ...(isSuspicious !== undefined && { isSuspicious }),
       ...(dateFrom !== undefined && { dateFrom }),
       ...(dateTo !== undefined && { dateTo }),
-    });
+    };
+
+    const result = request.authUser.role === 'admin'
+      ? await listImpressionsForAdmin(listParams)
+      : await listImpressionsForUser(listParams, request.authUser.id);
+
     return reply.send(result);
   });
 
-  // GET /api/impressions/export/csv
+  // GET /api/impressions/export/csv — фильтрация полей по роли внутри buildCsvResponse
   app.get('/impressions/export/csv', { preHandler: requireAuth }, async (request, reply) => {
+    if (!request.authUser) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
     const query = request.query as Record<string, string>;
-    await buildCsvResponse(query, reply);
+    await buildCsvResponse(query, reply, request.authUser);
   });
 
-  // GET /api/impressions/:id
-  app.get('/impressions/:id', { preHandler: requireAuth }, async (request, reply) => {
+  // GET /api/impressions/:id — детальный вид только для администратора
+  app.get('/impressions/:id', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const record = await getImpression(id);
+    const record = await getImpressionForAdmin(id);
 
     if (!record) {
       return reply.status(404).send({ error: 'Impression not found' });

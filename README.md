@@ -11,15 +11,17 @@
 1. [Архитектура](#архитектура)
 2. [Структура репозитория](#структура-репозитория)
 3. [Технический стек](#технический-стек)
-4. [Что реализовано](#что-реализовано)
-5. [Технический долг](#технический-долг)
-6. [Dev vs Prod — различия окружений](#dev-vs-prod--различия-окружений)
-7. [Тестирование](#тестирование)
-8. [Локальный запуск (Dev)](#локальный-запуск-dev)
-9. [Production деплой](#production-деплой)
-10. [Переменные окружения](#переменные-окружения)
-11. [Калибровка весов](#калибровка-весов)
-12. [Следующие шаги — интеграция тега на сайт клиента](#следующие-шаги--интеграция-тега-на-сайт-клиента)
+4. [Многопользовательская модель и роли](#многопользовательская-модель-и-роли)
+5. [Что реализовано](#что-реализовано)
+6. [Технический долг](#технический-долг)
+7. [Dev vs Prod — различия окружений](#dev-vs-prod--различия-окружений)
+8. [Тестирование](#тестирование)
+9. [Локальный запуск (Dev)](#локальный-запуск-dev)
+10. [Production деплой](#production-деплой)
+11. [Переменные окружения](#переменные-окружения)
+12. [Калибровка весов](#калибровка-весов)
+13. [Версионирование констант тега](#версионирование-констант-тега)
+14. [Следующие шаги — интеграция тега на сайт клиента](#следующие-шаги--интеграция-тега-на-сайт-клиента)
 
 ---
 
@@ -31,25 +33,37 @@
 Страница клиента с баннером
         |
    [JS-тег] --- сбор сигналов S1-S7 + F_Presence
+        |       tag_uuid + tag_constants_version зашиты в конкретный
+        |       собранный файл тега, идентифицируют владельца и
+        |       версию калибруемых констант сбора сигналов
         |
         | sendBeacon / fetch keepalive
         v
-   [Backend] --- валидация, нормализация, расчет Score, хранение
+   [Backend] --- резолв владельца (tag_uuid -> user), резолв версии
+        |        констант (tag_constants_version), валидация,
+        |        нормализация, расчет Score, хранение
         |
-   [PostgreSQL] --- signals_raw (JSONB) + нормализованные колонки
+   [PostgreSQL] --- users/tags (владение) + impressions (signals_raw
+        |           JSONB + нормализованные колонки) + weight_configs +
+        |           tag_constants_configs + calibration_batches/items
         |
-   [Панель аналитика] --- просмотр, фильтры, экспорт CSV
+   [Панель аналитика] --- просмотр (с учетом роли admin/user), фильтры,
+                           экспорт CSV, калибровка весов и констант тега
 ```
 
 Каждый рекламный показ (импрешен) проходит через pipeline:
 
 ```
-raw payload -> кэппинг аномалий -> нормализация S1-S7 ->
-перераспределение весов (если S3=null) -> расчет F_Presence ->
-CPMind Score -> флаги подозрительности -> сохранение в БД
+raw payload -> резолв tag_uuid (владелец: tag_id, user_id) ->
+резолв tag_constants_version (presence-порог) -> кэппинг аномалий ->
+нормализация S1-S7 -> перераспределение весов (если S3=null) ->
+расчет F_Presence -> CPMind Score -> флаги подозрительности ->
+сохранение в БД
 
 Активная конфигурация весов загружается из таблицы weight_configs (БД)
 при каждом импрешене. Изменение весов через панель не требует редеплоя.
+Неизвестный либо неактивный tag_uuid/tag_constants_version -> 422,
+запись не создается.
 ```
 
 ---
@@ -64,6 +78,9 @@ cpmind-mvp/
 ├── pnpm-workspace.yaml             # объявление workspace-пакетов
 ├── pnpm-lock.yaml                  # lockfile, коммитится
 ├── tsconfig.base.json              # базовый TypeScript-конфиг для всех пакетов
+├── docker-compose.prod.yml         # 5 сервисов: nginx, backend, frontend, postgres, backup
+│                                   # (tag-builder упразднен — сборка тега перенесена
+│                                   # в backend, см. packages/backend/src/services/tag_builder.ts)
 ├── .env.example                    # шаблон переменных окружения
 ├── .gitignore
 │
@@ -76,7 +93,9 @@ cpmind-mvp/
 ├── nginx/                          # конфиг NGINX
 │   ├── nginx.conf
 │   ├── certs/.gitkeep              # SSL-сертификаты кладутся сюда на сервере
-│   └── tag/                        # артефакт тега (генерируется при сборке Docker)
+│   └── tag/                        # несколько одновременно существующих версионированных
+│                                   # файлов cpmind-tag_v{N}.min.js, пишутся backend-ом
+│                                   # в общий Docker volume tag_dist
 │
 ├── backup/
 │   └── crontab                     # расписание pg_dump для Docker
@@ -96,6 +115,7 @@ cpmind-mvp/
 │
 └── test/
     ├── banner-test.html            # тестовая страница (для локальной отладки тега)
+    ├── banner-test_local.html      # тестовая страница для Docker-окружения (https://localhost)
     ├── banner-placeholder.html     # заглушка баннера 728x90
     └── SCENARIOS.md                # пошаговые инструкции 5 сценариев §10.2
 ```
@@ -104,7 +124,7 @@ cpmind-mvp/
 
 ### packages/shared (@cpmind/shared)
 
-Общая бизнес-логика, схемы и типы. Единственный источник истины для всех трех других пакетов. Не содержит runtime-зависимостей кроме Zod.
+Общая бизнес-логика, схемы и типы. Единственный источник истины для всех остальных пакетов. Production-зависимость только Zod.
 
 ```
 packages/shared/
@@ -115,14 +135,35 @@ packages/shared/
     ├── schemas/
     │   ├── impression.ts           # Zod-схемы всех полей сигналов S1-S7,
     │   │                           # F_Presence и корневого ImpressionPayload.
-    │   │                           # Используется в теге (типы), backend
-    │   │                           # (runtime-валидация), frontend (типизация).
+    │   │                           # tag_uuid (branded TagUuid) и tag_constants_version —
+    │   │                           # обязательные поля. Используется в теге (типы),
+    │   │                           # backend (runtime-валидация), frontend (типизация).
     │   │                           # Включает cross-field валидацию:
     │   │                           # timestamp_end >= timestamp_start
-    │   ├── auth.ts                 # Zod-схема LoginPayload
-    │   └── api.ts                  # Zod-схемы ответов API: ImpressionRow,
-    │                               # ImpressionDetail, ImpressionListResponse,
-    │                               # WeightConfigRow
+    │   ├── auth.ts                 # Zod-схемы LoginPayload, MePayload (GET /auth/me)
+    │   ├── user.ts                 # UserRole, branded UserUuid, User, CreateUserPayload,
+    │   │                           # UpdateUserPayload. Пароль валидируется по байтам
+    │   │                           # UTF-8 (предел bcrypt — 72 байта, не символов)
+    │   ├── tag.ts                  # branded TagUuid, Tag, CreateTagPayload (userUuid:
+    │   │                           # UserUuid, не пересекается по типу с TagUuid),
+    │   │                           # UpdateTagPayload
+    │   ├── calibration.ts          # CalibrationSelection (discriminated union: ids /
+    │   │                           # session_groups / filter), CalibrationBatch,
+    │   │                           # CalibrationItem, ApproveCalibrationResult —
+    │   │                           # контракты пересчета Score при смене весов
+    │   ├── tag-constants.ts        # TagConstantsValues (19 калибруемых констант тега),
+    │   │                           # TagConstantsConfig, CreateTagConstantsPayload,
+    │   │                           # DEFAULT_TAG_CONSTANTS и TAG_BUILD_TARGETS —
+    │   │                           # общий источник для backend bootstrap и CLI-сборки тега
+    │   └── api.ts                  # Zod-схемы ответов API: ImpressionRow (включая
+    │                               # tag_uuid, user_uuid, tag_label, user_login,
+    │                               # tag_constants_version), ImpressionDetail,
+    │                               # ImpressionListResponse, WeightConfigRow
+    ├── access/
+    │   └── impression-fields.ts    # USER_VISIBLE_IMPRESSION_FIELDS — единый whitelist
+    │                               # полей импрешена для роли user. UserImpressionRowSchema —
+    │                               # производный pick() от полного ImpressionRowSchema,
+    │                               # не отдельно поддерживаемая копия
     ├── scoring/
     │   ├── capping.ts              # applyAnomalyCapping(): кэппинг аномальных
     │   │                           # значений согласно таблице §6.3 ТЗ.
@@ -138,10 +179,12 @@ packages/shared/
     │   │                           # computeEffectiveWeights(): перераспределение
     │   │                           # весов при null-сигналах §6.2.
     │   │                           # detectNullSignals(): определение null-сигналов
-    │   └── score.ts                # computeScore(): полный pipeline расчета.
-    │                               # Единственная функция которую вызывает backend:
-    │                               # кэппинг -> нормализация -> F_Presence ->
-    │                               # веса -> Score -> флаги подозрительности
+    │   └── score.ts                # computeScore(): полный pipeline расчета, принимает
+    │                               # presence-порог параметром (не константа — синхронизирован
+    │                               # с активной версией констант тега, не дублируется).
+    │                               # recomputeScoreFromNormalized(): пересчет Score на новых
+    │                               # весах из уже сохраненных normalized-значений — используется
+    │                               # только калибровкой, не повторяет кэппинг/нормализацию
     └── types/
         └── index.ts                # re-export всех TypeScript-типов
 ```
@@ -163,37 +206,50 @@ CPMind_Score = (S1*0.30 + S2*0.20 + S3*0.15 + S4*0.15 + S5*0.15 + S7*0.05) * F_P
 
 ### packages/tag (@cpmind/tag)
 
-JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один файл через esbuild. Не импортирует @cpmind/shared в runtime — только браузерные API.
+JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один файл через esbuild. Не импортирует @cpmind/shared в runtime — только браузерные API (зависимость devDependency, используется исключительно для типизации `TagConstantsValues` на этапе сборки, вытирается компилятором).
 
-**Выходной артефакт:** `dist/cpmind-tag.min.js` (21.9 KB, IIFE-формат)
+**Выходной артефакт:** `dist/cpmind-tag_v{N}.min.js` (~22-24 KB, IIFE-формат, размер зависит от набора констант версии). Версия и 19 калибруемых констант (см. [Версионирование констант тега](#версионирование-констант-тега)) подставляются esbuild через `define` на этапе сборки конкретного файла.
 
-**Важно:** артефакт тега не коммитится в git. Сборка происходит автоматически в Docker при деплое через отдельный `tag-builder` сервис. Собранный файл раздается через NGINX по адресу `https://app.cpmind.tech/tag/cpmind-tag.min.js`.
+**Важно:** артефакт тега не коммитится в git. `packages/tag/Dockerfile` упразднен — сборка происходит не на этапе `docker build`, а в runtime внутри backend-контейнера через esbuild JS API (`packages/backend/src/services/tag_builder.ts`), по запросу администратора через `POST /api/tag-constants`. Несколько версий тега существуют одновременно на сервере — обновление поведения требует осознанной замены `<script src>` на странице клиента, не происходит автоматически.
 
 ```
 packages/tag/
 ├── package.json
 ├── tsconfig.json
-├── Dockerfile                      # multi-stage: сборка тега -> копирование в volume
-├── build.ts                        # esbuild конфиг. Целевые браузеры:
+├── build.ts                        # esbuild конфиг + CLI entry point (локальная сборка
+│                                   # с DEFAULT_TAG_CONSTANTS, version='dev').
+│                                   # Экспортирует buildTagBundle()/watchTagBundle() —
+│                                   # переиспользуются backend-ом для runtime-сборки
+│                                   # конкретных версий (services/tag_builder.ts).
+│                                   # TAG_BUILD_TARGETS (общий источник с backend):
 │                                   # Chrome 90+, Firefox 90+, Safari 14+, Edge 90+
 ├── dist/                           # НЕ коммитится в git — генерируется при сборке
-│   └── cpmind-tag.min.js
+│   └── cpmind-tag.min.js           # локальная dev-сборка (CLI), version='dev'
 └── src/
     ├── index.ts                    # entry point. IIFE-обертка + глобальный try/catch.
     │                               # Поддержка нескольких баннеров на одной странице
     │                               # (querySelectorAll). Ошибка внутри тега не ломает
     │                               # страницу и не влияет на кликовую ссылку баннера
-    ├── types.ts                    # TagConfig, Session, VisibilityEntry,
+    ├── constants.ts                # Единая точка чтения 19 калибруемых констант
+    │                               # из __CPMIND_CONSTANTS__/__CPMIND_TAG_VERSION__ —
+    │                               # ambient-идентификаторы, подставляемые esbuild define
+    │                               # при сборке конкретной версии
+    ├── types.ts                    # TagConfig (включая tagUuid, tagConstantsVersion),
+    │                               # Session, VisibilityEntry,
     │                               # SignalsS3State — полное состояние сессии показа.
     │                               # sessionGroupId — сквозной id показа, неизменен
     │                               # при сбросе сегмента. segmentIndex — порядковый
     │                               # номер сегмента внутри показа (P-15)
     ├── config.ts                   # parseConfig(): чтение data-атрибутов контейнера.
-    │                               # Обязательные поля: campaign_id, creative_id,
-    │                               # creative_type, endpoint
+    │                               # Обязательные поля: data-tag-uuid (формат-валидация
+    │                               # regex, привязка показа к владельцу), campaign_id,
+    │                               # creative_id, creative_type, endpoint.
+    │                               # tagConstantsVersion берется из constants.ts, не из
+    │                               # data-атрибута — версия "знает себя" из сборки
     ├── session.ts                  # createSession(): начальное состояние сессии.
     │                               # buildPayload(): сборка ImpressionPayload из
-    │                               # накопленного состояния сессии для отправки.
+    │                               # накопленного состояния сессии для отправки —
+    │                               # включает tag_uuid и tag_constants_version из cfg.
     │                               # computeActiveTimeMsInRange(): пересчет S4 active
     │                               # time строго в границах показа из истории
     │                               # visibilityStateHistory — фикс P-05 (старый Math.min
@@ -205,22 +261,29 @@ packages/tag/
     │                               # сброс сессии, вызов resetSegmentSX() каждого сигнала.
     │                               # Вызывается из onIdle() callback в presence.ts (P-15)
     ├── signals/
-    │   ├── s1.ts                   # initS1(): IntersectionObserver с threshold [0, 0.5, 1.0].
+    │   ├── s1.ts                   # initS1(): IntersectionObserver с threshold из
+    │   │                           # S1_VIEWPORT_THRESHOLDS (constants.ts, дефолт [0, 0.5, 1.0]).
     │   │                           # Аккумулирует time_in_view_sec, max_continuous_view_sec,
-    │   │                           # visible_pixels_pct. Стандарт MRC: >=50% пикселей.
+    │   │                           # visible_pixels_pct. Стандарт MRC: >=50% пикселей
+    │   │                           # (порог 0.5 захардкожен в самой проверке видимости,
+    │   │                           # отдельно от калибруемого массива threshold).
     │   │                           # resetSegmentS1(): пересоздает observer при сбросе
     │   │                           # сегмента — гарантирует свежий intersection-callback
     │   │                           # для нового сегмента (P-15)
-    │   ├── s2.ts                   # initS2(): сэмплирование доли экрана каждые 500 мс.
+    │   ├── s2.ts                   # initS2(): сэмплирование доли экрана с интервалом
+    │   │                           # S2_SAMPLE_INTERVAL_MS (constants.ts, дефолт 500 мс).
     │   │                           # Прекращает накопление после session.sent = true.
     │   │                           # Вычисляет видимую область через getBoundingClientRect
     │   │                           # и размеры viewport.
     │   │                           # resetSegmentS2(): очистка накопленных сэмплов
     │   │                           # при разрыве показа — sampler сам наполнит заново
     │   ├── s3.ts                   # initS3(): rAF-throttled scroll tracking в зоне
-    │   │                           # +-300px от баннера. Welford's online algorithm
-    │   │                           # для running mean/std_dev. Детектирует cross-domain
-    │   │                           # iframe -> session.s3 = null.
+    │   │                           # +-SCROLL_ZONE_PX от баннера (constants.ts, дефолт
+    │   │                           # 300px). 7 порогов калибруемы: PAUSE_THRESHOLD_MS,
+    │   │                           # STREAK_WINDOW_MS, STREAK_MIN_EVENTS, STREAK_MIN_SPEED,
+    │   │                           # READING_SPEED_MAX, READING_TIME_MIN, SCROLL_ZONE_PX.
+    │   │                           # Welford's online algorithm для running mean/std_dev.
+    │   │                           # Детектирует cross-domain iframe -> session.s3 = null.
     │   │                           # resetSegmentS3(): сброс running stats, таймеров
     │   │                           # пауз и pauseCheckInterval при разрыве показа (P-15)
     │   ├── s4.ts                   # initS4(): document.visibilitychange listener.
@@ -232,17 +295,23 @@ packages/tag/
     │   │                           # Desktop: click, mouseenter/leave/move, proximity,
     │   │                           # trajectory entropy. Mobile: touchstart/end/move
     │   │                           # (tap, swipe), gesturechange + pinch (zoom).
-    │   │                           # Пороги детекции вынесены в именованные константы
-    │   │                           # и подняты против случайных микрожестов (P-18):
-    │   │                           # SWIPE_MIN_DISTANCE_PX 30->60, добавлен
-    │   │                           # GESTURE_SCALE_DELTA_MIN для gesturechange (ранее
-    │   │                           # срабатывал без всякого порога).
+    │   │                           # 8 порогов детекции калибруемы через constants.ts:
+    │   │                           # SWIPE_MIN_DISTANCE_PX (дефолт 60, поднят с 30, P-18),
+    │   │                           # ENTROPY_ANGLE_THRESHOLD, PROXIMITY_TRACK_ZONE_PX,
+    │   │                           # PINCH_DELTA_MIN_PX, GESTURE_SCALE_DELTA_MIN (добавлен
+    │   │                           # против срабатывания gesturechange без порога, P-18),
+    │   │                           # TAP_MAX_OFFSET_PX, TAP_MAX_DURATION_MS,
+    │   │                           # MOUSE_MOVE_DEDUP_PX. EVENT_TYPES и AD_SELECTORS
+    │   │                           # (s7.ts) сознательно не калибруются.
     │   │                           # resetSegmentS5(): сброс счетчиков взаимодействия
     │   │                           # и приватных замыканий (траектория, touch-state) (P-15)
     │   ├── s7.ts                   # initS7(): статические поля при инициализации
     │   │                           # (position, page_height, above_the_fold).
-    │   │                           # Динамический сэмплинг каждые 1000 мс:
-    │   │                           # competing_ads (эвристика AdTech-доменов + CSS),
+    │   │                           # Динамический сэмплинг с интервалом S7_SAMPLE_INTERVAL_MS
+    │   │                           # (constants.ts, дефолт 1000 мс — отдельная константа
+    │   │                           # от S2_SAMPLE_INTERVAL_MS, ранее было совпадение имен):
+    │   │                           # competing_ads (эвристика AdTech-доменов + CSS,
+    │   │                           # AD_SELECTORS захардкожен, не калибруется),
     │   │                           # viewability_persistence.
     │   │                           # resetSegmentS7(): сброс persistence-сэмплов при
     │   │                           # разрыве показа (is_above_the_fold не сбрасывается —
@@ -251,9 +320,11 @@ packages/tag/
     │                               # (mouse, touch, key, scroll, click).
     │                               # Throttle 100 мс для timestamp, без throttle
     │                               # для счетчика events_count.
-    │                               # Таймер простоя 60 сек (debounce, перезапускается
-    │                               # на каждом raw-событии) — вызывает onIdle() при
-    │                               # истечении, разрывает показ на сегменты (P-15).
+    │                               # Таймер простоя — PRESENCE_IDLE_TIMEOUT_MS из
+    │                               # constants.ts. Полностью синхронизирован с presence-
+    │                               # порогом, который backend резолвит по той же активной
+    │                               # версии констант — рассинхронизация двух копий значения
+    │                               # устранена структурно.
     │                               # Возвращает { cleanup, resetSegment } вместо
     │                               # одной cleanup-функции
     ├── transport/
@@ -284,6 +355,7 @@ packages/tag/
 ```html
 <div
   data-cpmind-creative
+  data-tag-uuid="UUID_вашего_тега"
   data-campaign-id="camp_123"
   data-creative-id="creat_456"
   data-creative-type="banner_static"
@@ -292,7 +364,7 @@ packages/tag/
 >
   <!-- баннер здесь — тег не модифицирует этот HTML -->
 </div>
-<script async src="https://app.cpmind.tech/tag/cpmind-tag.min.js"></script>
+<script async src="https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js"></script>
 ```
 
 **Mobile Safari fix (критический):** при клике по баннеру `sendBeacon` вызывается синхронно в обработчике click (capture: true) до начала навигации браузера. Это единственный надежный способ доставки данных при переходе по ссылке в iOS Safari.
@@ -301,14 +373,21 @@ packages/tag/
 
 ### packages/backend (@cpmind/backend)
 
-Fastify API-сервер. Принимает payload от тега, рассчитывает Score, хранит данные, отдает панели аналитики.
+Fastify API-сервер. Принимает payload от тега, резолвит владельца и версию констант, рассчитывает Score, хранит данные, отдает панели аналитики. Также собирает runtime esbuild-бандлы тега по запросу администратора (services/tag_builder.ts).
 
 ```
 packages/backend/
-├── package.json
+├── package.json                    # esbuild — production-зависимость (runtime-сборка тега)
 ├── tsconfig.json
 ├── drizzle.config.ts               # конфиг Drizzle Kit для генерации миграций
-├── Dockerfile                      # multi-stage build: deps -> builder (pnpm deploy) -> runner
+├── Dockerfile                      # multi-stage: deps -> builder -> runner. runner копирует
+│                                   # полный node_modules (не pnpm deploy --prod — изолированный
+│                                   # поднабор ненадежен при наличии второго workspace-пакета,
+│                                   # packages/tag, со своими зависимостями esbuild/@cpmind/shared),
+│                                   # исходники packages/tag/src (entry point для esbuild),
+│                                   # точка монтирования /tag_dist создается с владельцем
+│                                   # cpmind:cpmind заранее (иначе Docker named volume
+│                                   # монтируется от root, runtime-пользователь не может писать)
 ├── drizzle/
 │   └── migrations/
 │       ├── 0000_sharp_mauler.sql   # первая миграция: CREATE TABLE impressions
@@ -317,90 +396,187 @@ packages/backend/
 │       │                           # + seed v1.0_uncalibrated (is_active=true)
 │       ├── 0002_elite_puppet_master.sql # ADD COLUMN session_group_id, segment_index
 │       │                           # + idx_session_group_id (P-15)
-│       └── 0003_f_presence_check_guarded.sql # CHECK (f_presence IN (0,1)),
-│                                   # перенумерована из ручной правки прошлой итерации
+│       ├── 0003_f_presence_check_guarded.sql # CHECK (f_presence IN (0,1))
+│       ├── 0004_public_thunderbolts.sql # CREATE TYPE user_role, CREATE TABLE users,
+│       │                           # CREATE TABLE tags, ADD COLUMN impressions.tag_id/user_id
+│       │                           # (nullable — backfill на admin выполняется bootstrap-ом
+│       │                           # при старте, не в самой миграции)
+│       ├── 0005_familiar_zodiak.sql # ALTER COLUMN tag_id/user_id SET NOT NULL —
+│       │                           # отдельным шагом, после подтвержденного backfill
+│       ├── 0006_thick_robin_chapel.sql # CREATE TYPE calibration_batch_status,
+│       │                           # calibration_item_status, CREATE TABLE
+│       │                           # calibration_batches/calibration_items
+│       └── 0007_workable_rachel_grey.sql # CREATE SEQUENCE tag_constants_version_seq
+│                                   # (добавлена вручную — pgSequence недоступен в
+│                                   # установленной версии drizzle-orm, используется
+│                                   # напрямую через SQL nextval()), CREATE TABLE
+│                                   # tag_constants_configs, ADD COLUMN
+│                                   # impressions.tag_constants_version (nullable навсегда —
+│                                   # исторические данные до версионирования, без backfill)
 └── src/
-    ├── index.ts                    # entry point. Применяет миграции при старте
-    │                               # через drizzle-orm/node-postgres/migrator,
-    │                               # затем запускает Fastify на PORT (default 3001).
-    │                               # При ошибке миграции — явный лог + process.exit(1)
+    ├── index.ts                    # entry point. Применяет миграции, затем bootstrapAdmin()
+    │                               # (создание admin из ADMIN_LOGIN/ADMIN_PASSWORD_HASH при
+    │                               # пустой таблице users, backfill старых impressions),
+    │                               # затем bootstrapTagConstants() (создание v0 с дефолтными
+    │                               # константами при пустой таблице, реальная esbuild-сборка) —
+    │                               # оба критичны, process.exit(1) при провале.
+    │                               # recoverStuckCalibrationBatches(): батчи, зависшие в
+    │                               # processing при крахе сервера, помечаются failed —
+    │                               # не блокирует старт при провале.
+    │                               # Затем запускает Fastify на PORT (default 3001)
     ├── server.ts                   # buildServer(): Fastify instance.
     │                               # Регистрирует плагины: @fastify/helmet,
-    │                               # @fastify/cookie, @fastify/cors (delegator).
-    │                               # CORS: wildcard для /api/collect (тег),
-    │                               # reflect origin + credentials для панели.
-    │                               # Единственная точка управления CORS — не в NGINX
+    │                               # @fastify/cookie, @fastify/cors (delegator,
+    │                               # методы включают PATCH для /users, /tags).
+    │                               # decorateRequest('authUser', null) — типизированный
+    │                               # контекст авторизации, заполняется requireAuth.
+    │                               # Регистрирует все роуты + запускает retention
+    │                               # и calibration-cleanup jobs после app.ready()
     ├── db/
     │   ├── index.ts                # drizzle client (singleton), pg.Pool с max=20
-    │   └── schema.ts               # таблица impressions: 32 колонки.
-    │                               # таблица weight_configs: id, version, weights
-    │                               # (JSONB), description, is_active, created_at.
-    │                               # JSONB: signals_raw (включает presence — ранее
-    │                               # отсутствовал, баг найден и закрыт), signals_normalized.
-    │                               # session_group_id, segment_index — сегментация
-    │                               # показа при разрыве по простою (P-15).
-    │                               # Отдельные колонки для фильтров/сортировки:
-    │                               # s1-s7 normalized, raw-поля для таблицы панели.
-    │                               # Индексы: impression_id (UNIQUE), session_group_id,
-    │                               # created_at, campaign_id, creative_id, device_type,
-    │                               # is_suspicious, score_final,
-    │                               # idx_weight_configs_is_active
+    │   └── schema.ts                # impressions: +tag_id/user_id (NOT NULL, FK на
+    │                               # tags/users), +tag_constants_version (nullable,
+    │                               # FK на tag_constants_configs.version).
+    │                               # users: id (bigserial, внутренний), uuid (внешний,
+    │                               # никогда не покидает backend как id), login, password_hash,
+    │                               # role (enum admin/user), is_active.
+    │                               # tags: id, uuid, user_id (FK), label, is_active —
+    │                               # 1:N пользователь-теги с самого начала схемы.
+    │                               # calibration_batches/calibration_items: черновики
+    │                               # пересчета Score, approved-элементы хранятся вечно
+    │                               # (аудит), pending — удаляются по TTL.
+    │                               # tag_constants_configs: версии калибруемых констант
+    │                               # тега, неизменяемы после создания, isActive управляет
+    │                               # распространением (наличием файла), не "одна активная"
+    │                               # как у weight_configs — допускает множество активных
+    │                               # одновременно
     ├── routes/
-    │   ├── health.ts               # GET /api/health — проверка БД через SELECT 1.
-    │   │                           # 200 если ok, 503 если БД недоступна
-    │   ├── impressions.ts          # POST /api/collect — публичный (тег, без auth).
-    │   │                           # session_group_id/segment_index в payload — опциональны
-    │   │                           # (обратная совместимость со старыми закэшированными
-    │   │                           # версиями тега без этих полей, fallback в scoring.ts).
-    │   │                           # Zod-валидация -> getActiveWeightsConfig() ->
+    │   ├── health.ts               # GET /api/health — проверка БД через SELECT 1
+    │   ├── impressions.ts          # POST /api/collect — публичный. Резолв tag_uuid
+    │   │                           # (resolveActiveTagOwner, 422 при unknown/inactive) ->
+    │   │                           # резолв tag_constants_version (422 при unknown/inactive,
+    │   │                           # жесткая блокировка — деактивация edge-case, не
+    │   │                           # рутинная операция) -> getActiveWeightsConfig() ->
     │   │                           # processImpression() -> INSERT.
-    │   │                           # Ответ 202 после подтвержденной записи.
-    │   │                           # ON CONFLICT DO NOTHING по impression_id.
-    │   │                           # GET /api/impressions — защищен JWT.
-    │   │                           # Фильтры (включая sessionGroupId), пагинация, сортировка.
-    │   │                           # GET /api/impressions/export/csv — защищен JWT.
-    │   │                           # Стриминговый CSV батчами по 500 строк.
-    │   │                           # GET /api/impressions/:id — защищен JWT.
-    │   │                           # Полный детальный вид с JSONB-полями
-    │   ├── weights_config.ts       # GET /api/weights-config — список версий (JWT).
-    │   │                           # POST /api/weights-config — создать версию (JWT).
-    │   │                           # POST /api/weights-config/:id/activate (JWT).
-    │   │                           # DELETE /api/weights-config/:id (JWT).
-    │   └── auth.ts                 # POST /api/auth/login — bcrypt.compare пароля,
-    │                               # JWT в httpOnly cookie (7 дней).
-    │                               # POST /api/auth/logout — clearCookie
+    │   │                           # GET /api/impressions — роль admin видит все
+    │   │                           # (с owner-полями через JOIN), роль user — только
+    │   │                           # свои, урезанный набор полей по whitelist.
+    │   │                           # GET /api/impressions/export/csv — то же разделение.
+    │   │                           # GET /api/impressions/:id — полностью admin-only
+    │   ├── weights_config.ts       # GET/POST /api/weights-config, POST .../activate,
+    │   │                           # DELETE /api/weights-config/:id — все admin-only
+    │   │                           # (requireAdmin добавлен — был пробелом до калибровки).
+    │   │                           # DELETE перехватывает FK-violation (конфигурация
+    │   │                           # использовалась в calibration_batches) -> 409,
+    │   │                           # не неразличимый 500
+    │   ├── auth.ts                 # POST /api/auth/login — verifyCredentials из БД
+    │   │                           # (не process.env), constant-time bcrypt.compare даже
+    │   │                           # при несуществующем логине (защита от user enumeration
+    │   │                           # через timing-атаку). POST /api/auth/logout.
+    │   │                           # GET /api/auth/me — {uuid, login, role} из JWT + БД
+    │   ├── users.ts                # POST /api/users — создание пользователя + авто-
+    │   │                           # создание одного тега в транзакции (admin-only).
+    │   │                           # GET /api/users — список (admin-only).
+    │   │                           # PATCH /api/users/:userUuid — деактивация/смена пароля
+    │   │                           # (admin-only, запрещена самодеактивация — 409)
+    │   ├── tags.ts                 # POST/GET /api/tags, PATCH /api/tags/:tagUuid —
+    │   │                           # admin-only. GET /api/tags/mine — собственные теги
+    │   │                           # авторизованного пользователя, владелец строго из JWT
+    │   ├── calibrations.ts         # POST /api/calibrations — создание батча пересчета
+    │   │                           # (selection: ids/session_groups/filter), 202 +
+    │   │                           # асинхронная фоновая обработка чанками по 500.
+    │   │                           # GET .../:batchId, .../:batchId/items — превью
+    │   │                           # "было/будет". POST .../items/:itemId/approve,
+    │   │                           # POST .../:batchId/approve — подтверждение с проверкой
+    │   │                           # optimistic concurrency (409 при изменившемся score_final
+    │   │                           # с момента черновика). DELETE .../:batchId — discard,
+    │   │                           # approved-элементы не трогает. Все admin-only
+    │   └── tag_constants.ts        # POST /api/tag-constants — создание версии + реальная
+    │                               # esbuild-сборка, откат записи при провале сборки.
+    │                               # GET (список/детально), POST .../activate (пересборка),
+    │                               # POST .../deactivate (удаление физического файла) —
+    │                               # без PATCH/DELETE содержимого — версии неизменяемы.
+    │                               # Все admin-only
     ├── services/
-    │   ├── scoring.ts              # processImpression(): принимает активный
-    │   │                           # WeightsValues, вызывает computeScore(),
-    │   │                           # формирует ImpressionInsert для вставки в БД.
-    │   │                           # signalsRaw = { ...payload.signals, presence } —
-    │   │                           # presence ранее отсутствовал в JSONB (баг найден
-    │   │                           # и закрыт этой сессией).
-    │   │                           # sessionGroupId/segmentIndex с fallback
-    │   │                           # (?? impression_id, ?? 0) для старых версий тега
-    │   ├── weights_config.ts       # getActiveWeightsConfig(): кэш + SELECT активной
-    │   │                           # конфигурации. Fallback на DEFAULT_WEIGHTS.
-    │   │                           # invalidateWeightsCache(): сброс кэша.
+    │   ├── scoring.ts              # processImpression(): принимает WeightsValues, owner
+    │   │                           # (ActiveTagOwner — tagId/userId), presenceIdleThresholdMs
+    │   │                           # (резолвится из активной версии констант, не константа) —
+    │   │                           # формирует ImpressionInsert
+    │   ├── weights_config.ts       # getActiveWeightsConfig(), кэш + invalidateWeightsCache().
     │   │                           # listWeightsConfigs(), createWeightsConfig(),
     │   │                           # activateWeightsConfig(), deleteWeightsConfig()
-    │   ├── impressions.ts          # listImpressions(): параллельные запросы данных
-    │   │                           # и COUNT через Promise.all. Explicit select —
-    │   │                           # JSONB не тянется в список. Поддерживает фильтр
-    │   │                           # по sessionGroupId (просмотр сегментов показа, P-15).
-    │   │                           # getImpression(): полный объект по id.
-    │   │                           # buildWhereClause(): Drizzle WHERE из query params
-    │   ├── csv.ts                  # buildCsvResponse(): UTF-8 BOM, порядок колонок
-    │   │                           # строго по §7.2 ТЗ + session_group_id, segment_index,
-    │   │                           # батчинг по 500 строк, экранирование спецсимволов
-    │   └── auth.ts                 # verifyCredentials(): bcrypt.compare.
-    │                               # signToken() / verifyToken(): jsonwebtoken
+    │   │                           # (ловит FK-violation от calibration_batches)
+    │   ├── impressions.ts          # listImpressionsForAdmin()/listImpressionsForUser() —
+    │   │                           # раздельные функции, не одна с веткой внутри.
+    │   │                           # USER_VISIBLE_COLUMNS / ADMIN_LIST_COLUMNS — explicit
+    │   │                           # column select по ролям, satisfies-проверка против
+    │   │                           # USER_VISIBLE_IMPRESSION_FIELDS (shared). leftJoin на
+    │   │                           # tags/users для owner-полей. getImpressionForAdmin() —
+    │   │                           # admin-only детальный вид. buildWhereFromFilters()
+    │   │                           # экспортирован — переиспользуется calibrations.ts
+    │   ├── csv.ts                  # buildAdminCsvBody()/buildUserCsvBody() — раздельная
+    │   │                           # генерация по ролям, общий батчинг через collectCsvBody<T>()
+    │   ├── auth.ts                 # verifyCredentials(): SELECT из users + constant-time
+    │   │                           # bcrypt.compare (DUMMY_PASSWORD_HASH — случайный bcrypt-
+    │   │                           # хэш, генерируется один раз при старте процесса, не секрет,
+    │   │                           # защита от timing-атаки user enumeration).
+    │   │                           # signToken()/verifyToken(): JWT payload {uuid, id, role}
+    │   ├── users.ts                # createUser(): транзакция INSERT users + INSERT tags
+    │   │                           # (один тег автоматически). Уникальность login защищена
+    │   │                           # constraint БД (23505), не только предварительным SELECT.
+    │   │                           # listUsers(), updateUserByUuid() — внутренний id никогда
+    │   │                           # не покидает сервис
+    │   ├── tags.ts                 # insertTagForUser() — единственная точка вставки,
+    │   │                           # переиспользуется и при автосоздании в createUser().
+    │   │                           # resolveActiveTagOwner(): JOIN tags+users, оба isActive —
+    │   │                           # деактивация пользователя блокирует прием по всем его тегам.
+    │   │                           # createAdditionalTag(), listAllTags(), listMyTags(),
+    │   │                           # updateTagByUuid()
+    │   ├── calibrations.ts         # createCalibrationBatch(): резолв selection в SQL WHERE
+    │   │                           # (переиспользует buildWhereFromFilters), асинхронная
+    │   │                           # фоновая обработка без await — 202 не дожидается расчета.
+    │   │                           # recomputeScoreFromNormalized() из @cpmind/shared на каждую
+    │   │                           # строку. approveCalibrationItems(): цикл с отдельной
+    │   │                           # транзакцией на элемент — UPDATE impressions только если
+    │   │                           # score_final все еще равен снимку черновика (optimistic
+    │   │                           # concurrency). discardCalibrationBatch(): удаляет только
+    │   │                           # pending, approved — никогда
+    │   ├── tag_constants.ts        # getNextVersion(): nextval('tag_constants_version_seq')
+    │   │                           # через db.execute (.rows[0], не деструктуризация —
+    │   │                           # node-postgres адаптер возвращает QueryResult, не массив).
+    │   │                           # createTagConstantsConfig(): INSERT + buildTagArtifact(),
+    │   │                           # откат записи при провале сборки (компенсирующий, не SQL-
+    │   │                           # транзакция — esbuild не откатывается транзакцией БД).
+    │   │                           # activateTagConstantsConfig(): пересборка из сохраненных
+    │   │                           # constants — детерминированно восстанавливает тот же
+    │   │                           # артефакт. deactivateTagConstantsConfig(): удаление файла.
+    │   │                           # resolveActiveTagConstantsVersion(): presence-порог
+    │   │                           # именно той версии, что заявил показ
+    │   ├── tag_builder.ts          # buildTagArtifact(): esbuild JS API (не CLI) — entry point
+    │   │                           # packages/tag/src/index.ts, define подставляет
+    │   │                           # __CPMIND_CONSTANTS__/__CPMIND_TAG_VERSION__.
+    │   │                           # TAG_DIST_DIR (env) — путь к общему volume с NGINX,
+    │   │                           # fallback на локальный packages/tag/dist для dev без Docker.
+    │   │                           # removeTagArtifact(): удаление файла при деактивации
+    │   └── bootstrap.ts            # bootstrapAdmin(): идемпотентно создает admin из env +
+    │                               # backfill старых impressions (tag_id/user_id на admin).
+    │                               # bootstrapTagConstants(): идемпотентно создает v0 из
+    │                               # DEFAULT_TAG_CONSTANTS (@cpmind/shared — общий источник
+    │                               # с CLI-сборкой тега, не дублируется)
     ├── middleware/
-    │   └── requireAuth.ts          # Fastify preHandler: проверка JWT из cookie.
-    │                               # 401 если токен отсутствует или невалиден
+    │   ├── requireAuth.ts          # Fastify preHandler: проверка JWT + SELECT isActive из
+    │   │                           # БД на каждый запрос (не только при логине) — деактивация
+    │   │                           # отзывает доступ немедленно, не ждет истечения 7-дневного
+    │   │                           # токена. Декорирует request.authUser {uuid, id, role, login}
+    │   └── requireAdmin.ts         # Fastify preHandler: requireAuth.authUser.role === 'admin',
+    │                               # иначе 403. Всегда после requireAuth в preHandler-массиве
     └── jobs/
-        └── retention.ts            # node-cron: удаление импрешенов старше 90 дней.
-                                    # Расписание: 0 3 * * * (03:00 UTC).
-                                    # Логирует результат через pino
+        ├── retention.ts            # node-cron: удаление импрешенов старше 90 дней (03:00 UTC).
+        │                           # calibration_items на удаляемые импрешены — ON DELETE
+        │                           # CASCADE (аудит калибровки не может пережить сам показ)
+        └── calibration_cleanup.ts  # node-cron, каждые 15 минут: удаление pending-элементов
+                                    # батчей старше CALIBRATION_DRAFT_TTL_MINUTES (env, default
+                                    # 60), батч -> status expired. approved — никогда не трогает
 ```
 
 **Схема БД**
@@ -519,6 +695,7 @@ packages/frontend/
 | Language | TypeScript | 5.4.5 |
 | JS-тег | Vanilla TS, esbuild | 0.21.x |
 | Backend | Fastify | 4.28.x |
+| Backend: runtime-сборка тега | esbuild (JS API) | 0.21.x |
 | Security headers | @fastify/helmet | 11.x |
 | Валидация | Zod | 3.23.x |
 | ORM | Drizzle ORM | 0.31.x |
@@ -530,6 +707,24 @@ packages/frontend/
 | Планировщик | node-cron | 3.0.x |
 | Контейнеризация | Docker + Docker Compose | — |
 | Веб-сервер | NGINX | 1.27-alpine |
+
+---
+
+## Многопользовательская модель и роли
+
+Система поддерживает множество пользователей с двумя ролями: `admin` и `user`. Учетные записи создает администратор вручную — самостоятельной регистрации нет.
+
+**Привязка данных к владельцу.** Каждый пользователь получает один или несколько тегов (`tags`, 1:N с самого начала схемы). Каждый показ привязан к конкретному тегу через `tag_uuid` в payload — backend резолвит владельца (`tag_id`, `user_id`) при приеме и денормализует его в `impressions` для производительности списков аналитики без JOIN на каждый запрос.
+
+**Роль `admin`:** видит все импрешены всех пользователей, управляет учетными записями и тегами, калибрует веса и константы тега, видит полный набор полей по каждому показу (включая `signals_raw`).
+
+**Роль `user`:** видит только импрешены, привязанные к его собственным тегам. Урезанный набор полей (`USER_VISIBLE_IMPRESSION_FIELDS`, единый whitelist в `@cpmind/shared` для JSON-ответа и CSV-экспорта) — без сырых сигналов, без детальных флагов. Нет доступа к калибровке весов, константам тега, управлению пользователями.
+
+**IDOR-защита:** владелец данных всегда берется из подписанного JWT (`request.authUser`), никогда из URL/query. Запрос к чужому импрешену по id возвращает 404, не 403. Детальный просмотр (`GET /api/impressions/:id`) полностью admin-only.
+
+**Деактивация вместо удаления.** Пользователи и теги не удаляются — `is_active=false`. Деактивация пользователя немедленно отзывает доступ (проверка `isActive` на каждый запрос, не только при логине) и блокирует прием новых данных по всем его тегам. Жесткое удаление данных конкретного пользователя — не через API, только прямой доступ к БД.
+
+**Известное ограничение MVP:** это многопользовательская модель с ролевым разграничением, не полная мультитенантность — один сервер, одна база данных, без изолированных инстансов/доменов на клиента.
 
 ---
 
@@ -553,7 +748,9 @@ packages/frontend/
 - Debug-режим: консольное логирование + DOM-оверлей с метриками в реальном времени
 - Поддержка браузеров: Chrome 90+, Firefox 90+, Safari 14+, Edge 90+
 - Без cookies, без localStorage пользовательских идентификаторов, без сбора IP
-- Раздается через NGINX: `https://app.cpmind.tech/tag/cpmind-tag.min.js`
+- tag_uuid и tag_constants_version зашиты в конкретный собранный файл — привязка к владельцу и версии калибровки констант без участия HTML-разметки клиента кроме data-tag-uuid
+- 19 пороговых констант сбора сигналов калибруемы через версионирование (см. раздел "Версионирование констант тега"); EVENT_TYPES и AD_SELECTORS сознательно не калибруются
+- Раздается через NGINX: `https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js` (несколько версий одновременно)
 - CORS заголовок `Access-Control-Allow-Origin: *` — работает с любого домена
 
 ### Backend
@@ -578,6 +775,39 @@ packages/frontend/
 - signals_raw включает presence (ранее отсутствовал в JSONB — баг найден и закрыт)
 - F_Presence: скользящее окно — обнуление по факту простоя ≥60 сек независимо от количества событий до него, согласовано с клиентом
 - Фильтр по session_group_id в GET /api/impressions и CSV-экспорте
+
+### Multi-user backend и привязка тега
+
+- Таблицы users (роли admin/user, bcrypt, soft-delete) и tags (1:N к пользователю, branded uuid)
+- POST /api/users: создание пользователя + автосоздание одного тега в транзакции
+- Полный CRUD пользователей и тегов, все admin-only, с IDOR-защитой (владелец строго из JWT)
+- requireAuth проверяет isActive на каждый запрос — деактивация отзывает доступ немедленно
+- Ролевая фильтрация GET /api/impressions, /:id, /export/csv — admin видит все, user только свои
+- USER_VISIBLE_IMPRESSION_FIELDS — единый whitelist полей для роли user (JSON + CSV)
+- tag_uuid обязателен в ImpressionPayload — резолв владельца в POST /api/collect, 422 при unknown/inactive tag
+- Constant-time bcrypt.compare при логине — защита от timing-атаки user enumeration
+- Bootstrap admin из ADMIN_LOGIN/ADMIN_PASSWORD_HASH (.env) при пустой таблице users, идемпотентно
+- Backfill существующих impressions на admin при первой миграции — без потери истории
+
+### Калибровка весов: пересчет исторических impressions (P-10 закрыт)
+
+- POST /api/calibrations: выбор импрешенов (конкретные id, session_group_id целиком, или фильтр — включая по конкретному пользователю), асинхронная фоновая обработка
+- Draft/approve флоу: пересчет не перезаписывает БД сразу — создается черновик (calibration_items) с "было/будет" по каждому показу
+- recomputeScoreFromNormalized(): пересчет только score_final и weights_version — signals_raw, signals_normalized, F_Presence и флаги подозрительности не пересчитываются (не зависят от весов)
+- Optimistic concurrency: подтверждение проверяет, что score_final не изменился с момента черновика — иначе 409, без перезаписи
+- Массовое подтверждение с частичным успехом (conflicted не блокирует approved)
+- Discard батча удаляет только pending-черновики, approved хранится вечно как аудит
+- TTL-очистка непросмотренных черновиков (CALIBRATION_DRAFT_TTL_MINUTES, default 60 мин)
+- weights-config теперь admin-only (requireAdmin — закрытый пробел в авторизации)
+
+### Версионирование констант тега
+
+- 19 калибруемых констант сбора сигналов (SCROLL_ZONE_PX, PAUSE_THRESHOLD_MS, SWIPE_MIN_DISTANCE_PX и др.) — вынесены из захардкоженных значений в tag_constants_configs
+- Runtime-сборка esbuild внутри backend по запросу администратора — packages/tag/Dockerfile и сервис tag-builder упразднены
+- Множественная одновременная активность версий (в отличие от weight_configs — не "одна активная")
+- Деактивация удаляет физический файл тега с диска и жестко блокирует прием новых показов с этой версией (422) — обновление поведения на уже размещенном у клиента теге требует осознанной замены <script src>
+- PRESENCE_IDLE_TIMEOUT_MS синхронизирован между тегом и backend через активную версию констант — устранено ручное дублирование значения в двух местах
+- Bootstrap v0 с исходными значениями при первом старте — обратная совместимость с уже размещенными тегами не нарушена
 
 ### Панель аналитика
 
@@ -635,13 +865,12 @@ packages/frontend/
 - P-03 (mobile S5 — нет аналога hover): `touch_start_end_delta_ms` собирается тегом, но не используется в иерархии нормализации S5. Требует новой шкалы уровней — запланировано на вторую итерацию калибровки
 - P-19 (`competing_ads_visible` = 0 на стенде "теснота"): не баг, ограничение тестового стенда — подробности в `docs/development_history/BUG_FIXING_V1.md`
 - Короткие полностью пассивные показы (длительность < 60 сек, событий 0): не обнуляются текущей формулой F_Presence. Оставлено без отдельного условия, согласовано с клиентом. Подробности — `docs/development_history/BUG_FIXING_V2.md`
-- P-10 (пересчет Score на исторических данных при смене весов): отмечен клиентом как критичный в `test/TESTING_v1.md`, не зафиксирован ни в одном из отчетов по фиксам — статус требует уточнения с клиентом
 
 ### Архитектурные ограничения MVP (целевые для следующей итерации)
 
-- Один аккаунт аналитика, нет мультитенантности
+- Множественные пользователи с ролями (admin/user) реализованы; полная мультитенантность (изолированные инстансы/домены на клиента) — нет
 - Один сервер без горизонтального масштабирования
-- Нет очереди сообщений (Kafka/RabbitMQ)
+- Нет очереди сообщений (Kafka/RabbitMQ) — асинхронная обработка калибровки реализована без очереди, чанками в фоновой функции; при росте объема данных может потребоваться пересмотр
 
 ---
 
@@ -674,9 +903,9 @@ ADMIN_PASSWORD_HASH=
 
 ### Тег
 
-**Dev** — тег собирается локально командой `pnpm --filter @cpmind/tag build` и подключается напрямую из файловой системы через `python3 -m http.server`.
+**Dev** — тег собирается локально командой `pnpm --filter @cpmind/tag build` (CLI-режим, version='dev', DEFAULT_TAG_CONSTANTS из @cpmind/shared) и подключается напрямую из файловой системы через `python3 -m http.server`.
 
-**Prod** — тег собирается автоматически сервисом `tag-builder` при `docker compose up --build`. Артефакт копируется в Docker volume `cpmind_tag_dist`, откуда NGINX раздает его по адресу `https://app.cpmind.tech/tag/cpmind-tag.min.js` с заголовком `Access-Control-Allow-Origin: *`.
+**Prod** — тег собирается backend-ом в runtime через esbuild JS API (`services/tag_builder.ts`), по запросу администратора (`POST /api/tag-constants`), не при `docker build`. Сервис `tag-builder` и `packages/tag/Dockerfile` упразднены. Каждая версия пишется в Docker volume `tag_dist` (`cpmind-tag_v{N}.min.js`), откуда NGINX раздает ее по адресу `https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js` с заголовком `Access-Control-Allow-Origin: *`. Несколько версий существуют на диске одновременно.
 
 ### BACKEND_URL / NEXT_PUBLIC_BACKEND_URL
 
@@ -990,7 +1219,7 @@ git pull
 docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-При изменении тега (`packages/tag/src/`) Docker пересобирает `tag-builder` образ автоматически.
+Изменения исходников тега (`packages/tag/src/`) попадают в новые версии только при следующей runtime-сборке через `POST /api/tag-constants` — обычный `git pull` + пересборка backend-образа сам по себе не создает новых версионированных файлов тега, он лишь обновляет исходники, которые backend использует при следующей runtime-сборке.
 
 ### Полная пересборка с нуля (при необходимости)
 
@@ -1046,6 +1275,8 @@ docker stats
 | HOST | хост backend | нужна в .env | задана в Compose |
 | BACKEND_URL | URL backend для Server Components | нужна в .env | задана в Compose |
 | NEXT_PUBLIC_BACKEND_URL | URL backend для Client Components | нужна в .env | задана в Compose ("") |
+| CALIBRATION_DRAFT_TTL_MINUTES | TTL непросмотренных черновиков калибровки в минутах | необязательна, default 60 | задана в Compose (default 60) |
+| TAG_DIST_DIR | путь к volume с собранными файлами тега | не нужна (fallback на packages/tag/dist) | задана в Compose (/tag_dist) |
 
 **Важно для production:** секреты передаются через `export` в shell, не через файл `.env`. Это исключает проблему интерпретации `$` в bcrypt-хэшах Docker Compose.
 
@@ -1115,7 +1346,21 @@ export const DEFAULT_WEIGHTS = {
 
 #### Версионирование
 
-Все версии конфигурации хранятся в БД. Старые импрешены сохраняют `weights_version` на момент записи — история не переписывается. Неактивные версии можно удалить через панель (активную удалить нельзя).
+Все версии конфигурации хранятся в БД. Старые импрешены сохраняют `weights_version` на момент записи — история не переписывается при создании/активации новой версии. Неактивные версии можно удалить через панель (активную удалить нельзя; версию, использованную ранее как цель пересчета в calibration_batches, тоже нельзя — 409, защита FK).
+
+#### Пересчет исторических импрешенов на новую версию весов
+
+Активация новой версии весов влияет только на **новые** показы. Старые импрешены сохраняют свой `score_final`, рассчитанный на той версии, что была активна в момент их записи. Чтобы пересчитать уже накопленные данные на новые веса:
+
+**Шаг 1 — выбор данных.** Можно выбрать: один конкретный импрешен, один или несколько сегментов показа целиком (`session_group_id`), произвольную выборку через те же фильтры, что в основной таблице (включая выбор всех показов конкретного пользователя), либо весь массив данных.
+
+**Шаг 2 — создание батча.** `POST /api/calibrations` создает батч и запускает асинхронный пересчет (без очереди — фоновая функция, чанками по 500 строк). Пересчитываются только `score_final` и `weights_version` — сырые и нормализованные сигналы, `F_Presence`, флаги подозрительности не зависят от весов и не трогаются.
+
+**Шаг 3 — превью "было/будет".** Ни одна запись в `impressions` не перезаписывается на этом шаге. Результат расчета хранится как черновик (`calibration_items`). Администратор просматривает список или каждый показ отдельно, видит `previousScoreFinal`/`newScoreFinal` рядом.
+
+**Шаг 4 — подтверждение.** Только по явному действию — подтвердить один показ или весь батч — данные реально перезаписываются в `impressions`. Перед записью проверяется, что `score_final` показа не изменился с момента создания черновика (если изменился — `409`, нужен новый расчет, не перезапись поверх). Подтвержденные элементы сохраняются как аудит-история вечно; подтверждение нельзя отменить.
+
+**Шаг 5 — отмена.** Непросмотренные черновики можно явно отменить (`DELETE /api/calibrations/:batchId`) или они автоматически истекают по таймауту (`CALIBRATION_DRAFT_TTL_MINUTES`, по умолчанию 60 минут) — в обоих случаях удаляются только неподтвержденные элементы черновика.
 
 ### Процесс калибровки (ручная калибровка, перекалибровка дефолтов)
 
@@ -1175,6 +1420,83 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ---
 
+## Версионирование констант тега
+
+### Что это и зачем
+
+У тега 19 пороговых констант, определяющих интерпретацию сырых событий браузера в сигналы S1–S7 (`SCROLL_ZONE_PX`, `SWIPE_MIN_DISTANCE_PX`, `PRESENCE_IDLE_TIMEOUT_MS` и др.). Раньше эти значения требовали ручной правки кода тега и пересборки. Теперь они калибруются через API, версионируются в БД и собираются в готовый файл автоматически. `EVENT_TYPES` и `AD_SELECTORS` сознательно не калибруются.
+
+### Отличие от модели весов
+
+В отличие от `weight_configs` (ровно одна активная версия), версии констант тега могут быть активны **одновременно в любом количестве** — разные клиенты используют разные версии параллельно.
+
+### Создание версии
+
+`POST /api/tag-constants` (admin-only), полный набор 19 значений. Версия присваивается автоматически (`v0`, `v1`, ... через Postgres sequence) и **неизменяема после создания**. При создании сразу выполняется реальная esbuild-сборка; провал сборки откатывает запись о версии.
+
+### Активация и деактивация
+
+Деактивация удаляет физический файл версии с диска и **жестко блокирует** `POST /api/collect` для любого показа с этой версией, независимо от момента отправки. Реактивация пересобирает файл заново из сохраненных в БД значений.
+
+### Привязка на странице клиента
+
+`<script src>` указывает на конкретную версию (`cpmind-tag_v{N}.min.js`). Версия и константы "зашиты" esbuild-сборкой, не передаются через `data`-атрибуты. Перевод размещенного тега на новую версию — ручная замена `<script src>`.
+
+### Синхронизация с backend
+
+`PRESENCE_IDLE_TIMEOUT_MS` используется и тегом, и backend-ом (порог обнуления `F_Presence`). Backend резолвит значение из той версии констант, что заявил конкретный показ (`tag_constants_version` в payload) — ручное дублирование значения в двух местах устранено.
+```
+
+## 23. Следующие шаги — HTML-сниппет и таблица
+**Before:**
+```html
+<div
+  data-cpmind-creative
+  data-campaign-id="название_кампании"
+  data-creative-id="название_баннера"
+  data-creative-type="banner_static"
+  data-endpoint="https://app.cpmind.tech/api/collect"
+  style="width: 728px; height: 90px;"
+>
+  <!-- ваш баннер или ссылка на него здесь -->
+  <a href="https://ваш-сайт.ru">
+    <img src="баннер.jpg" width="728" height="90" />
+  </a>
+</div>
+```
+
+Второй — подключение тега (один раз в конце страницы):
+
+```html
+<script async src="https://app.cpmind.tech/tag/cpmind-tag.min.js"></script>
+```
+```
+**After:**
+```html
+<div
+  data-cpmind-creative
+  data-tag-uuid="UUID_вашего_тега_выдается_командой_CPMind"
+  data-campaign-id="название_кампании"
+  data-creative-id="название_баннера"
+  data-creative-type="banner_static"
+  data-endpoint="https://app.cpmind.tech/api/collect"
+  style="width: 728px; height: 90px;"
+>
+  <!-- ваш баннер или ссылка на него здесь -->
+  <a href="https://ваш-сайт.ru">
+    <img src="баннер.jpg" width="728" height="90" />
+  </a>
+</div>
+```
+
+Второй — подключение тега (один раз в конце страницы). Адрес содержит версию — выдается командой CPMind вместе с `data-tag-uuid`:
+
+```html
+<script async src="https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js"></script>
+```
+
+---
+
 ## Следующие шаги — интеграция тега на сайт клиента
 
 ### Для клиента: что нужно сделать
@@ -1221,6 +1543,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 | Атрибут | Что писать |
 |---|---|
+| data-tag-uuid | выдается командой CPMind для вашего аккаунта, привязывает показы к вашим данным в панели |
 | data-campaign-id | произвольное название кампании, например `autumn_sale_2026` |
 | data-creative-id | произвольное название баннера, например `banner_728x90_v1` |
 | data-creative-type | тип баннера: `banner_static`, `banner_gif` или `banner_html5` |

@@ -16,16 +16,17 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
+import {
+  SCROLL_ZONE_PX,
+  PAUSE_THRESHOLD_MS,
+  STREAK_WINDOW_MS,
+  STREAK_MIN_EVENTS,
+  STREAK_MIN_SPEED,
+  READING_SPEED_MAX,
+  READING_TIME_MIN,
+} from '../constants.js';
 
 const resetters = new WeakMap<HTMLElement, () => void>();
-
-const SCROLL_ZONE_PX = 300; // ±300px от центра баннера
-const PAUSE_THRESHOLD_MS = 500; // пауза скролла > 500 мс
-const STREAK_WINDOW_MS = 2000;  // окно для серии быстрых скроллов
-const STREAK_MIN_EVENTS = 3; // минимум событий за окно = серия
-const STREAK_MIN_SPEED = 300; // px/s — порог быстрого скролла для streak (P-01, P-02)
-const READING_SPEED_MAX = 150; // px/s — медленный скролл (режим чтения)
-const READING_TIME_MIN = 2000; // мс — минимальное время медленного скролла
 
 interface RunningStats {
   count: number;

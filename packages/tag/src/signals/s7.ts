@@ -14,6 +14,7 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
+import { S7_SAMPLE_INTERVAL_MS } from '../constants.js';
 
 const AD_SELECTORS = [
   'iframe[src*="doubleclick.net"]',
@@ -32,7 +33,6 @@ const AD_SELECTORS = [
   '[class*="advertisement"]',
   'ins.adsbygoogle',
 ];
-const SAMPLE_INTERVAL_MS = 1000;
 
 /**
  * Проверяет виден ли элемент в viewport
@@ -126,7 +126,6 @@ export function initS7(
     });
   }
 
-
   const intervalId = setInterval(() => {
     // viewability_persistence
     // true если баннер сейчас в viewport (≥50% пикселей)
@@ -161,7 +160,7 @@ export function initS7(
         pageHeightTotalPx: session.pageHeightTotalPx,
       });
     }
-  }, SAMPLE_INTERVAL_MS);
+  }, S7_SAMPLE_INTERVAL_MS);
 
   window.addEventListener('pagehide', () => {
     clearInterval(intervalId);

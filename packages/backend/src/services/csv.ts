@@ -1,12 +1,27 @@
 import type { FastifyReply } from 'fastify';
 import { format } from 'date-fns';
+import { eq, and } from 'drizzle-orm';
+import { USER_VISIBLE_IMPRESSION_FIELDS } from '@cpmind/shared';
 import { db } from '../db/index.js';
-import { impressions } from '../db/schema.js';
-import type { ImpressionSelect } from '../db/schema.js';
-import { buildWhereClause } from './impressions.js';
+import { impressions, tags, users } from '../db/schema.js';
+import type { AuthenticatedRequestUser } from '../middleware/requireAuth.js';
+import {
+  buildWhereClause,
+  buildOwnerFilter,
+  requireOwnerJoined,
+  USER_VISIBLE_COLUMNS,
+  ADMIN_DETAIL_COLUMNS,
+} from './impressions.js';
+import type {
+  UserVisibleRow,
+  JoinedImpressionDetailRow,
+} from './impressions.js';
 
-const CSV_HEADER = [
+const CSV_BATCH_SIZE = 500;
+
+const ADMIN_CSV_HEADER = [
   'impression_id', 'session_group_id', 'segment_index',
+  'tag_uuid', 'tag_label', 'user_uuid', 'user_login',
   'campaign_id', 'creative_id', 'creative_type', 'device_type',
   'timestamp_start', 'timestamp_end', 'weights_version',
   'time_in_view_sec', 'mrc_compliant', 'visible_pixels_pct', 'max_continuous_view_sec',
@@ -26,6 +41,8 @@ const CSV_HEADER = [
   'no_events', 'tab_mostly_hidden', 'anomaly_duration', 'is_suspicious',
 ].join(',');
 
+const USER_CSV_HEADER = USER_VISIBLE_IMPRESSION_FIELDS.join(',');
+
 function csvField(value: unknown): string {
   if (value === null || value === undefined) return '';
   const str = String(value);
@@ -35,20 +52,22 @@ function csvField(value: unknown): string {
   return str;
 }
 
-function rowToCsvLine(row: ImpressionSelect): string {
-  const raw = row.signalsRaw as Record<string, Record<string, unknown>>;
+function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
+  const owner = requireOwnerJoined(row);
+  const raw = row.signals_raw as Record<string, Record<string, unknown>>;
   const s1 = raw['s1'] ?? {};
   const s2 = raw['s2'] ?? {};
   const s3 = (raw['s3'] ?? {}) as Record<string, unknown>;
   const s4 = raw['s4'] ?? {};
   const s5 = raw['s5'] ?? {};
   const s7 = raw['s7'] ?? {};
-  const pr = (row.signalsRaw as Record<string, unknown>)['presence'] as Record<string, unknown> ?? {};
+  const pr = (row.signals_raw as Record<string, unknown>)['presence'] as Record<string, unknown> ?? {};
 
   const fields: unknown[] = [
-    row.impressionId, row.sessionGroupId, row.segmentIndex,
-    row.campaignId, row.creativeId, row.creativeType, row.deviceType,
-    row.timestampStart, row.timestampEnd, row.weightsVersion,
+    row.impression_id, row.session_group_id, row.segment_index,
+    owner.tagUuid, row.tag_label, owner.userUuid, owner.userLogin,
+    row.campaign_id, row.creative_id, row.creative_type, row.device_type,
+    row.timestamp_start, row.timestamp_end, row.weights_version,
     s1['time_in_view_sec'], s1['mrc_compliant'], s1['visible_pixels_pct'], s1['max_continuous_view_sec'],
     s2['share_of_screen_avg_pct'], s2['share_of_screen_max_pct'],
     s3['scroll_speed_avg_px_s'], s3['scroll_speed_max_px_s'], s3['scroll_speed_std_dev'],
@@ -61,48 +80,91 @@ function rowToCsvLine(row: ImpressionSelect): string {
     s7['creative_position_y_px'], s7['page_height_total_px'], s7['is_above_the_fold'],
     s7['competing_ads_visible'], s7['viewability_persistence_pct'],
     pr['last_user_event_timestamp'], pr['time_since_last_event_ms'], pr['events_count_during_impression'],
-    row.s1Normalized, row.s2Normalized, row.s3Normalized, row.s4Normalized, row.s5Normalized, row.s7Normalized,
-    row.fPresence, row.scoreFinal,
-    row.noEvents, row.tabMostlyHidden, row.anomalyDuration, row.isSuspicious,
+    row.s1_normalized, row.s2_normalized, row.s3_normalized, row.s4_normalized, row.s5_normalized, row.s7_normalized,
+    row.f_presence, row.score_final,
+    row.no_events, row.tab_mostly_hidden, row.anomaly_duration, row.is_suspicious,
   ];
 
   return fields.map(csvField).join(',');
 }
 
+function rowToUserCsvLine(row: UserVisibleRow): string {
+  const fields = USER_VISIBLE_IMPRESSION_FIELDS.map((field) => row[field]);
+  return fields.map(csvField).join(',');
+}
+
+// Универсальный построитель CSV-тела батчами по CSV_BATCH_SIZE строк. Не зависит от роли — параметризован источником данных и сериализацией строки
+async function collectCsvBody<T>(
+  header: string,
+  fetchBatch: (offset: number) => Promise<T[]>,
+  rowToLine: (row: T) => string,
+): Promise<string> {
+  let offset = 0;
+  const chunks: string[] = ['\uFEFF', header + '\r\n'];
+
+  while (true) {
+    const batch = await fetchBatch(offset);
+    if (batch.length === 0) break;
+
+    for (const row of batch) {
+      chunks.push(rowToLine(row) + '\r\n');
+    }
+
+    offset += CSV_BATCH_SIZE;
+    if (batch.length < CSV_BATCH_SIZE) break;
+  }
+
+  return chunks.join('');
+}
+
+async function buildAdminCsvBody(queryParams: Record<string, string>): Promise<string> {
+  const where = buildWhereClause(queryParams);
+
+  return collectCsvBody(
+    ADMIN_CSV_HEADER,
+    (offset) => db.select(ADMIN_DETAIL_COLUMNS)
+      .from(impressions)
+      .leftJoin(tags, eq(impressions.tagId, tags.id))
+      .leftJoin(users, eq(impressions.userId, users.id))
+      .where(where)
+      .orderBy(impressions.createdAt)
+      .limit(CSV_BATCH_SIZE)
+      .offset(offset),
+    rowToAdminCsvLine,
+  );
+}
+
+async function buildUserCsvBody(
+  queryParams: Record<string, string>,
+  ownerId: number,
+): Promise<string> {
+  const where = and(buildWhereClause(queryParams), buildOwnerFilter(ownerId));
+
+  return collectCsvBody(
+    USER_CSV_HEADER,
+    (offset) => db.select(USER_VISIBLE_COLUMNS)
+      .from(impressions)
+      .where(where)
+      .orderBy(impressions.createdAt)
+      .limit(CSV_BATCH_SIZE)
+      .offset(offset),
+    rowToUserCsvLine,
+  );
+}
+
 export async function buildCsvResponse(
   queryParams: Record<string, string>,
   reply: FastifyReply,
+  authUser: AuthenticatedRequestUser,
 ): Promise<void> {
   const filename = `cpmind_export_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
 
   reply.header('Content-Type', 'text/csv; charset=utf-8');
   reply.header('Content-Disposition', `attachment; filename="${filename}"`);
 
-  const where = buildWhereClause(queryParams);
-  const BATCH = 500;
-  let offset = 0;
-  const chunks: string[] = [];
+  const body = authUser.role === 'admin'
+    ? await buildAdminCsvBody(queryParams)
+    : await buildUserCsvBody(queryParams, authUser.id);
 
-  chunks.push('\uFEFF');
-  chunks.push(CSV_HEADER + '\r\n');
-
-  while (true) {
-    const batch = await db.select()
-      .from(impressions)
-      .where(where)
-      .orderBy(impressions.createdAt)
-      .limit(BATCH)
-      .offset(offset);
-
-    if (batch.length === 0) break;
-
-    for (const row of batch) {
-      chunks.push(rowToCsvLine(row) + '\r\n');
-    }
-
-    offset += BATCH;
-    if (batch.length < BATCH) break;
-  }
-
-  return reply.send(chunks.join(''));
+  return reply.send(body);
 }

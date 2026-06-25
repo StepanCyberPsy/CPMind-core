@@ -15,8 +15,7 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
-
-const SAMPLE_INTERVAL_MS = 500;
+import { S2_SAMPLE_INTERVAL_MS } from '../constants.js';
 
 export function initS2(
   creativeEl: HTMLElement,
@@ -64,7 +63,7 @@ export function initS2(
     }
   }
 
-  intervalId = setInterval(sample, SAMPLE_INTERVAL_MS);
+  intervalId = setInterval(sample, S2_SAMPLE_INTERVAL_MS);
   sample();
 
   window.addEventListener('pagehide', () => {

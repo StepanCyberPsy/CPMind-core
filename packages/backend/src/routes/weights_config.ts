@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/requireAuth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 import {
     listWeightsConfigs,
     createWeightsConfig,
@@ -24,13 +25,13 @@ const CreateWeightsConfigSchema = z.object({
 export const weightsConfigRoute: FastifyPluginAsync = async (app) => {
 
     // GET /api/weights-config
-    app.get('/weights-config', { preHandler: requireAuth }, async (request, reply) => {
+    app.get('/weights-config', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
         const configs = await listWeightsConfigs();
         return reply.send(configs);
     });
 
     // POST /api/weights-config
-    app.post('/weights-config', { preHandler: requireAuth }, async (request, reply) => {
+    app.post('/weights-config', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
         const parsed = CreateWeightsConfigSchema.safeParse(request.body);
 
         if (!parsed.success) {
@@ -47,14 +48,14 @@ export const weightsConfigRoute: FastifyPluginAsync = async (app) => {
     });
 
     // POST /api/weights-config/:id/activate
-    app.post('/weights-config/:id/activate', { preHandler: requireAuth }, async (request, reply) => {
+    app.post('/weights-config/:id/activate', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
         const { id } = request.params as { id: string };
         await activateWeightsConfig(id);
         return reply.status(200).send({ ok: true });
     });
 
     // DELETE /api/weights-config/:id
-    app.delete('/weights-config/:id', { preHandler: requireAuth }, async (request, reply) => {
+    app.delete('/weights-config/:id', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
         const { id } = request.params as { id: string };
         await deleteWeightsConfig(id);
         return reply.status(200).send({ ok: true });

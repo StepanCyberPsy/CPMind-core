@@ -1,11 +1,18 @@
 import { z } from 'zod';
+import { TagUuidSchema } from './tag.js';
+import { UserUuidSchema } from './user.js';
 
-// Список импрешенов
+// Список импрессенов
 export const ImpressionRowSchema = z.object({
   id: z.string().uuid(),
   impression_id: z.string().uuid(),
   session_group_id: z.string().uuid(),
   segment_index: z.number().int().min(0),
+  tag_uuid: TagUuidSchema,
+  tag_label: z.string().nullable(),
+  user_uuid: UserUuidSchema,
+  user_login: z.string(),
+  tag_constants_version: z.string().nullable(),
   campaign_id: z.string(),
   creative_id: z.string(),
   creative_type: z.string(),

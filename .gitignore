@@ -69,7 +69,9 @@ prompt_tasks/
 
 # Версии
 nginx/nginx_v1.conf
-packages/backend/Dockerfile_v1
-packages/frontend/Dockerfile_v1
-packages/backend/drizzle_v1.config.ts
-packages/backend/src/routes/impressions_v1.ts
+nginx/nginx_v2.conf
+docker-compose.prod.v1.yml
+
+# Куки, экспорты и др
+*_cookies.txt
+*_export.csv

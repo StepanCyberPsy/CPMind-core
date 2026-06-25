@@ -1,16 +1,18 @@
 import { and, eq, gte, lte, asc, desc, count, type SQL } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { impressions } from '../db/schema.js';
-import type { ImpressionSelect } from '../db/schema.js';
+import { impressions, tags, users } from '../db/schema.js';
 import type {
   ImpressionRow,
   ImpressionDetail,
   ImpressionListResponse,
+  UserVisibleImpressionField,
+  UserImpressionRow,
+  UserImpressionListResponse,
+  TagUuid,
+  UserUuid,
 } from '@cpmind/shared';
 
-export interface ListParams {
-  page: number;
-  limit: number;
+export interface ListFilters {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
@@ -18,21 +20,16 @@ export interface ListParams {
   isSuspicious?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
+}
+
+export interface ListParams extends ListFilters {
+  page: number;
+  limit: number;
   sortBy: 'createdAt' | 'scoreFinal';
   sortDir: 'asc' | 'desc';
 }
 
-interface FilterParams {
-  sessionGroupId?: string;
-  campaignId?: string;
-  creativeId?: string;
-  deviceType?: string;
-  isSuspicious?: boolean;
-  dateFrom?: Date;
-  dateTo?: Date;
-}
-
-function buildWhereFromFilters(filters: FilterParams): SQL | undefined {
+export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
   return and(
     filters.sessionGroupId !== undefined ? eq(impressions.sessionGroupId, filters.sessionGroupId) : undefined,
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
@@ -45,7 +42,7 @@ function buildWhereFromFilters(filters: FilterParams): SQL | undefined {
 }
 
 export function buildWhereClause(queryParams: Record<string, string>): SQL | undefined {
-  const filters: FilterParams = {
+  const filters: ListFilters = {
     ...(queryParams['sessionGroupId'] !== undefined && { sessionGroupId: queryParams['sessionGroupId'] }),
     ...(queryParams['campaignId'] !== undefined && { campaignId: queryParams['campaignId'] }),
     ...(queryParams['creativeId'] !== undefined && { creativeId: queryParams['creativeId'] }),
@@ -68,104 +65,248 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
   return buildWhereFromFilters(filters);
 }
 
-function toImpressionDetail(row: ImpressionSelect): ImpressionDetail {
+// Принудительное ограничение владельца для роли user. Комбинируется с buildWhereClause через and() на уровне роута, никогда не строится из данных запроса клиента
+export function buildOwnerFilter(ownerId: number): SQL {
+  return eq(impressions.userId, ownerId);
+}
+
+// Колонки, доступные роли user. satisfies проверяет соответствие ключей USER_VISIBLE_IMPRESSION_FIELDS в обе стороны — расхождение состава полей не пройдет компиляцию
+export const USER_VISIBLE_COLUMNS = {
+  impression_id: impressions.impressionId,
+  campaign_id: impressions.campaignId,
+  creative_id: impressions.creativeId,
+  creative_type: impressions.creativeType,
+  device_type: impressions.deviceType,
+  timestamp_start: impressions.timestampStart,
+  timestamp_end: impressions.timestampEnd,
+  s1_normalized: impressions.s1Normalized,
+  s2_normalized: impressions.s2Normalized,
+  s3_normalized: impressions.s3Normalized,
+  s4_normalized: impressions.s4Normalized,
+  s5_normalized: impressions.s5Normalized,
+  s7_normalized: impressions.s7Normalized,
+  score_final: impressions.scoreFinal,
+  is_suspicious: impressions.isSuspicious,
+} satisfies Record<UserVisibleImpressionField, unknown>;
+
+// Колонки сверх USER_VISIBLE_COLUMNS, доступны только администратору
+const ADMIN_ONLY_COLUMNS = {
+  id: impressions.id,
+  session_group_id: impressions.sessionGroupId,
+  segment_index: impressions.segmentIndex,
+  s1_raw_time_in_view: impressions.s1RawTimeInView,
+  s2_raw_share_of_screen: impressions.s2RawShareOfScreen,
+  s3_raw_scroll_speed: impressions.s3RawScrollSpeed,
+  s4_raw_active_time_pct: impressions.s4RawActiveTimePct,
+  s5_raw_top_event: impressions.s5RawTopEvent,
+  s7_raw_persistence: impressions.s7RawPersistence,
+  f_presence: impressions.fPresence,
+  weights_version: impressions.weightsVersion,
+  no_events: impressions.noEvents,
+  tab_mostly_hidden: impressions.tabMostlyHidden,
+  anomaly_duration: impressions.anomalyDuration,
+  created_at: impressions.createdAt,
+};
+
+// Владелец показа, подтягивается join'ом для административного контракта. leftJoin, не innerJoin — устойчиво к переходному окну до миграции NOT NULL
+const OWNER_JOIN_COLUMNS = {
+  tag_uuid: tags.uuid,
+  tag_label: tags.label,
+  user_uuid: users.uuid,
+  user_login: users.login,
+  tag_constants_version: impressions.tagConstantsVersion,
+};
+
+const ADMIN_LIST_COLUMNS = {
+  ...USER_VISIBLE_COLUMNS,
+  ...ADMIN_ONLY_COLUMNS,
+  ...OWNER_JOIN_COLUMNS,
+};
+
+export const ADMIN_DETAIL_COLUMNS = {
+  ...ADMIN_LIST_COLUMNS,
+  signals_raw: impressions.signalsRaw,
+  signals_normalized: impressions.signalsNormalized,
+};
+
+export interface JoinedImpressionRow {
+  id: string;
+  impression_id: string;
+  session_group_id: string;
+  segment_index: number;
+  tag_uuid: string | null;
+  tag_label: string | null;
+  user_uuid: string | null;
+  user_login: string | null;
+  tag_constants_version: string | null;
+  campaign_id: string;
+  creative_id: string;
+  creative_type: string;
+  device_type: string;
+  timestamp_start: number;
+  timestamp_end: number;
+  created_at: Date;
+  s1_raw_time_in_view: number | null;
+  s2_raw_share_of_screen: number | null;
+  s3_raw_scroll_speed: number | null;
+  s4_raw_active_time_pct: number | null;
+  s5_raw_top_event: string;
+  s7_raw_persistence: number | null;
+  s1_normalized: number | null;
+  s2_normalized: number | null;
+  s3_normalized: number | null;
+  s4_normalized: number | null;
+  s5_normalized: number | null;
+  s7_normalized: number | null;
+  f_presence: number;
+  score_final: number;
+  weights_version: string;
+  no_events: boolean;
+  tab_mostly_hidden: boolean;
+  anomaly_duration: boolean;
+  is_suspicious: boolean;
+}
+
+export interface JoinedImpressionDetailRow extends JoinedImpressionRow {
+  signals_raw: unknown;
+  signals_normalized: unknown;
+}
+
+export interface UserVisibleRow {
+  impression_id: string;
+  campaign_id: string;
+  creative_id: string;
+  creative_type: string;
+  device_type: string;
+  timestamp_start: number;
+  timestamp_end: number;
+  s1_normalized: number | null;
+  s2_normalized: number | null;
+  s3_normalized: number | null;
+  s4_normalized: number | null;
+  s5_normalized: number | null;
+  s7_normalized: number | null;
+  score_final: number;
+  is_suspicious: boolean;
+}
+
+// Подтверждение, что данные владельца подгружены корректно. Null означает незавершенный backfill — не должно происходить после миграции NOT NULL, явная ошибка лучше тихой отдачи неполных данных
+export function requireOwnerJoined(
+  row: JoinedImpressionRow,
+): { tagUuid: TagUuid; userUuid: UserUuid; userLogin: string } {
+  if (row.tag_uuid === null || row.user_uuid === null || row.user_login === null) {
+    throw new Error(`Impression ${row.id} is missing owner data — backfill incomplete`);
+  }
+
   return {
-    id: row.id,
-    impression_id: row.impressionId,
-    session_group_id: row.sessionGroupId,
-    segment_index: row.segmentIndex,
-    campaign_id: row.campaignId,
-    creative_id: row.creativeId,
-    creative_type: row.creativeType,
-    device_type: row.deviceType,
-    timestamp_start: row.timestampStart,
-    timestamp_end: row.timestampEnd,
-    created_at: row.createdAt.toISOString(),
-
-    s1_raw_time_in_view: row.s1RawTimeInView ?? null,
-    s2_raw_share_of_screen: row.s2RawShareOfScreen ?? null,
-    s3_raw_scroll_speed: row.s3RawScrollSpeed ?? null,
-    s4_raw_active_time_pct: row.s4RawActiveTimePct ?? null,
-    s5_raw_top_event: row.s5RawTopEvent,
-    s7_raw_persistence: row.s7RawPersistence ?? null,
-
-    s1_normalized: row.s1Normalized ?? null,
-    s2_normalized: row.s2Normalized ?? null,
-    s3_normalized: row.s3Normalized ?? null,
-    s4_normalized: row.s4Normalized ?? null,
-    s5_normalized: row.s5Normalized ?? null,
-    s7_normalized: row.s7Normalized ?? null,
-
-    f_presence: row.fPresence,
-    score_final: row.scoreFinal,
-    weights_version: row.weightsVersion,
-
-    no_events: row.noEvents,
-    tab_mostly_hidden: row.tabMostlyHidden,
-    anomaly_duration: row.anomalyDuration,
-    is_suspicious: row.isSuspicious,
-
-    signals_raw: row.signalsRaw,
-    signals_normalized: row.signalsNormalized,
+    tagUuid: row.tag_uuid as TagUuid,
+    userUuid: row.user_uuid as UserUuid,
+    userLogin: row.user_login,
   };
 }
 
-export async function listImpressions(params: ListParams): Promise<ImpressionListResponse> {
-  const filters: FilterParams = {
-    ...(params.sessionGroupId !== undefined && { sessionGroupId: params.sessionGroupId }),
-    ...(params.campaignId !== undefined && { campaignId: params.campaignId }),
-    ...(params.creativeId !== undefined && { creativeId: params.creativeId }),
-    ...(params.deviceType !== undefined && { deviceType: params.deviceType }),
-    ...(params.isSuspicious !== undefined && { isSuspicious: params.isSuspicious }),
-    ...(params.dateFrom !== undefined && { dateFrom: params.dateFrom }),
-    ...(params.dateTo !== undefined && { dateTo: params.dateTo }),
+function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
+  const owner = requireOwnerJoined(row);
+
+  return {
+    id: row.id,
+    impression_id: row.impression_id,
+    session_group_id: row.session_group_id,
+    segment_index: row.segment_index,
+    tag_uuid: owner.tagUuid,
+    tag_label: row.tag_label,
+    user_uuid: owner.userUuid,
+    user_login: owner.userLogin,
+    tag_constants_version: row.tag_constants_version,
+    campaign_id: row.campaign_id,
+    creative_id: row.creative_id,
+    creative_type: row.creative_type,
+    device_type: row.device_type,
+    timestamp_start: row.timestamp_start,
+    timestamp_end: row.timestamp_end,
+    created_at: row.created_at.toISOString(),
+
+    s1_raw_time_in_view: row.s1_raw_time_in_view,
+    s2_raw_share_of_screen: row.s2_raw_share_of_screen,
+    s3_raw_scroll_speed: row.s3_raw_scroll_speed,
+    s4_raw_active_time_pct: row.s4_raw_active_time_pct,
+    s5_raw_top_event: row.s5_raw_top_event,
+    s7_raw_persistence: row.s7_raw_persistence,
+
+    s1_normalized: row.s1_normalized,
+    s2_normalized: row.s2_normalized,
+    s3_normalized: row.s3_normalized,
+    s4_normalized: row.s4_normalized,
+    s5_normalized: row.s5_normalized,
+    s7_normalized: row.s7_normalized,
+
+    f_presence: row.f_presence,
+    score_final: row.score_final,
+    weights_version: row.weights_version,
+
+    no_events: row.no_events,
+    tab_mostly_hidden: row.tab_mostly_hidden,
+    anomaly_duration: row.anomaly_duration,
+    is_suspicious: row.is_suspicious,
   };
+}
 
-  const where = buildWhereFromFilters(filters);
+function toAdminImpressionDetail(row: JoinedImpressionDetailRow): ImpressionDetail {
+  return {
+    ...toAdminImpressionRow(row),
+    signals_raw: row.signals_raw,
+    signals_normalized: row.signals_normalized,
+  };
+}
 
-  const orderCol = params.sortBy === 'scoreFinal'
-    ? impressions.scoreFinal
-    : impressions.createdAt;
-  const orderExpr = params.sortDir === 'asc' ? asc(orderCol) : desc(orderCol);
+function toUserImpressionRow(row: UserVisibleRow): UserImpressionRow {
+  return { ...row };
+}
+
+function buildOrderAndPage(params: ListParams): { orderExpr: SQL; offset: number } {
+  const orderColumn = params.sortBy === 'scoreFinal' ? impressions.scoreFinal : impressions.createdAt;
+  const orderExpr = params.sortDir === 'asc' ? asc(orderColumn) : desc(orderColumn);
   const offset = (params.page - 1) * params.limit;
+  return { orderExpr, offset };
+}
+
+// Полный список для администратора, join на tags/users для отображения владельца, без ограничения по user_id
+export async function listImpressionsForAdmin(params: ListParams): Promise<ImpressionListResponse> {
+  const where = buildWhereFromFilters(params);
+  const { orderExpr, offset } = buildOrderAndPage(params);
 
   const [rows, [countResult]] = await Promise.all([
-    db.select({
-      id: impressions.id,
-      impressionId: impressions.impressionId,
-      sessionGroupId: impressions.sessionGroupId,
-      segmentIndex: impressions.segmentIndex,
-      campaignId: impressions.campaignId,
-      creativeId: impressions.creativeId,
-      creativeType: impressions.creativeType,
-      deviceType: impressions.deviceType,
-      timestampStart: impressions.timestampStart,
-      timestampEnd: impressions.timestampEnd,
-      createdAt: impressions.createdAt,
+    db.select(ADMIN_LIST_COLUMNS)
+      .from(impressions)
+      .leftJoin(tags, eq(impressions.tagId, tags.id))
+      .leftJoin(users, eq(impressions.userId, users.id))
+      .where(where)
+      .orderBy(orderExpr)
+      .limit(params.limit)
+      .offset(offset),
 
-      s1RawTimeInView: impressions.s1RawTimeInView,
-      s2RawShareOfScreen: impressions.s2RawShareOfScreen,
-      s3RawScrollSpeed: impressions.s3RawScrollSpeed,
-      s4RawActiveTimePct: impressions.s4RawActiveTimePct,
-      s5RawTopEvent: impressions.s5RawTopEvent,
-      s7RawPersistence: impressions.s7RawPersistence,
-      s1Normalized: impressions.s1Normalized,
-      s2Normalized: impressions.s2Normalized,
-      s3Normalized: impressions.s3Normalized,
-      s4Normalized: impressions.s4Normalized,
-      s5Normalized: impressions.s5Normalized,
-      s7Normalized: impressions.s7Normalized,
+    db.select({ total: count() })
+      .from(impressions)
+      .where(where),
+  ]);
 
-      fPresence: impressions.fPresence,
-      scoreFinal: impressions.scoreFinal,
-      weightsVersion: impressions.weightsVersion,
+  const total = countResult?.total ?? 0;
+  const pages = params.limit > 0 ? Math.ceil(total / params.limit) : 0;
+  const items = rows.map((row) => toAdminImpressionRow(row));
 
-      noEvents: impressions.noEvents,
-      tabMostlyHidden: impressions.tabMostlyHidden,
-      anomalyDuration: impressions.anomalyDuration,
+  return { items, total, pages, page: params.page, limit: params.limit };
+}
 
-      isSuspicious: impressions.isSuspicious,
-    })
+// Список для роли user, принудительно ограничен ownerId. Без join — прямой индексный запрос по idx_impressions_user_id_created_at
+export async function listImpressionsForUser(
+  params: ListParams,
+  ownerId: number,
+): Promise<UserImpressionListResponse> {
+  const where = and(buildWhereFromFilters(params), buildOwnerFilter(ownerId));
+  const { orderExpr, offset } = buildOrderAndPage(params);
+
+  const [rows, [countResult]] = await Promise.all([
+    db.select(USER_VISIBLE_COLUMNS)
       .from(impressions)
       .where(where)
       .orderBy(orderExpr)
@@ -179,54 +320,21 @@ export async function listImpressions(params: ListParams): Promise<ImpressionLis
 
   const total = countResult?.total ?? 0;
   const pages = params.limit > 0 ? Math.ceil(total / params.limit) : 0;
-
-  const items: ImpressionRow[] = rows.map((row) => ({
-    id: row.id,
-    impression_id: row.impressionId,
-    session_group_id: row.sessionGroupId,
-    segment_index: row.segmentIndex,
-    campaign_id: row.campaignId,
-    creative_id: row.creativeId,
-    creative_type: row.creativeType,
-    device_type: row.deviceType,
-    timestamp_start: row.timestampStart,
-    timestamp_end: row.timestampEnd,
-    created_at: row.createdAt.toISOString(),
-
-    s1_raw_time_in_view: row.s1RawTimeInView ?? null,
-    s2_raw_share_of_screen: row.s2RawShareOfScreen ?? null,
-    s3_raw_scroll_speed: row.s3RawScrollSpeed ?? null,
-    s4_raw_active_time_pct: row.s4RawActiveTimePct ?? null,
-    s5_raw_top_event: row.s5RawTopEvent,
-    s7_raw_persistence: row.s7RawPersistence ?? null,
-
-    s1_normalized: row.s1Normalized ?? null,
-    s2_normalized: row.s2Normalized ?? null,
-    s3_normalized: row.s3Normalized ?? null,
-    s4_normalized: row.s4Normalized ?? null,
-    s5_normalized: row.s5Normalized ?? null,
-    s7_normalized: row.s7Normalized ?? null,
-
-    f_presence: row.fPresence,
-    score_final: row.scoreFinal,
-    weights_version: row.weightsVersion,
-
-    no_events: row.noEvents,
-    tab_mostly_hidden: row.tabMostlyHidden,
-    anomaly_duration: row.anomalyDuration,
-    is_suspicious: row.isSuspicious,
-  }));
+  const items = rows.map(toUserImpressionRow);
 
   return { items, total, pages, page: params.page, limit: params.limit };
 }
 
-export async function getImpression(id: string): Promise<ImpressionDetail | null> {
-  const [row] = await db.select()
+// Детальный вид, только для администратора — роль user не имеет доступа к этому маршруту вообще
+export async function getImpressionForAdmin(id: string): Promise<ImpressionDetail | null> {
+  const [row] = await db.select(ADMIN_DETAIL_COLUMNS)
     .from(impressions)
+    .leftJoin(tags, eq(impressions.tagId, tags.id))
+    .leftJoin(users, eq(impressions.userId, users.id))
     .where(eq(impressions.id, id))
     .limit(1);
 
   if (row === undefined) return null;
 
-  return toImpressionDetail(row);
+  return toAdminImpressionDetail(row);
 }

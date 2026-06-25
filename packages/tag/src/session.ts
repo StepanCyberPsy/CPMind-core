@@ -162,6 +162,8 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     impression_id: session.impressionId,
     session_group_id: session.sessionGroupId,
     segment_index: session.segmentIndex,
+    tag_uuid: cfg.tagUuid,
+    tag_constants_version: cfg.tagConstantsVersion,
     campaign_id: cfg.campaignId,
     creative_id: cfg.creativeId,
     creative_type: cfg.creativeType,

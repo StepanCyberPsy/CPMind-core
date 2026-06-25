@@ -35,6 +35,9 @@ importers:
       drizzle-orm:
         specifier: ^0.31.0
         version: 0.31.4(@types/pg@8.20.0)(@types/react@18.3.29)(pg@8.21.0)(react@18.3.1)
+      esbuild:
+        specifier: ^0.21.0
+        version: 0.21.5
       fastify:
         specifier: ^4.28.0
         version: 4.29.1
@@ -122,6 +125,9 @@ importers:
 
   packages/tag:
     devDependencies:
+      '@cpmind/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41

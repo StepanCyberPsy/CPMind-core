@@ -2,6 +2,8 @@ export type CreativeType = 'banner_static' | 'banner_gif' | 'banner_html5';
 export type DeviceType   = 'desktop' | 'mobile' | 'tablet';
 
 export interface TagConfig {
+  tagUuid: string;
+  tagConstantsVersion: string;
   campaignId: string;
   creativeId: string;
   creativeType: CreativeType;

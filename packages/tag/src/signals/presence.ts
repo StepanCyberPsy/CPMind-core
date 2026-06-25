@@ -21,8 +21,7 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
-
-const PRESENCE_IDLE_TIMEOUT_MS = 60_000; // дублирует PRESENCE_IDLE_THRESHOLD_MS в shared/scoring/score.ts — при калибровке менять оба места
+import { PRESENCE_IDLE_TIMEOUT_MS } from '../constants.js';
 
 export interface PresenceHandle {
   cleanup: () => void;

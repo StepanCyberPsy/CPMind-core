@@ -1,28 +1,57 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+
+import { eq } from 'drizzle-orm';
+import { db } from '../db/index.js';
+import { users } from '../db/schema.js';
+import type { UserUuid, UserRole } from '@cpmind/shared';
 
 const JWT_EXPIRY = '7d';
 
+// Заглушка для constant-time сравнения при отсутствии логина в БД
+// Не привязана к какому-либо реальному аккаунту, вычисляется один раз при старте процесса из случайного значения
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomUUID(), 10);
+
 export interface JwtPayload {
-  login: string;
+  uuid: UserUuid;
+  id: number;
+  role: UserRole;
   iat?: number;
   exp?: number;
+}
+
+export interface AuthenticatedUser {
+  uuid: UserUuid;
+  id: number;
+  role: UserRole;
 }
 
 export async function verifyCredentials(
   login: string,
   password: string,
-): Promise<boolean> {
-  const expectedLogin = process.env['ADMIN_LOGIN'];
-  const expectedHash = process.env['ADMIN_PASSWORD_HASH'];
+): Promise<AuthenticatedUser | null> {
+  const [user] = await db
+    .select({
+      id: users.id,
+      uuid: users.uuid,
+      role: users.role,
+      passwordHash: users.passwordHash,
+      isActive: users.isActive,
+    })
+    .from(users)
+    .where(eq(users.login, login))
+    .limit(1);
 
-  if (!expectedLogin || !expectedHash) {
-    throw new Error('ADMIN_LOGIN or ADMIN_PASSWORD_HASH env vars not set');
-  }
+  const passwordMatches = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
 
-  if (login !== expectedLogin) return false;
+  if (!user || !user.isActive || !passwordMatches) return null;
 
-  return bcrypt.compare(password, expectedHash);
+  return {
+    uuid: user.uuid as UserUuid,
+    id: user.id,
+    role: user.role,
+  };
 }
 
 function getJwtSecret(): string {
@@ -31,7 +60,7 @@ function getJwtSecret(): string {
   return secret;
 }
 
-export function signToken(payload: Pick<JwtPayload, 'login'>): string {
+export function signToken(payload: Pick<JwtPayload, 'uuid' | 'id' | 'role'>): string {
   return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRY });
 }
 

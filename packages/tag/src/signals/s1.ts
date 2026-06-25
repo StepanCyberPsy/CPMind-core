@@ -12,6 +12,7 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
+import { S1_VIEWPORT_THRESHOLDS } from '../constants.js';
 
 const resetters = new WeakMap<HTMLElement, IntersectionObserver>();
 
@@ -81,7 +82,7 @@ function createObserver(
       // 0 — фиксируем выход из viewport
       // 0.5 — стандарт MRC: ≥50% пикселей в viewport
       // 1.0 — дополнительная точность для share of screen
-      threshold: [0, 0.5, 1.0],
+      threshold: S1_VIEWPORT_THRESHOLDS,
     },
   );
 }

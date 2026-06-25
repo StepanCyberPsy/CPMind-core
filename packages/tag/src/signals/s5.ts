@@ -9,15 +9,16 @@
  */
 
 import type { Session, TagConfig } from '../types.js';
-
-const SWIPE_MIN_DISTANCE_PX = 60; // минимальная дистанция для свайпа. Было 30
-const ENTROPY_ANGLE_THRESHOLD = 30; // градусы — значимое изменение направления
-const PROXIMITY_TRACK_ZONE_PX = 300; // зона отслеживания курсора вокруг баннера
-const PINCH_DELTA_MIN_PX = 10; // минимальное изменение дистанции между пальцами для pinch fallback
-const GESTURE_SCALE_DELTA_MIN = 0.15; // минимальное отклонение scale от 1.0 для срабатывания zoom
-const TAP_MAX_OFFSET_PX = 10; // максимальное смещение пальца для распознавания tap
-const TAP_MAX_DURATION_MS = 300; // максимальная длительность касания для tap
-const MOUSE_MOVE_DEDUP_PX = 1; // порог дедупликации mousemove
+import {
+  SWIPE_MIN_DISTANCE_PX,
+  ENTROPY_ANGLE_THRESHOLD,
+  PROXIMITY_TRACK_ZONE_PX,
+  PINCH_DELTA_MIN_PX,
+  GESTURE_SCALE_DELTA_MIN,
+  TAP_MAX_OFFSET_PX,
+  TAP_MAX_DURATION_MS,
+  MOUSE_MOVE_DEDUP_PX,
+} from '../constants.js';
 
 /** Расстояние от точки (px, py) до прямоугольника rect */
 function distanceToRect(px: number, py: number, rect: DOMRect): number {
