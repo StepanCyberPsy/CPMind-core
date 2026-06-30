@@ -350,3 +350,30 @@ Drizzle ORM. Миграции применяются автоматически 
 - `calibration_items (pending)`: по TTL cleanup job каждые 15 минут
 - `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически
 - Бэкапы pg_dump: 04:00 UTC, ротация 30 дней
+
+---
+
+### Панель юзера
+
+`GET /api/user/campaigns` — user-only endpoint для панели кампаний.
+
+Защита:
+- `requireAuth`
+- без `requireAdmin`
+- owner scope берётся только из `request.authUser.id`
+- `userUuid`, query/body params для выбора владельца не принимаются
+
+Возвращает агрегаты по кампаниям текущего пользователя:
+- `campaignId`
+- `impressionsCount`
+- `creativesCount`
+- `avgScore`
+- `desktopRatioPct`
+- `mobileRatioPct`
+- `tabletRatioPct`
+- `latestImpressionAt`
+
+Device ratio считается SQL-агрегатами:
+`count(device_type = X) / count(*) * 100`.
+
+Frontend не строит campaign dashboard из paginated `/api/impressions`, потому что это даёт неполные агрегаты.

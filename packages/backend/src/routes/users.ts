@@ -12,7 +12,10 @@ import {
   updateUserByUuid,
   LoginAlreadyExistsError,
 } from '../services/users.js';
-import { getUsersWithStats } from '../services/users_stats.js';
+import {
+  getUsersWithStats,
+  getCampaignStatsForUser,
+} from '../services/users_stats.js';
 
 export const usersRoute: FastifyPluginAsync = async (app) => {
 
@@ -43,6 +46,16 @@ export const usersRoute: FastifyPluginAsync = async (app) => {
   // Агрегированная статистика по каждому пользователю для страницы выбора юзера, доступна только администратору
   app.get('/users/stats', { preHandler: [requireAuth, requireAdmin] }, async (_request, reply) => {
     const items = await getUsersWithStats();
+    return reply.send(items);
+  });
+
+  // Агрегированная статистика по кампаниям текущего пользователя для user dashboard
+  app.get('/user/campaigns', { preHandler: requireAuth }, async (request, reply) => {
+    if (!request.authUser) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const items = await getCampaignStatsForUser(request.authUser.id);
     return reply.send(items);
   });
 

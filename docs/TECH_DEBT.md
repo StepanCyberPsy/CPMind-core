@@ -136,9 +136,19 @@
 
 Ссылка "Калибровка тега" в хедере `/admin/impressions` (при `isOwnScopeView`) ведёт на `/admin/tag_constants`. Страница не реализована — переход ведёт к `404`. Требует полноценного UI для управления версиями констант тега (создание, активация, деактивация), аналогично `/admin/weights`.
 
-### `/user/panel` — Stage 2, не начат
+### `/user/panel` — реализован 30.06.2026
 
-Маршрут `/user/panel`, `app/user/layout.tsx` (guard роли) определены. Содержимое страницы и пользовательский флоу не реализованы. Роль `user` после логина попадает на несуществующую страницу.
+User panel реализован: после login роль `user` попадает на `/user/panel`.
+
+Добавлены:
+- campaign dashboard
+- `/api/user/campaigns`
+- `/user/impressions`
+- user-only filters
+- user-only impressions table
+- user-only CSV export button
+
+Открытые доработки UI/UX остаются отдельными задачами: визуальные баги, responsive-полировка, логика кнопки "Собрать код тега".
 
 ### `WeightsConfigPanel` — обработка ошибок через `alert()`
 

@@ -25,6 +25,8 @@ export type {
   UserListResponse,
   UserStatsRow,
   UserStatsListResponse,
+  UserCampaignStatsRow,
+  UserCampaignStatsListResponse,
   CreateUserPayload,
   UpdateUserPayload,
   UserUuidParam,

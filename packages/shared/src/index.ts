@@ -17,6 +17,8 @@ export {
     UserListResponseSchema,
     UserStatsRowSchema,
     UserStatsListResponseSchema,
+    UserCampaignStatsRowSchema,
+    UserCampaignStatsListResponseSchema,
     CreateUserPayloadSchema,
     UpdateUserPayloadSchema,
     UserUuidParamSchema,

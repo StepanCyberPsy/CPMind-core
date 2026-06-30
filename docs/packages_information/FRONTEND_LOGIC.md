@@ -45,27 +45,36 @@ packages/frontend/
     │   │   │   └── recalculate/page.tsx
     │   │   └── tag_constants/   # ссылка существует, страница не реализована
     │   └── user/
-    │       ├── layout.tsx       # guard роли user (Stage 2, не реализован)
-    │       └── panel/page.tsx   # Stage 2, не реализован
+    │       ├── layout.tsx
+    │       ├── panel/
+    │       │   ├── page.tsx
+    │       └── impressions/
+    │       │   └── page.tsx
     ├── components/
     │   ├── shared/
     │   │   ├── LoginForm.tsx
     │   │   ├── Combobox.tsx
     │   │   └── ComboboxDatePicker.tsx
-    │   └── admin/
+    │   ├── admin/
+    │   │   ├── Filters.tsx
+    │   │   ├── ImpressionsTable.tsx
+    │   │   ├── SignalFilterModal.tsx
+    │   │   ├── ImpressionDetail.tsx
+    │   │   ├── ExportButton.tsx
+    │   │   ├── WeightsConfigPanel.tsx
+    │   │   ├── UsersPanelTable.tsx
+    │   │   ├── UserActionsMenu.tsx
+    │   │   ├── CreateUserForm.tsx
+    │   │   ├── WeightVersionPicker.tsx
+    │   │   ├── RecalibrationWorkspace.tsx
+    │   │   ├── RecalibrationTable.tsx
+    │   │   └── RecalibrationActionBar.tsx
+    │   └── user/
     │       ├── Filters.tsx
     │       ├── ImpressionsTable.tsx
     │       ├── SignalFilterModal.tsx
-    │       ├── ImpressionDetail.tsx
-    │       ├── ExportButton.tsx
-    │       ├── WeightsConfigPanel.tsx
-    │       ├── UsersPanelTable.tsx
-    │       ├── UserActionsMenu.tsx
-    │       ├── CreateUserForm.tsx
-    │       ├── WeightVersionPicker.tsx
-    │       ├── RecalibrationWorkspace.tsx
-    │       ├── RecalibrationTable.tsx
-    │       └── RecalibrationActionBar.tsx
+    │       ├── UserCampaignsTable.tsx
+    │       └── ExportButton.tsx
     ├── lib/
     │   ├── shared/
     │   │   ├── auth.ts          # decodeTokenRole(), decodeTokenUuid()
@@ -73,12 +82,17 @@ packages/frontend/
     │   │   ├── types.ts         # SortField, SortParams, PaginationProps
     │   │   ├── date.ts          # утилиты для ComboboxDatePicker
     │   │   └── use-popover.ts   # единый хук позиционирования поповеров
-    │   └── admin/
-    │       ├── api.ts           # все функции обращения к backend API
-    │       ├── types.ts         # интерфейсы пропсов компонентов
-    │       ├── signals-meta.ts  # SIGNALS_META, getSignalMeta()
-    │       ├── segment-color.ts # buildSegmentColorMap()
-    │       └── searchParams.ts  # parseListSearchParams()
+    │   ├── admin/
+    │   │   ├── api.ts           # все функции обращения к backend API
+    │   │   ├── types.ts         # интерфейсы пропсов компонентов
+    │   │   ├── signals-meta.ts  # SIGNALS_META, getSignalMeta()
+    │   │   ├── segment-color.ts # buildSegmentColorMap()
+    │   │   └── searchParams.ts  # parseListSearchParams()
+    │   └── user/
+    │   │   ├── api.ts
+    │   │   ├── types.ts
+    │   │   ├── signals-meta.ts
+    │   │   └── searchParams.ts
     └── styles/
         ├── globals.css
         ├── impressions.module.css
@@ -111,13 +125,13 @@ packages/frontend/
 | `/admin/weights` | admin | реализовано |
 | `/admin/weights/recalculate` | admin | реализовано |
 | `/admin/tag_constants` | admin | ссылка есть, страница не реализована |
-| `/user/panel` | user | Stage 2, не реализован |
+| `/user/panel` | user | реализован |
 
 **`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`.
 
 **`src/app/admin/layout.tsx`** — серверный guard: проверяет наличие токена и роль `admin` (через `decodeTokenRole()`). При несоответствии — `redirect('/login')`.
 
-**`src/app/user/layout.tsx`** — аналогичный guard для роли `user`. Сам `/user/panel` ещё не реализован (Stage 2).
+**`src/app/user/layout.tsx`** — аналогичный guard для роли `user`. Сам `/user/panel`.
 
 ---
 
@@ -380,6 +394,125 @@ Client Component. Sticky-панель (над таблицей, `top: 64px`). Н
 
 ---
 
+## User-панель - дашборд
+
+Главная страница пользователя отображает агрегированные кампании текущего пользователя.
+
+Источник данных:
+
+```
+GET /api/user/campaigns
+```
+
+Отображаются:
+
+* суммарное количество импрешенов;
+* кнопка построения tracking tag (логика будет реализована отдельно);
+* строка "Все импрешены";
+* таблица кампаний.
+
+Для каждой кампании отображаются:
+
+* дата последнего импрешена;
+* Campaign ID;
+* количество креативов;
+* количество импрешенов;
+* средний CPMind Score;
+* Device Ratio:
+
+  * Desktop;
+  * Mobile;
+  * Tablet.
+
+Клик по строке кампании открывает:
+
+```
+/user/impressions?campaignId=<campaignId>
+```
+
+Строка "Все импрешены" открывает:
+
+```
+/user/impressions
+```
+
+---
+
+## User-панель - импрешены
+
+Пользовательская таблица использует существующий backend endpoint:
+
+```
+GET /api/impressions
+```
+
+Backend автоматически ограничивает данные scope текущего пользователя.
+
+Детальная страница импрешена отсутствует.
+
+Таблица отображает:
+
+Для общего списка:
+
+* Дата;
+* Campaign ID;
+* Creative ID;
+* Device;
+* Аномалии;
+* CPMind Score;
+* S1–S7.
+
+Для конкретной кампании:
+
+* Дата;
+* Creative ID;
+* Device;
+* Аномалии;
+* CPMind Score;
+* S1–S7.
+
+Campaign ID переносится в заголовок страницы.
+
+---
+
+## User-панель - фильтрация
+
+Используются отдельные user-компоненты.
+
+Доступны:
+
+* Campaign ID;
+* Creative ID;
+* Device;
+* Date From;
+* Date To;
+* Suspicious;
+* диапазоны Score;
+* диапазоны S1–S7.
+
+Недоступны:
+
+* User;
+* Session Group;
+* Tag Version;
+* Weights Version.
+
+---
+
+## User-панель - экспорт
+
+Используется отдельный компонент:
+
+```
+components/user/ExportButton.tsx
+```
+
+Экспорт выполняется через существующий backend endpoint.
+
+Backend возвращает ограниченный CSV согласно роли пользователя.
+
+---
+
 ## Shared компоненты
 
 ### `Combobox.tsx`
@@ -452,7 +585,6 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 | Пункт | Описание |
 |---|---|
 | `/admin/tag_constants` | Ссылка в хедере страницы импрешенов существует, страница не реализована |
-| `/user/panel` | Stage 2, не начат |
 | `onRowClick` без `userUuid` | При клике на строку импрешена `userUuid` не передаётся в URL детальной страницы — кнопка "Назад" всегда возвращает в собственный контекст, не в контекст просматриваемого чужого юзера |
 | Опции Campaign/Creative | Строятся из отдельного запроса с `limit:200`. При >200 уникальных значений список будет неполным |
 | `WeightsConfigPanel` ошибки | `alert()` вместо inline-ошибок |

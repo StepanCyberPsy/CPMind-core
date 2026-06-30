@@ -1,7 +1,12 @@
-import { sql, eq, desc } from 'drizzle-orm';
+import { sql, eq, desc, asc } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { users, tags, impressions } from '../db/schema.js';
-import type { UserStatsRow, UserUuid, UserRole } from '@cpmind/shared';
+import type {
+  UserStatsRow,
+  UserCampaignStatsRow,
+  UserUuid,
+  UserRole,
+} from '@cpmind/shared';
 
 interface UserStatsQueryRow {
   uuid: string;
@@ -16,6 +21,17 @@ interface UserStatsQueryRow {
   avgScore: number | null;
 }
 
+interface UserCampaignStatsQueryRow {
+  campaignId: string;
+  impressionsCount: string;
+  creativesCount: string;
+  avgScore: number | null;
+  latestImpressionAt: Date | string;
+  desktopRatioPct: number;
+  mobileRatioPct: number;
+  tabletRatioPct: number;
+}
+
 function toUserStatsRow(row: UserStatsQueryRow): UserStatsRow {
   return {
     uuid: row.uuid as UserUuid,
@@ -28,6 +44,23 @@ function toUserStatsRow(row: UserStatsQueryRow): UserStatsRow {
     creativesCount: Number(row.creativesCount),
     impressionsCount: Number(row.impressionsCount),
     avgScore: row.avgScore,
+  };
+}
+
+function toUserCampaignStatsRow(row: UserCampaignStatsQueryRow): UserCampaignStatsRow {
+  const latestImpressionAt = row.latestImpressionAt instanceof Date
+    ? row.latestImpressionAt.toISOString()
+    : new Date(row.latestImpressionAt).toISOString();
+
+  return {
+    campaignId: row.campaignId,
+    impressionsCount: Number(row.impressionsCount),
+    creativesCount: Number(row.creativesCount),
+    avgScore: row.avgScore,
+    desktopRatioPct: Number(row.desktopRatioPct),
+    mobileRatioPct: Number(row.mobileRatioPct),
+    tabletRatioPct: Number(row.tabletRatioPct),
+    latestImpressionAt,
   };
 }
 
@@ -68,4 +101,44 @@ export async function getUsersWithStats(): Promise<UserStatsRow[]> {
     .orderBy(desc(users.createdAt));
 
   return rows.map(toUserStatsRow);
+}
+
+export async function getCampaignStatsForUser(
+  userId: number,
+): Promise<UserCampaignStatsRow[]> {
+  const rows = await db
+    .select({
+      campaignId: impressions.campaignId,
+      impressionsCount: sql<string>`count(*)`,
+      creativesCount: sql<string>`count(distinct ${impressions.creativeId})`,
+      avgScore: sql<number | null>`avg(${impressions.scoreFinal})`,
+      latestImpressionAt: sql<Date>`max(${impressions.createdAt})`,
+      desktopRatioPct: sql<number>`
+        round(
+          100.0 * count(*) filter (where ${impressions.deviceType} = 'desktop')
+          / count(*),
+          1
+        )
+      `,
+      mobileRatioPct: sql<number>`
+        round(
+          100.0 * count(*) filter (where ${impressions.deviceType} = 'mobile')
+          / count(*),
+          1
+        )
+      `,
+      tabletRatioPct: sql<number>`
+        round(
+          100.0 * count(*) filter (where ${impressions.deviceType} = 'tablet')
+          / count(*),
+          1
+        )
+      `,
+    })
+    .from(impressions)
+    .where(eq(impressions.userId, userId))
+    .groupBy(impressions.campaignId)
+    .orderBy(asc(impressions.campaignId));
+
+  return rows.map(toUserCampaignStatsRow);
 }

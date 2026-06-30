@@ -41,6 +41,24 @@ export const UserStatsListResponseSchema = z.array(UserStatsRowSchema);
 
 export type UserStatsListResponse = z.infer<typeof UserStatsListResponseSchema>;
 
+// Агрегированная статистика по кампаниям текущего пользователя для user dashboard
+export const UserCampaignStatsRowSchema = z.object({
+  campaignId: z.string(),
+  impressionsCount: z.number().int().min(0),
+  creativesCount: z.number().int().min(0),
+  avgScore: z.number().nullable(),
+  desktopRatioPct: z.number().min(0).max(100),
+  mobileRatioPct: z.number().min(0).max(100),
+  tabletRatioPct: z.number().min(0).max(100),
+  latestImpressionAt: z.string(),
+});
+
+export type UserCampaignStatsRow = z.infer<typeof UserCampaignStatsRowSchema>;
+
+export const UserCampaignStatsListResponseSchema = z.array(UserCampaignStatsRowSchema);
+
+export type UserCampaignStatsListResponse = z.infer<typeof UserCampaignStatsListResponseSchema>;
+
 // Логин — ограниченный набор символов, исключает проблемы с URL-кодированием и отображением
 const UserLoginInputSchema = z.string().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/);
 

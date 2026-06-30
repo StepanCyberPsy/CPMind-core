@@ -92,6 +92,21 @@ packages/shared/
 - Валидация пароля — по байтам UTF-8, не по символам (предел bcrypt 72 байта; многобайтовые символы при счёте символами маскируют превышение лимита).
 - `UserStatsRowSchema` — включает `tagUuid: z.string().uuid().nullable()` (добавлено в эту сессию) — первичный тег пользователя из подзапроса в `getUsersWithStats()`.
 
+**UserCampaignStatsRowSchema** - Контракт агрегированной статистики кампаний пользователя для user dashboard (`GET /api/user/campaigns`).
+
+Поля:
+
+- `campaignId`
+- `impressionsCount`
+- `creativesCount`
+- `avgScore`
+- `desktopRatioPct`
+- `mobileRatioPct`
+- `tabletRatioPct`
+- `latestImpressionAt`
+
+Используется исключительно пользовательской панелью. Не содержит данных других пользователей и не используется административным интерфейсом.
+
 ### `schemas/tag.ts`
 
 - `TagUuid` — branded type, не пересекается с `UserUuid`.
@@ -415,4 +430,4 @@ Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
 | `schemas/calibration.ts` | `CalibrationBatchSchema` — добавлено `expiresAt: z.string().nullable()` |
 | `schemas/calibration.ts` | `CalibrationItemSchema` — добавлены `deviceType`, `s1Normalized`...`s7Normalized` |
 | `schemas/calibration.ts` | Экспортирован тип `CalibrationFilters` в `types/index.ts` |
-| `types/index.ts` | Добавлен реэкспорт `CalibrationFilters`, `UserStatsRow` (с `tagUuid`) |
+| `types/index.ts` | Добавлен реэкспорт `CalibrationFilters`, `UserStatsRow` (с `tagUuid`), `UserCampaignStatsRow`, `UserCampaignStatsListResponse` |

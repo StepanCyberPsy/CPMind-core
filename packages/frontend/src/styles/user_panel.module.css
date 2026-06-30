@@ -1,0 +1,258 @@
+.page {
+    min-height: 100vh;
+    background-color: var(--bg-base);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 56px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+}
+
+.logoAccent {
+    color: var(--accent);
+}
+
+.headerCenter {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.headerCount {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.content {
+    padding: 20px 24px 24px;
+}
+
+.toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.tagBuilderBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 16px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color 0.15s;
+}
+
+.tagBuilderBtn:hover {
+    background-color: var(--accent-dark);
+}
+
+.wrapper {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.allImpressionsRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 16px;
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    transition: background-color 0.15s;
+}
+
+.allImpressionsRow:hover {
+    background-color: var(--bg-hover);
+}
+
+.allImpressionsLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.allImpressionsCount {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.allImpressionsArrow {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.scrollContainer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+}
+
+.thDeviceGroup {
+    text-align: center;
+    border-left: 1px solid var(--border);
+}
+
+.thSub {
+    padding-top: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-strong);
+}
+
+.thSortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.thSortable:hover {
+    color: var(--text-secondary);
+}
+
+.sortIcon {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.5;
+}
+
+.sortIconActive {
+    opacity: 1;
+    color: var(--accent);
+}
+
+.tr {
+    cursor: pointer;
+    transition: background-color 0.1s;
+    border-bottom: 1px solid var(--border);
+}
+
+.tr:last-child {
+    border-bottom: none;
+}
+
+.tr:hover {
+    background-color: var(--bg-hover);
+}
+
+.td {
+    padding: 11px 16px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.cellMono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.cellNull {
+    color: var(--text-muted);
+    font-style: italic;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.campaignId {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.scorePositive {
+    color: var(--positive);
+}
+
+.scoreModerate {
+    color: var(--moderate);
+}
+
+.scoreNegative {
+    color: var(--negative);
+}
+
+.empty {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+@media (max-width: 768px) {
+    .header {
+        padding: 0 18px;
+    }
+
+    .content {
+        padding: 18px 18px 24px;
+    }
+}
+
+@media (max-width: 640px) {
+    .header {
+        padding: 0 16px;
+    }
+
+    .headerCenter {
+        display: none;
+    }
+
+    .content {
+        padding: 16px 16px 24px;
+    }
+
+    .toolbar {
+        justify-content: stretch;
+    }
+
+    .tagBuilderBtn {
+        width: 100%;
+        justify-content: center;
+    }
+}
