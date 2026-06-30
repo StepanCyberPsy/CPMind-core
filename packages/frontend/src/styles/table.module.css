@@ -38,6 +38,7 @@
 .th {
     padding: 10px 16px;
     text-align: left;
+    vertical-align: top;
     font-size: 11px;
     font-weight: 500;
     color: var(--text-muted);
@@ -197,15 +198,34 @@
     color: var(--text-secondary);
 }
 
-.segmentBadgeContinuation {
-    background-color: var(--accent-bg);
-    border-color: var(--accent);
-    color: var(--accent-dark);
+.thFilterable {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
 }
 
-.segmentBadgeContinuation:hover {
-    background-color: var(--accent-bg);
-    border-color: var(--accent-dark);
+.tableNotice {
+    padding: 12px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    background-color: var(--bg-subtle);
+}
+
+.tableError {
+    padding: 12px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--negative);
+    background-color: var(--negative-bg);
+}
+
+.loadMoreRow td {
+    padding: 14px 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
 }
 
 /* Empty state */

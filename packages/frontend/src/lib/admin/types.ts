@@ -1,20 +1,22 @@
+import type { SortParams, PaginationProps } from '@/lib/shared/types';
+
 export type {
   ImpressionRow,
   ImpressionDetail,
   ImpressionListResponse,
   WeightConfigRow,
+  UserStatsRow,
+  UserStatsListResponse,
+  TagConstantsConfig,
 } from '@cpmind/shared';
 export type { ListParams } from './api.js';
-
-export interface SortParams {
-  sortBy: 'createdAt' | 'scoreFinal';
-  sortDir: 'asc' | 'desc';
-}
+export type { SortParams, PaginationProps };
 
 export interface FilterValues {
-  sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  tagConstantsVersion?: string;
+  weightsVersion?: string;
   deviceType?: 'desktop' | 'mobile' | 'tablet' | '';
   isSuspicious?: 'all' | 'true' | 'false';
   dateFrom?: string;
@@ -26,19 +28,19 @@ export interface ImpressionsTableProps {
   pageCount: number;
   currentPage: number;
   currentSort: SortParams;
+  currentParams: import('./api.js').ListParams;
 }
 
 export interface FiltersProps {
   current: import('./api.js').ListParams;
+  tagConstantsVersions: string[];
+  weightsVersions: string[];
+  campaignOptions: string[];
+  creativeOptions: string[];
 }
 
 export interface ExportButtonProps {
   params: import('./api.js').ListParams;
-}
-
-export interface PaginationProps {
-  currentPage: number;
-  pageCount: number;
 }
 
 export interface ImpressionDetailProps {
@@ -49,3 +51,17 @@ export interface ImpressionDetailProps {
 export interface WeightsConfigPanelProps {
   initialConfigs: import('@cpmind/shared').WeightConfigRow[];
 }
+
+export interface UsersPanelTableProps {
+  initialUsers: import('@cpmind/shared').UserStatsRow[];
+  currentUserUuid: string;
+}
+
+export type {
+  CalibrationSelection,
+  CalibrationBatch,
+  CalibrationBatchStatus,
+  CalibrationItem,
+  CalibrationItemListResponse,
+  ApproveCalibrationResult,
+} from '@cpmind/shared';

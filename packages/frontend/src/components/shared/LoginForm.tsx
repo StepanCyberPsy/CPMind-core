@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getPublicBackendUrl } from '@/lib/shared/env';
 import styles from '@/styles/login.module.css';
 
-const BACKEND = process.env['NEXT_PUBLIC_BACKEND_URL'] ?? '';
+const BACKEND = getPublicBackendUrl();
 
 export function LoginForm() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export function LoginForm() {
       });
 
       if (res.ok) {
-        router.push('/impressions');
+        router.push('/');
         router.refresh();
         return;
       }

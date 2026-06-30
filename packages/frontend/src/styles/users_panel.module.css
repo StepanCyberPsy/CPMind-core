@@ -1,0 +1,325 @@
+.page {
+    min-height: 100vh;
+    background-color: var(--bg-base);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 56px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+}
+
+.logoAccent {
+    color: var(--accent);
+}
+
+.headerCenter {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.headerCount {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.content {
+    padding: 20px 24px 24px;
+}
+
+.toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.wrapper {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.allImpressionsRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 16px;
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    transition: background-color 0.15s;
+}
+
+.allImpressionsRow:hover {
+    background-color: var(--bg-hover);
+}
+
+.allImpressionsLabel {
+    color: var(--text-primary);
+}
+
+.allImpressionsArrow {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.scrollContainer {
+    overflow-x: auto;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+}
+
+.thActions {
+    width: 40px;
+}
+
+.tr {
+    transition: background-color 0.1s;
+    border-bottom: 1px solid var(--border);
+}
+
+.tr:last-child {
+    border-bottom: none;
+}
+
+.tr:hover {
+    background-color: var(--bg-hover);
+}
+
+.trInactive {
+    opacity: 0.55;
+}
+
+.td {
+    padding: 11px 16px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.tdActions {
+    text-align: right;
+}
+
+.cellMono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.cellNull {
+    color: var(--text-muted);
+    font-style: italic;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.uuidCell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.uuidText {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.copyBtn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--text-muted);
+    transition: all 0.15s;
+}
+
+.copyBtn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.loginCell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.loginLink {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.loginLink:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.adminBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background-color: var(--accent-bg);
+    color: var(--accent-dark);
+}
+
+.inactiveBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    background-color: var(--negative-bg);
+    color: var(--negative);
+}
+
+.empty {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.menuWrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.menuTrigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 20px;
+    transition: all 0.15s;
+}
+
+.menuTrigger:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.menuPanel {
+    position: fixed;
+    z-index: 200;
+    min-width: 160px;
+    padding: 4px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
+.menuItem {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.menuItem:hover {
+    background-color: var(--bg-hover);
+}
+
+.menuItemDanger {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    text-align: left;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--negative);
+}
+
+.menuItemDanger:hover {
+    background-color: var(--negative-bg);
+}
+
+.thSortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.thSortable:hover {
+    color: var(--text-secondary);
+}
+
+.sortIcon {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 10px;
+    opacity: 0.5;
+}
+
+.sortIconActive {
+    opacity: 1;
+    color: var(--accent);
+}
+
+@media (max-width: 640px) {
+    .header {
+        padding: 0 16px;
+    }
+
+    .content {
+        padding: 16px 16px 24px;
+    }
+}

@@ -12,6 +12,7 @@ import {
   updateUserByUuid,
   LoginAlreadyExistsError,
 } from '../services/users.js';
+import { getUsersWithStats } from '../services/users_stats.js';
 
 export const usersRoute: FastifyPluginAsync = async (app) => {
 
@@ -36,6 +37,12 @@ export const usersRoute: FastifyPluginAsync = async (app) => {
   // Список всех пользователей, доступен только администратору
   app.get('/users', { preHandler: [requireAuth, requireAdmin] }, async (_request, reply) => {
     const items = await listUsers();
+    return reply.send(items);
+  });
+
+  // Агрегированная статистика по каждому пользователю для страницы выбора юзера, доступна только администратору
+  app.get('/users/stats', { preHandler: [requireAuth, requireAdmin] }, async (_request, reply) => {
+    const items = await getUsersWithStats();
     return reply.send(items);
   });
 

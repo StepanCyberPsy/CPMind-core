@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { FastifyPluginAsync } from 'fastify';
-import { ImpressionPayloadSchema } from '@cpmind/shared';
+import { ImpressionPayloadSchema, UserUuidSchema } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
@@ -11,6 +11,9 @@ import {
   listImpressionsForAdmin,
   listImpressionsForUser,
   getImpressionForAdmin,
+  resolveTargetUserId,
+  type RangeFieldKey,
+  type RangeValue,
 } from '../services/impressions.js';
 import { buildCsvResponse } from '../services/csv.js';
 import { db } from '../db/index.js';
@@ -19,7 +22,7 @@ import { impressions } from '../db/schema.js';
 const ImpressionListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  sortBy: z.enum(['createdAt', 'scoreFinal']).default('createdAt'),
+  sortBy: z.enum(['createdAt', 'scoreFinal', 's1Normalized', 's2Normalized', 's3Normalized', 's4Normalized', 's5Normalized', 's7Normalized']).default('createdAt'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   sessionGroupId: z.string().uuid().optional(),
   campaignId: z.string().min(1).optional(),
@@ -28,6 +31,23 @@ const ImpressionListQuerySchema = z.object({
   isSuspicious: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   dateFrom: z.string().datetime({ offset: true }).optional().transform(v => v ? new Date(v) : undefined),
   dateTo: z.string().datetime({ offset: true }).optional().transform(v => v ? new Date(v) : undefined),
+  userUuid: UserUuidSchema.optional(),
+  tagConstantsVersion: z.string().min(1).optional(),
+  weightsVersion: z.string().min(1).optional(),
+  scoreMin: z.coerce.number().optional(),
+  scoreMax: z.coerce.number().optional(),
+  s1Min: z.coerce.number().optional(),
+  s1Max: z.coerce.number().optional(),
+  s2Min: z.coerce.number().optional(),
+  s2Max: z.coerce.number().optional(),
+  s3Min: z.coerce.number().optional(),
+  s3Max: z.coerce.number().optional(),
+  s4Min: z.coerce.number().optional(),
+  s4Max: z.coerce.number().optional(),
+  s5Min: z.coerce.number().optional(),
+  s5Max: z.coerce.number().optional(),
+  s7Min: z.coerce.number().optional(),
+  s7Max: z.coerce.number().optional(),
 });
 
 export const impressionsRoute: FastifyPluginAsync = async (app) => {
@@ -108,13 +128,41 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       deviceType,
       isSuspicious,
       dateFrom,
-      dateTo
+      dateTo,
+      userUuid,
+      tagConstantsVersion,
+      weightsVersion,
+      scoreMin,
+      scoreMax,
+      s1Min,
+      s1Max,
+      s2Min,
+      s2Max,
+      s3Min,
+      s3Max,
+      s4Min,
+      s4Max,
+      s5Min,
+      s5Max,
+      s7Min,
+      s7Max,
     } = parsed.data;
+
+    const ranges: Partial<Record<RangeFieldKey, RangeValue>> = {};
+    const setRange = (key: RangeFieldKey, min: number | undefined, max: number | undefined): void => {
+      if (min === undefined && max === undefined) return;
+      ranges[key] = { ...(min !== undefined && { min }), ...(max !== undefined && { max }) };
+    };
+    setRange('score', scoreMin, scoreMax);
+    setRange('s1', s1Min, s1Max);
+    setRange('s2', s2Min, s2Max);
+    setRange('s3', s3Min, s3Max);
+    setRange('s4', s4Min, s4Max);
+    setRange('s5', s5Min, s5Max);
+    setRange('s7', s7Min, s7Max);
+
     const listParams = {
-      page,
-      limit,
-      sortBy,
-      sortDir,
+      page, limit, sortBy, sortDir,
       ...(sessionGroupId !== undefined && { sessionGroupId }),
       ...(campaignId !== undefined && { campaignId }),
       ...(creativeId !== undefined && { creativeId }),
@@ -122,12 +170,28 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ...(isSuspicious !== undefined && { isSuspicious }),
       ...(dateFrom !== undefined && { dateFrom }),
       ...(dateTo !== undefined && { dateTo }),
+      ...(tagConstantsVersion !== undefined && { tagConstantsVersion }),
+      ...(weightsVersion !== undefined && { weightsVersion }),
+      ...(Object.keys(ranges).length > 0 && { ranges }),
     };
 
-    const result = request.authUser.role === 'admin'
-      ? await listImpressionsForAdmin(listParams)
-      : await listImpressionsForUser(listParams, request.authUser.id);
+    if (request.authUser.role !== 'admin') {
+      const result = await listImpressionsForUser(listParams, request.authUser.id);
+      return reply.send(result);
+    }
 
+    if (userUuid === undefined) {
+      const result = await listImpressionsForAdmin(listParams);
+      return reply.send(result);
+    }
+
+    const targetUserId = await resolveTargetUserId(userUuid);
+
+    if (targetUserId === null) {
+      return reply.status(404).send({ error: 'User not found' });
+    }
+
+    const result = await listImpressionsForAdmin(listParams, targetUserId);
     return reply.send(result);
   });
 

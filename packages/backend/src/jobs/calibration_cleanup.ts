@@ -8,7 +8,7 @@ const logger = pino({ name: 'calibration-cleanup-job' });
 
 const DEFAULT_TTL_MINUTES = 60;
 
-function getDraftTtlMinutes(): number {
+export function getDraftTtlMinutes(): number {
   const raw = process.env['CALIBRATION_DRAFT_TTL_MINUTES'];
   if (!raw) return DEFAULT_TTL_MINUTES;
 

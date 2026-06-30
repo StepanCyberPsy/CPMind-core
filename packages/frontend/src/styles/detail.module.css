@@ -257,6 +257,35 @@
   color: var(--text-muted);
 }
 
+.recalibrationBanner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+}
+
+.recalibrationBanner:has(.recalibrationIcon) {
+    background-color: var(--positive-bg);
+    color: var(--positive);
+}
+
+.recalibrationIcon {
+    font-weight: 600;
+}
+
+.recalibrationVersion {
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.recalibrationNeutral {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 /* Responsive */
 
 @media (max-width: 1024px) {

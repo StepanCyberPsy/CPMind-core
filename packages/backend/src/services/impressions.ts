@@ -12,6 +12,25 @@ import type {
   UserUuid,
 } from '@cpmind/shared';
 
+import { getLatestApprovedCalibrationForImpression } from './calibrations.js';
+
+export const NUMERIC_RANGE_COLUMNS = {
+  score: impressions.scoreFinal,
+  s1: impressions.s1Normalized,
+  s2: impressions.s2Normalized,
+  s3: impressions.s3Normalized,
+  s4: impressions.s4Normalized,
+  s5: impressions.s5Normalized,
+  s7: impressions.s7Normalized,
+} as const;
+
+export type RangeFieldKey = keyof typeof NUMERIC_RANGE_COLUMNS;
+
+export interface RangeValue {
+  min?: number;
+  max?: number;
+}
+
 export interface ListFilters {
   sessionGroupId?: string;
   campaignId?: string;
@@ -20,16 +39,28 @@ export interface ListFilters {
   isSuspicious?: boolean;
   dateFrom?: Date;
   dateTo?: Date;
+  tagConstantsVersion?: string;
+  weightsVersion?: string;
+  ranges?: Partial<Record<RangeFieldKey, RangeValue>>;
 }
 
 export interface ListParams extends ListFilters {
   page: number;
   limit: number;
-  sortBy: 'createdAt' | 'scoreFinal';
+  sortBy: SortField;
   sortDir: 'asc' | 'desc';
 }
 
 export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
+  const rangeConditions: Array<SQL | undefined> = [];
+  for (const key of Object.keys(NUMERIC_RANGE_COLUMNS) as RangeFieldKey[]) {
+    const range = filters.ranges?.[key];
+    if (!range) continue;
+    const column = NUMERIC_RANGE_COLUMNS[key];
+    if (range.min !== undefined) rangeConditions.push(gte(column, range.min));
+    if (range.max !== undefined) rangeConditions.push(lte(column, range.max));
+  }
+
   return and(
     filters.sessionGroupId !== undefined ? eq(impressions.sessionGroupId, filters.sessionGroupId) : undefined,
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
@@ -38,6 +69,9 @@ export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
     filters.isSuspicious !== undefined ? eq(impressions.isSuspicious, filters.isSuspicious) : undefined,
     filters.dateFrom !== undefined ? gte(impressions.createdAt, filters.dateFrom) : undefined,
     filters.dateTo !== undefined ? lte(impressions.createdAt, filters.dateTo) : undefined,
+    filters.tagConstantsVersion !== undefined ? eq(impressions.tagConstantsVersion, filters.tagConstantsVersion) : undefined,
+    filters.weightsVersion !== undefined ? eq(impressions.weightsVersion, filters.weightsVersion) : undefined,
+    ...rangeConditions,
   );
 }
 
@@ -50,6 +84,8 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
     ...(queryParams['isSuspicious'] !== undefined && {
       isSuspicious: queryParams['isSuspicious'] === 'true',
     }),
+    ...(queryParams['tagConstantsVersion'] !== undefined && { tagConstantsVersion: queryParams['tagConstantsVersion'] }),
+    ...(queryParams['weightsVersion'] !== undefined && { weightsVersion: queryParams['weightsVersion'] }),
   };
 
   if (queryParams['dateFrom'] !== undefined) {
@@ -62,12 +98,34 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
     if (!isNaN(d.getTime())) filters.dateTo = d;
   }
 
+  function parseNumericParam(key: string): number | undefined {
+    const raw = queryParams[key];
+    if (raw === undefined) return undefined;
+    const n = Number(raw);
+    return isNaN(n) ? undefined : n;
+  }
+
+  const ranges: Partial<Record<RangeFieldKey, RangeValue>> = {};
+  for (const key of Object.keys(NUMERIC_RANGE_COLUMNS) as RangeFieldKey[]) {
+    const min = parseNumericParam(`${key}Min`);
+    const max = parseNumericParam(`${key}Max`);
+    if (min === undefined && max === undefined) continue;
+    ranges[key] = { ...(min !== undefined && { min }), ...(max !== undefined && { max }) };
+  }
+  if (Object.keys(ranges).length > 0) filters.ranges = ranges;
+
   return buildWhereFromFilters(filters);
 }
 
 // Принудительное ограничение владельца для роли user. Комбинируется с buildWhereClause через and() на уровне роута, никогда не строится из данных запроса клиента
 export function buildOwnerFilter(ownerId: number): SQL {
   return eq(impressions.userId, ownerId);
+}
+
+// Резолв userUuid в внутренний numeric id для опционального admin-only скоупинга списка/CSV по конкретному пользователю. Резолвится независимо от isActive — деактивация блокирует только /api/collect, не просмотр истории. Null означает, что пользователь с таким uuid не найден
+export async function resolveTargetUserId(userUuid: UserUuid): Promise<number | null> {
+  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.uuid, userUuid)).limit(1);
+  return row?.id ?? null;
 }
 
 // Колонки, доступные роли user. satisfies проверяет соответствие ключей USER_VISIBLE_IMPRESSION_FIELDS в обе стороны — расхождение состава полей не пройдет компиляцию
@@ -263,16 +321,34 @@ function toUserImpressionRow(row: UserVisibleRow): UserImpressionRow {
   return { ...row };
 }
 
+const SORT_COLUMN_MAP = {
+  createdAt: impressions.createdAt,
+  scoreFinal: impressions.scoreFinal,
+  s1Normalized: impressions.s1Normalized,
+  s2Normalized: impressions.s2Normalized,
+  s3Normalized: impressions.s3Normalized,
+  s4Normalized: impressions.s4Normalized,
+  s5Normalized: impressions.s5Normalized,
+  s7Normalized: impressions.s7Normalized,
+} as const;
+
+export type SortField = keyof typeof SORT_COLUMN_MAP;
+
 function buildOrderAndPage(params: ListParams): { orderExpr: SQL; offset: number } {
-  const orderColumn = params.sortBy === 'scoreFinal' ? impressions.scoreFinal : impressions.createdAt;
+  const orderColumn = SORT_COLUMN_MAP[params.sortBy];
   const orderExpr = params.sortDir === 'asc' ? asc(orderColumn) : desc(orderColumn);
   const offset = (params.page - 1) * params.limit;
   return { orderExpr, offset };
 }
 
-// Полный список для администратора, join на tags/users для отображения владельца, без ограничения по user_id
-export async function listImpressionsForAdmin(params: ListParams): Promise<ImpressionListResponse> {
-  const where = buildWhereFromFilters(params);
+// Полный список для администратора, join на tags/users для отображения владельца. targetUserId — опциональный скоуп на конкретного пользователя (страница /users_panel), без него поведение не отличается от текущего — все пользователи без ограничения
+export async function listImpressionsForAdmin(
+  params: ListParams,
+  targetUserId?: number,
+): Promise<ImpressionListResponse> {
+  const where = targetUserId !== undefined
+    ? and(buildWhereFromFilters(params), buildOwnerFilter(targetUserId))
+    : buildWhereFromFilters(params);
   const { orderExpr, offset } = buildOrderAndPage(params);
 
   const [rows, [countResult]] = await Promise.all([
@@ -336,5 +412,13 @@ export async function getImpressionForAdmin(id: string): Promise<ImpressionDetai
 
   if (row === undefined) return null;
 
-  return toAdminImpressionDetail(row);
+  const latestCalibration = await getLatestApprovedCalibrationForImpression(id);
+
+  return {
+    ...toAdminImpressionDetail(row),
+    ...(latestCalibration !== null && {
+      lastRecalibratedAt: latestCalibration.approvedAt,
+      lastRecalibratedWeightsVersion: latestCalibration.weightsVersion,
+    }),
+  };
 }

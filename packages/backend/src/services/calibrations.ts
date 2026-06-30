@@ -5,6 +5,7 @@ import type {
   CalibrationBatchId,
   CalibrationItemId,
   CalibrationSelection,
+  CalibrationFilters,
   CreateCalibrationPayload,
   CalibrationBatch,
   CalibrationBatchStatus,
@@ -22,7 +23,8 @@ import {
   weightConfigs,
   users,
 } from '../db/schema.js';
-import { buildWhereFromFilters, type ListFilters } from './impressions.js';
+import { buildWhereFromFilters, type ListFilters, type RangeFieldKey, type RangeValue } from './impressions.js';
+import { getDraftTtlMinutes } from '../jobs/calibration_cleanup.js';
 
 const logger = pino({ name: 'calibrations-service' });
 
@@ -77,6 +79,10 @@ const BATCH_GROUP_BY_COLUMNS = [
 ];
 
 function toApiBatch(row: BatchAggregateRow): CalibrationBatch {
+  const expiresAt = row.status === 'ready'
+    ? new Date(row.createdAt.getTime() + getDraftTtlMinutes() * 60_000).toISOString()
+    : null;
+
   return {
     id: row.id as CalibrationBatchId,
     targetWeightsConfigId: row.targetWeightsConfigId,
@@ -89,6 +95,7 @@ function toApiBatch(row: BatchAggregateRow): CalibrationBatch {
     createdByLogin: row.createdByLogin,
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    expiresAt,
   };
 }
 
@@ -97,6 +104,13 @@ interface ItemRow {
   impressionId: string;
   campaignId: string;
   creativeId: string;
+  deviceType: string;
+  s1Normalized: number | null;
+  s2Normalized: number | null;
+  s3Normalized: number | null;
+  s4Normalized: number | null;
+  s5Normalized: number | null;
+  s7Normalized: number | null;
   previousScoreFinal: number;
   previousWeightsVersion: string;
   newScoreFinal: number;
@@ -111,6 +125,13 @@ function toApiItem(row: ItemRow): CalibrationItem {
     impressionId: row.impressionId,
     campaignId: row.campaignId,
     creativeId: row.creativeId,
+    deviceType: row.deviceType,
+    s1Normalized: row.s1Normalized,
+    s2Normalized: row.s2Normalized,
+    s3Normalized: row.s3Normalized,
+    s4Normalized: row.s4Normalized,
+    s5Normalized: row.s5Normalized,
+    s7Normalized: row.s7Normalized,
     previousScoreFinal: row.previousScoreFinal,
     previousWeightsVersion: row.previousWeightsVersion,
     newScoreFinal: row.newScoreFinal,
@@ -120,43 +141,61 @@ function toApiItem(row: ItemRow): CalibrationItem {
   };
 }
 
-// Резолв выбора батча в SQL-условие. Режимы ids/session_groups — прямой IN, режим filter переиспользует buildWhereFromFilters из services/impressions.ts (тот же контракт, что и у GET /api/impressions), плюс собственный userUuid -> impressions.userId
-async function resolveSelectionWhere(selection: CalibrationSelection): Promise<SQL | undefined> {
+function buildRangesFromFilters(filters: CalibrationFilters): Partial<Record<RangeFieldKey, RangeValue>> | undefined {
+  const ranges: Partial<Record<RangeFieldKey, RangeValue>> = {};
+  const pairs: Array<[RangeFieldKey, number | undefined, number | undefined]> = [
+    ['score', filters.scoreMin, filters.scoreMax],
+    ['s1', filters.s1Min, filters.s1Max],
+    ['s2', filters.s2Min, filters.s2Max],
+    ['s3', filters.s3Min, filters.s3Max],
+    ['s4', filters.s4Min, filters.s4Max],
+    ['s5', filters.s5Min, filters.s5Max],
+    ['s7', filters.s7Min, filters.s7Max],
+  ];
+
+  for (const [key, min, max] of pairs) {
+    if (min === undefined && max === undefined) continue;
+    ranges[key] = { ...(min !== undefined && { min }), ...(max !== undefined && { max }) };
+  }
+
+  return Object.keys(ranges).length > 0 ? ranges : undefined;
+}
+
+// Резолв выбора батча в SQL-условие
+// adminUserId обязателен и AND'ится во всех трёх режимах без исключения — ids/session_groups раньше принимали переданные id без проверки владения
+// Это закрывает риск пересчёта чужих данных независимо от того, что прислал клиент
+async function resolveSelectionWhere(
+  selection: CalibrationSelection,
+  adminUserId: number,
+): Promise<SQL | undefined> {
+  const ownerFilter = eq(impressions.userId, adminUserId);
+
   if (selection.mode === 'ids') {
-    return inArray(impressions.id, selection.impressionIds);
+    return and(inArray(impressions.id, selection.impressionIds), ownerFilter);
   }
 
   if (selection.mode === 'session_groups') {
-    return inArray(impressions.sessionGroupId, selection.sessionGroupIds);
+    return and(inArray(impressions.sessionGroupId, selection.sessionGroupIds), ownerFilter);
   }
 
-  const { userUuid, dateFrom, dateTo, ...rest } = selection.filters;
+  const { dateFrom, dateTo, ...rest } = selection.filters;
+  const ranges = buildRangesFromFilters(selection.filters);
 
   const listFilters: ListFilters = {
     ...(rest.sessionGroupId !== undefined && { sessionGroupId: rest.sessionGroupId }),
     ...(rest.campaignId !== undefined && { campaignId: rest.campaignId }),
     ...(rest.creativeId !== undefined && { creativeId: rest.creativeId }),
+    ...(rest.tagConstantsVersion !== undefined && { tagConstantsVersion: rest.tagConstantsVersion }),
+    ...(rest.weightsVersion !== undefined && { weightsVersion: rest.weightsVersion }),
     ...(rest.deviceType !== undefined && { deviceType: rest.deviceType }),
     ...(rest.isSuspicious !== undefined && { isSuspicious: rest.isSuspicious }),
     ...(dateFrom !== undefined && { dateFrom: new Date(dateFrom) }),
     ...(dateTo !== undefined && { dateTo: new Date(dateTo) }),
+    ...(ranges !== undefined && { ranges }),
   };
 
   const baseWhere = buildWhereFromFilters(listFilters);
-
-  if (userUuid === undefined) return baseWhere;
-
-  const [targetUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.uuid, userUuid))
-    .limit(1);
-
-  if (!targetUser) {
-    return and(baseWhere, sql`false`);
-  }
-
-  return and(baseWhere, eq(impressions.userId, targetUser.id));
+  return and(baseWhere, ownerFilter);
 }
 
 // Фоновая обработка батча: проходит выборку чанками, для каждой строки пересчитывает
@@ -167,9 +206,10 @@ async function processCalibrationBatch(
   batchId: CalibrationBatchId,
   selection: CalibrationSelection,
   weights: WeightsValues,
+  adminUserId: number,
 ): Promise<void> {
   try {
-    const where = await resolveSelectionWhere(selection);
+    const where = await resolveSelectionWhere(selection, adminUserId);
     let offset = 0;
 
     while (true) {
@@ -272,7 +312,7 @@ export async function createCalibrationBatch(
     s7: w['s7']!,
   };
 
-  void processCalibrationBatch(batchId, payload.selection, weightsValues);
+  void processCalibrationBatch(batchId, payload.selection, weightsValues, adminUserId);
 
   return batchId;
 }
@@ -319,6 +359,13 @@ export async function listCalibrationBatchItems(
       impressionId: calibrationItems.impressionId,
       campaignId: impressions.campaignId,
       creativeId: impressions.creativeId,
+      deviceType: impressions.deviceType,
+      s1Normalized: impressions.s1Normalized,
+      s2Normalized: impressions.s2Normalized,
+      s3Normalized: impressions.s3Normalized,
+      s4Normalized: impressions.s4Normalized,
+      s5Normalized: impressions.s5Normalized,
+      s7Normalized: impressions.s7Normalized,
       previousScoreFinal: calibrationItems.previousScoreFinal,
       previousWeightsVersion: calibrationItems.previousWeightsVersion,
       newScoreFinal: calibrationItems.newScoreFinal,
@@ -355,6 +402,13 @@ export async function getCalibrationBatchItem(
       impressionId: calibrationItems.impressionId,
       campaignId: impressions.campaignId,
       creativeId: impressions.creativeId,
+      deviceType: impressions.deviceType,
+      s1Normalized: impressions.s1Normalized,
+      s2Normalized: impressions.s2Normalized,
+      s3Normalized: impressions.s3Normalized,
+      s4Normalized: impressions.s4Normalized,
+      s5Normalized: impressions.s5Normalized,
+      s7Normalized: impressions.s7Normalized,
       previousScoreFinal: calibrationItems.previousScoreFinal,
       previousWeightsVersion: calibrationItems.previousWeightsVersion,
       newScoreFinal: calibrationItems.newScoreFinal,
@@ -457,7 +511,32 @@ export async function approveCalibrationItems(
   return { approved, conflicted };
 }
 
-// Отмена батча: удаляет только pending-элементы, approved остаются навсегда как аудит.
+// Последний подтверждённый пересчёт для конкретного показа — для отображения на detail-странице "пересчитан X, версия Y"
+export async function getLatestApprovedCalibrationForImpression(
+  impressionId: string,
+): Promise<{ approvedAt: string; weightsVersion: string } | null> {
+  const [row] = await db
+    .select({
+      approvedAt: calibrationItems.approvedAt,
+      newWeightsVersion: calibrationItems.newWeightsVersion,
+    })
+    .from(calibrationItems)
+    .where(and(
+      eq(calibrationItems.impressionId, impressionId),
+      eq(calibrationItems.status, 'approved'),
+    ))
+    .orderBy(desc(calibrationItems.approvedAt))
+    .limit(1);
+
+  if (!row || row.approvedAt === null) return null;
+
+  return {
+    approvedAt: row.approvedAt.toISOString(),
+    weightsVersion: row.newWeightsVersion,
+  };
+}
+
+// Отмена батча: удаляет только pending-элементы, approved остаются навсегда как аудит
 // Сама строка батча никогда не удаляется — только переводится в статус discarded
 export async function discardCalibrationBatch(batchId: CalibrationBatchId): Promise<void> {
   const [batch] = await db

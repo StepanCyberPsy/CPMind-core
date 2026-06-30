@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { buildCsvUrl } from '@/lib/api';
-import type { ListParams } from '@/lib/api';
+import { buildCsvUrl } from '@/lib/admin/api';
+import type { ListParams } from '@/lib/admin/api';
 import styles from '@/styles/components.module.css';
 
 interface Props {

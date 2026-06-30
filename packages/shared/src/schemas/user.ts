@@ -25,6 +25,22 @@ export const UserListResponseSchema = z.array(UserSchema);
 
 export type UserListResponse = z.infer<typeof UserListResponseSchema>;
 
+// Агрегированная статистика по пользователю для страницы выбора юзера
+// campaignsCount/creativesCount — COUNT(DISTINCT campaign_id/creative_id) по impressions, impressionsCount — COUNT(*), avgScore — AVG(score_final), null при отсутствии импрешенов у пользователя
+export const UserStatsRowSchema = UserSchema.extend({
+  tagUuid: z.string().uuid().nullable(),
+  campaignsCount: z.number().int().min(0),
+  creativesCount: z.number().int().min(0),
+  impressionsCount: z.number().int().min(0),
+  avgScore: z.number().nullable(),
+});
+
+export type UserStatsRow = z.infer<typeof UserStatsRowSchema>;
+
+export const UserStatsListResponseSchema = z.array(UserStatsRowSchema);
+
+export type UserStatsListResponse = z.infer<typeof UserStatsListResponseSchema>;
+
 // Логин — ограниченный набор символов, исключает проблемы с URL-кодированием и отображением
 const UserLoginInputSchema = z.string().min(3).max(64).regex(/^[a-zA-Z0-9_.-]+$/);
 

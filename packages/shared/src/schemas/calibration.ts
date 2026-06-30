@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { UserUuidSchema } from './user.js';
 
 // Внешний идентификатор батча калибровки, branded — не пересекается с CalibrationItemId
 export const CalibrationBatchIdSchema = z.string().uuid().brand<'CalibrationBatchId'>();
@@ -39,17 +38,36 @@ const SessionGroupsSelectionSchema = z.object({
   sessionGroupIds: z.array(z.string().uuid()).min(1).max(MAX_SELECTION_SIZE),
 });
 
-// Те же фильтры, что уже используются в GET /api/impressions, плюс userUuid — для выбора по конкретному пользователю. Пустой объект фильтров означает "выбрать все"
+// Те же фильтры, что уже используются в GET /api/impressions, без userUuid
+// Калибровка всегда неявно скоупится на собственные данные вызывающего админа на уровне сервиса, не принимает целевого пользователя из payload вообще
+// Пустой объект фильтров означает "выбрать все свои"
 const CalibrationFilterSchema = z.object({
   sessionGroupId: z.string().uuid().optional(),
   campaignId: z.string().min(1).optional(),
   creativeId: z.string().min(1).optional(),
+  tagConstantsVersion: z.string().min(1).optional(),
+  weightsVersion: z.string().min(1).optional(),
   deviceType: z.enum(['desktop', 'mobile', 'tablet']).optional(),
   isSuspicious: z.boolean().optional(),
   dateFrom: z.string().datetime({ offset: true }).optional(),
   dateTo: z.string().datetime({ offset: true }).optional(),
-  userUuid: UserUuidSchema.optional(),
+  scoreMin: z.number().optional(),
+  scoreMax: z.number().optional(),
+  s1Min: z.number().optional(),
+  s1Max: z.number().optional(),
+  s2Min: z.number().optional(),
+  s2Max: z.number().optional(),
+  s3Min: z.number().optional(),
+  s3Max: z.number().optional(),
+  s4Min: z.number().optional(),
+  s4Max: z.number().optional(),
+  s5Min: z.number().optional(),
+  s5Max: z.number().optional(),
+  s7Min: z.number().optional(),
+  s7Max: z.number().optional(),
 });
+
+export type CalibrationFilters = z.infer<typeof CalibrationFilterSchema>;
 
 const FilterSelectionSchema = z.object({
   mode: z.literal('filter'),
@@ -86,6 +104,9 @@ export const CalibrationBatchSchema = z.object({
   createdByLogin: z.string(),
   createdAt: z.string(),
   completedAt: z.string().nullable(),
+  // Момент автоматической отмены черновика (createdAt + TTL cleanup-job'а). null
+  // Если батч не в статусе ready — расчет TTL для него не имеет смысла
+  expiresAt: z.string().nullable(),
 });
 
 export type CalibrationBatch = z.infer<typeof CalibrationBatchSchema>;
@@ -100,6 +121,16 @@ export const CalibrationItemSchema = z.object({
   impressionId: z.string().uuid(),
   campaignId: z.string(),
   creativeId: z.string(),
+  deviceType: z.string(),
+  // Нормализованные значения (0-100)
+  // Статичный контекст, веса их не меняют, только score
+  // Единая шкала удобнее для построчного сравнения, чем разнородные raw-единицы
+  s1Normalized: z.number().nullable(),
+  s2Normalized: z.number().nullable(),
+  s3Normalized: z.number().nullable(),
+  s4Normalized: z.number().nullable(),
+  s5Normalized: z.number().nullable(),
+  s7Normalized: z.number().nullable(),
   previousScoreFinal: z.number(),
   previousWeightsVersion: z.string(),
   newScoreFinal: z.number(),

@@ -1,7 +1,7 @@
 import type { FastifyReply } from 'fastify';
 import { format } from 'date-fns';
 import { eq, and } from 'drizzle-orm';
-import { USER_VISIBLE_IMPRESSION_FIELDS } from '@cpmind/shared';
+import { USER_VISIBLE_IMPRESSION_FIELDS, UserUuidSchema } from '@cpmind/shared';
 import { db } from '../db/index.js';
 import { impressions, tags, users } from '../db/schema.js';
 import type { AuthenticatedRequestUser } from '../middleware/requireAuth.js';
@@ -9,6 +9,7 @@ import {
   buildWhereClause,
   buildOwnerFilter,
   requireOwnerJoined,
+  resolveTargetUserId,
   USER_VISIBLE_COLUMNS,
   ADMIN_DETAIL_COLUMNS,
 } from './impressions.js';
@@ -117,8 +118,13 @@ async function collectCsvBody<T>(
   return chunks.join('');
 }
 
-async function buildAdminCsvBody(queryParams: Record<string, string>): Promise<string> {
-  const where = buildWhereClause(queryParams);
+async function buildAdminCsvBody(
+  queryParams: Record<string, string>,
+  targetUserId?: number,
+): Promise<string> {
+  const where = targetUserId !== undefined
+    ? and(buildWhereClause(queryParams), buildOwnerFilter(targetUserId))
+    : buildWhereClause(queryParams);
 
   return collectCsvBody(
     ADMIN_CSV_HEADER,
@@ -152,19 +158,43 @@ async function buildUserCsvBody(
   );
 }
 
+function sendCsvBody(
+  reply: FastifyReply,
+  body: string,
+): FastifyReply {
+  const filename = `cpmind_export_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
+  reply.header('Content-Type', 'text/csv; charset=utf-8');
+  reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+  return reply.send(body);
+}
+
 export async function buildCsvResponse(
   queryParams: Record<string, string>,
   reply: FastifyReply,
   authUser: AuthenticatedRequestUser,
 ): Promise<void> {
-  const filename = `cpmind_export_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
+  if (authUser.role !== 'admin') {
+    const body = await buildUserCsvBody(queryParams, authUser.id);
+    return sendCsvBody(reply, body);
+  }
 
-  reply.header('Content-Type', 'text/csv; charset=utf-8');
-  reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+  if (queryParams['userUuid'] === undefined) {
+    const body = await buildAdminCsvBody(queryParams);
+    return sendCsvBody(reply, body);
+  }
 
-  const body = authUser.role === 'admin'
-    ? await buildAdminCsvBody(queryParams)
-    : await buildUserCsvBody(queryParams, authUser.id);
+  const parsedUuid = UserUuidSchema.safeParse(queryParams['userUuid']);
 
-  return reply.send(body);
+  if (!parsedUuid.success) {
+    return reply.status(422).send({ error: 'Invalid userUuid' });
+  }
+
+  const targetUserId = await resolveTargetUserId(parsedUuid.data);
+
+  if (targetUserId === null) {
+    return reply.status(404).send({ error: 'User not found' });
+  }
+
+  const body = await buildAdminCsvBody(queryParams, targetUserId);
+  return sendCsvBody(reply, body);
 }

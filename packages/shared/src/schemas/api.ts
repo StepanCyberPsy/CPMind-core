@@ -47,6 +47,8 @@ export const ImpressionRowSchema = z.object({
 export const ImpressionDetailSchema = ImpressionRowSchema.extend({
   signals_raw: z.unknown(),
   signals_normalized: z.unknown(),
+  lastRecalibratedAt: z.string().optional(),
+  lastRecalibratedWeightsVersion: z.string().optional(),
 });
 
 export const ImpressionListResponseSchema = z.object({

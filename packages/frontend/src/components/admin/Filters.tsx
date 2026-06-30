@@ -2,18 +2,34 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ListParams } from '@/lib/api';
+import { Combobox } from '@/components/shared/Combobox';
+import { ComboboxDatePicker } from '@/components/shared/ComboboxDatePicker';
+import type { FiltersProps } from '@/lib/admin/types';
 import styles from '@/styles/filters.module.css';
 
-interface Props {
-  current: ListParams;
-}
+const DEVICE_OPTIONS = [
+  { value: 'desktop', label: 'Desktop' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'tablet', label: 'Tablet' },
+];
 
-export function Filters({ current }: Props) {
+const ANOMALY_OPTIONS = [
+  { value: 'false', label: 'Только чистые' },
+  { value: 'true', label: 'Только аномальные' },
+];
+
+export function Filters({
+  current,
+  tagConstantsVersions,
+  weightsVersions,
+  campaignOptions,
+  creativeOptions,
+}: FiltersProps) {
   const router = useRouter();
-  const [sessionGroupId, setSessionGroupId] = useState(current.sessionGroupId ?? '');
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
   const [creativeId, setCreativeId] = useState(current.creativeId ?? '');
+  const [tagConstantsVersion, setTagConstantsVersion] = useState(current.tagConstantsVersion ?? '');
+  const [weightsVersion, setWeightsVersion] = useState(current.weightsVersion ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
   const [isSuspicious, setIsSuspicious] = useState<string>(
     current.isSuspicious === true ? 'true' :
@@ -25,18 +41,18 @@ export function Filters({ current }: Props) {
   const applyFilters = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', '1');
-    sessionGroupId ? url.searchParams.set('sessionGroupId', sessionGroupId) : url.searchParams.delete('sessionGroupId');
     campaignId ? url.searchParams.set('campaignId', campaignId) : url.searchParams.delete('campaignId');
     creativeId ? url.searchParams.set('creativeId', creativeId) : url.searchParams.delete('creativeId');
+    tagConstantsVersion ? url.searchParams.set('tagConstantsVersion', tagConstantsVersion) : url.searchParams.delete('tagConstantsVersion');
+    weightsVersion ? url.searchParams.set('weightsVersion', weightsVersion) : url.searchParams.delete('weightsVersion');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
     isSuspicious ? url.searchParams.set('isSuspicious', isSuspicious) : url.searchParams.delete('isSuspicious');
     dateFrom ? url.searchParams.set('dateFrom', dateFrom) : url.searchParams.delete('dateFrom');
     dateTo ? url.searchParams.set('dateTo', dateTo) : url.searchParams.delete('dateTo');
     router.push(url.pathname + url.search);
-  }, [router, sessionGroupId, campaignId, creativeId, deviceType, isSuspicious, dateFrom, dateTo]);
+  }, [router, campaignId, creativeId, tagConstantsVersion, weightsVersion, deviceType, isSuspicious, dateFrom, dateTo]);
 
   const exitSegmentView = useCallback(() => {
-    setSessionGroupId('');
     const url = new URL(window.location.href);
     url.searchParams.delete('sessionGroupId');
     url.searchParams.set('page', '1');
@@ -44,20 +60,26 @@ export function Filters({ current }: Props) {
   }, [router]);
 
   const resetFilters = useCallback(() => {
-    setSessionGroupId('');
     setCampaignId('');
     setCreativeId('');
+    setTagConstantsVersion('');
+    setWeightsVersion('');
     setDeviceType('');
     setIsSuspicious('');
     setDateFrom('');
     setDateTo('');
     const url = new URL(window.location.href);
-    ['sessionGroupId', 'campaignId', 'creativeId', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach(k =>
+    ['campaignId', 'creativeId', 'tagConstantsVersion', 'weightsVersion', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach((k) =>
       url.searchParams.delete(k),
     );
     url.searchParams.set('page', '1');
     router.push(url.pathname + url.search);
   }, [router]);
+
+  const campaignComboOptions = campaignOptions.map((value) => ({ value, label: value }));
+  const creativeComboOptions = creativeOptions.map((value) => ({ value, label: value }));
+  const tagVersionComboOptions = tagConstantsVersions.map((value) => ({ value, label: value }));
+  const weightsVersionComboOptions = weightsVersions.map((value) => ({ value, label: value }));
 
   return (
     <div className={styles.filters}>
@@ -72,71 +94,80 @@ export function Filters({ current }: Props) {
       )}
       <div className={styles.grid}>
         <div className={styles.field}>
-          <label className={styles.label}>Session Group ID</label>
-          <input
-            type="text"
-            value={sessionGroupId}
-            onChange={(e) => setSessionGroupId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-            placeholder="uuid сессии показа"
-          />
-        </div>
-        <div className={styles.field}>
-          <label className={styles.label}>Campaign ID</label>
-          <input
-            type="text"
+          <label className={styles.label}>ID Кампании</label>
+          <Combobox
+            options={campaignComboOptions}
             value={campaignId}
-            onChange={(e) => setCampaignId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-            placeholder="camp_123"
+            onChange={setCampaignId}
+            placeholder="Все"
           />
         </div>
 
         <div className={styles.field}>
-          <label className={styles.label}>Creative ID</label>
-          <input
-            type="text"
+          <label className={styles.label}>ID Креатива</label>
+          <Combobox
+            options={creativeComboOptions}
             value={creativeId}
-            onChange={(e) => setCreativeId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-            placeholder="creat_456"
+            onChange={setCreativeId}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Версия тега</label>
+          <Combobox
+            options={tagVersionComboOptions}
+            value={tagConstantsVersion}
+            onChange={setTagConstantsVersion}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Версия весов</label>
+          <Combobox
+            options={weightsVersionComboOptions}
+            value={weightsVersion}
+            onChange={setWeightsVersion}
+            placeholder="Все"
           />
         </div>
 
         <div className={styles.field}>
           <label className={styles.label}>Устройство</label>
-          <select value={deviceType} onChange={(e) => setDeviceType(e.target.value)}>
-            <option value="">Все</option>
-            <option value="desktop">Desktop</option>
-            <option value="mobile">Mobile</option>
-            <option value="tablet">Tablet</option>
-          </select>
+          <Combobox
+            options={DEVICE_OPTIONS}
+            value={deviceType}
+            onChange={setDeviceType}
+            placeholder="Все"
+          />
         </div>
 
         <div className={styles.field}>
-          <label className={styles.label}>Подозрительные</label>
-          <select value={isSuspicious} onChange={(e) => setIsSuspicious(e.target.value)}>
-            <option value="">Все</option>
-            <option value="false">Только чистые</option>
-            <option value="true">Только подозрительные</option>
-          </select>
+          <label className={styles.label}>Наличие аномалий</label>
+          <Combobox
+            options={ANOMALY_OPTIONS}
+            value={isSuspicious}
+            onChange={setIsSuspicious}
+            placeholder="Все"
+          />
         </div>
 
         <div className={styles.field}>
           <label className={styles.label}>Дата с</label>
-          <input
-            type="date"
+          <ComboboxDatePicker
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={setDateFrom}
+            placeholder="Не выбрано"
           />
         </div>
 
         <div className={styles.field}>
           <label className={styles.label}>Дата по</label>
-          <input
-            type="date"
+          <ComboboxDatePicker
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={setDateTo}
+            placeholder="Не выбрано"
           />
         </div>
       </div>

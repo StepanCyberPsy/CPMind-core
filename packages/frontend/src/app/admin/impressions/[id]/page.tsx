@@ -1,18 +1,23 @@
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { fetchImpressionById, fetchImpressions } from '@/lib/api';
-import { ImpressionDetail } from '@/components/ImpressionDetail';
+import { fetchImpressionById, fetchImpressions } from '@/lib/admin/api';
+import { decodeTokenUuid } from '@/lib/shared/auth';
+import { ImpressionDetail } from '@/components/admin/ImpressionDetail';
 import styles from '@/styles/detail-page.module.css';
 
 interface Props {
   params: { id: string };
+  searchParams: { userUuid?: string };
 }
 
-export default async function ImpressionDetailPage({ params }: Props) {
+export default async function ImpressionDetailPage({ params, searchParams }: Props) {
   const cookieStore = cookies();
   const token = cookieStore.get('cpmind_token')?.value;
   const cookieHeader = token ? `cpmind_token=${token}` : undefined;
+  const ownUuid = token ? decodeTokenUuid(token) : null;
+  const backUuid = searchParams.userUuid ?? ownUuid;
+  const backHref = backUuid ? `/admin/impressions?userUuid=${backUuid}` : '/admin/impressions';
 
   const impression = await fetchImpressionById(params.id, cookieHeader);
   if (!impression) notFound();
@@ -32,7 +37,7 @@ export default async function ImpressionDetailPage({ params }: Props) {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <Link href="/impressions" className={styles.backBtn}>
+        <Link href={backHref} className={styles.backBtn}>
           ← Назад
         </Link>
 

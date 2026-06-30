@@ -1,0 +1,573 @@
+.page {
+    min-height: 100vh;
+    background-color: var(--bg-base);
+}
+
+.instructions {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+}
+
+.instructionsSummary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+}
+
+.instructionsSummary::-webkit-details-marker {
+    display: none;
+}
+
+.instructionsIcon {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: transform 0.15s;
+}
+
+.instructions[open] .instructionsIcon {
+    transform: rotate(180deg);
+}
+
+.instructionsBody {
+    padding: 0 16px 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.instructionsBody ol {
+    margin: 0 0 10px 18px;
+    padding: 0;
+}
+
+.instructionsBody li {
+    margin-bottom: 4px;
+}
+
+.instructionsBody p {
+    margin: 0;
+}
+
+.instructionsBody strong {
+    color: var(--text-primary);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 24px;
+    height: 56px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.backBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.backBtn:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+
+.headerTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.headerSpacer {
+    flex: 1;
+}
+
+.content {
+    padding: 20px 24px 24px;
+}
+
+.workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Version picker */
+
+.versionPicker {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+}
+
+.versionPickerTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+}
+
+.versionList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.versionRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color 0.15s;
+}
+
+.versionRowSelected {
+    border-color: var(--accent);
+    background-color: var(--accent-bg);
+}
+
+.versionInfo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.versionName {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.versionActiveBadge {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    background-color: var(--positive-bg);
+    color: var(--positive);
+}
+
+.versionWeights {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.versionSelectBtn {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-dark);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.versionSelectBtn:hover:not(:disabled) {
+    background-color: var(--accent-bg);
+}
+
+.versionSelectedBtn {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    white-space: nowrap;
+}
+
+.versionSelectBtn:disabled,
+.versionSelectedBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Error banner */
+
+.errorBanner {
+    padding: 10px 14px;
+    background-color: var(--negative-bg);
+    border-left: 3px solid var(--negative);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--negative);
+}
+
+/* Action bar */
+
+.actionBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 20px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    position: sticky;
+    top: 64px;
+    z-index: 90;
+}
+
+.actionBarDraft {
+    border-color: var(--moderate);
+    background-color: var(--moderate-bg);
+}
+
+.actionBarInfo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.selectionCount {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.draftLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--moderate);
+}
+
+.errorLabel {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--negative);
+}
+
+.spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--moderate);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.actionBarButtons {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.recalculateBtn {
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    white-space: nowrap;
+    transition: background-color 0.15s;
+}
+
+.recalculateBtn:hover:not(:disabled) {
+    background-color: var(--accent-dark);
+}
+
+.discardBtn {
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.discardBtn:hover:not(:disabled) {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.saveBtn {
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: var(--negative);
+    border: 1px solid var(--negative);
+    border-radius: var(--radius);
+    white-space: nowrap;
+    transition: background-color 0.15s;
+}
+
+.saveBtn:hover:not(:disabled) {
+    background-color: #b91c1c;
+}
+
+.recalculateBtn:disabled,
+.discardBtn:disabled,
+.saveBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Select-all note */
+
+.selectAllNote {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--accent-dark);
+    background-color: var(--accent-bg);
+    border-bottom: 1px solid var(--accent);
+}
+
+/* Preview (черновик) — отдельный класс, не комбинируется с table.module.css across файлы, чтобы не зависеть от порядка сборки CSS Modules между модулями */
+
+.previewWrapper {
+    background-color: var(--bg-surface);
+    border: 2px dashed var(--moderate);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.previewTruncatedNote {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--moderate);
+    background-color: var(--moderate-bg);
+    border-bottom: 1px solid var(--moderate);
+}
+
+/* Success panel */
+
+.successPanel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 64px 24px;
+    text-align: center;
+}
+
+.successIcon {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background-color: var(--positive-bg);
+    color: var(--positive);
+    font-size: 24px;
+}
+
+.successTitle {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.successText {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.successCloseBtn {
+    margin-top: 12px;
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #ffffff;
+    background-color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    transition: background-color 0.15s;
+}
+
+.successCloseBtn:hover {
+    background-color: var(--accent-dark);
+}
+
+/* Чекбоксы выбора строк — нативный input */
+
+.rowCheckbox {
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.rowCheckbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.checkboxCell {
+    width: 40px;
+    padding: 11px 8px !important;
+    text-align: center;
+}
+
+.selectedRow {
+    background-color: var(--accent-bg);
+}
+
+.selectedRow:hover {
+    background-color: var(--accent-bg);
+}
+
+/* Danger zone (используется на /admin/weights) */
+
+.dangerZone {
+    margin-top: 24px;
+    padding: 20px;
+    background-color: var(--negative-bg);
+    border: 1px solid var(--negative);
+    border-radius: var(--radius-md);
+}
+
+.dangerZoneTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--negative);
+    margin-bottom: 6px;
+}
+
+.dangerZoneSubtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 14px;
+}
+
+.dangerZoneBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: var(--negative);
+    border: 1px solid var(--negative);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: background-color 0.15s;
+}
+
+.dangerZoneBtn:hover {
+    background-color: #b91c1c;
+}
+
+/* Responsive */
+
+@media (max-width: 768px) {
+    .actionBar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        top: 0;
+        position: static;
+    }
+
+    .actionBarButtons {
+        width: 100%;
+    }
+
+    .recalculateBtn,
+    .discardBtn,
+    .saveBtn {
+        flex: 1;
+    }
+
+    .versionRow {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .versionSelectBtn,
+    .versionSelectedBtn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .header {
+        padding: 0 16px;
+    }
+
+    .content {
+        padding: 16px 16px 24px;
+    }
+
+    .versionPicker {
+        padding: 14px 16px;
+    }
+
+    .versionWeights {
+        display: none;
+    }
+
+    .dangerZone {
+        padding: 16px;
+    }
+}

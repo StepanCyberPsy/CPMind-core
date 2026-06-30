@@ -1,0 +1,158 @@
+.wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 16px;
+    margin-top: 2px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    transition: all 0.15s;
+}
+
+.trigger:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.triggerActive {
+    color: var(--accent);
+}
+
+.triggerIcon {
+    font-size: 10px;
+    line-height: 1;
+}
+
+.panel {
+    position: fixed;
+    z-index: 200;
+    width: 400px;
+    max-width: calc(100vw - 32px);
+    padding: 16px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
+.panelHeader {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+}
+
+.row:first-of-type {
+    border-top: none;
+}
+
+.rowLabel {
+    flex-shrink: 0;
+    width: 80px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.rowContent {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.modeSelect {
+    flex-shrink: 0;
+    width: 100px;
+}
+
+.numberInput {
+    min-width: 64px;
+    flex: 1;
+}
+
+.rangeDash {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.resetBtn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background-color: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: all 0.15s;
+}
+
+.resetBtn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.applyBtn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #ffffff;
+    background-color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    transition: background-color 0.15s;
+}
+
+.applyBtn:hover {
+    background-color: var(--accent-dark);
+}
+
+@media (max-width: 640px) {
+    .panel {
+        width: min(300px, calc(100vw - 24px));
+        max-width: calc(100vw - 24px);
+    }
+
+    .row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .rowLabel {
+        width: auto;
+    }
+
+    .rowContent {
+        flex-wrap: wrap;
+    }
+
+    .modeSelect {
+        width: 100%;
+    }
+}

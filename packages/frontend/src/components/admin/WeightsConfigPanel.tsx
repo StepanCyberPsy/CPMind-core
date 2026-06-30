@@ -6,7 +6,7 @@ import {
     createWeightsConfig,
     activateWeightsConfig,
     deleteWeightsConfig,
-} from '@/lib/api';
+} from '@/lib/admin/api';
 import type { WeightConfigRow } from '@cpmind/shared';
 import cStyles from '@/styles/components.module.css';
 import styles from '@/styles/weights-panel.module.css';

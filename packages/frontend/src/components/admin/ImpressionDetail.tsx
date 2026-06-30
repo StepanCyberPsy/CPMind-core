@@ -129,6 +129,20 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
         <div className={styles.scoreDate}>{fmtDate(imp.created_at)}</div>
       </div>
 
+      <div className={styles.recalibrationBanner}>
+        {imp.lastRecalibratedAt !== undefined ? (
+          <>
+            <span className={styles.recalibrationIcon}>✓</span>
+            <span>
+              Пересчитан {fmtDate(imp.lastRecalibratedAt)}, версия весов:{' '}
+              <span className={styles.recalibrationVersion}>{imp.lastRecalibratedWeightsVersion}</span>
+            </span>
+          </>
+        ) : (
+          <span className={styles.recalibrationNeutral}>Не пересчитывался</span>
+        )}
+      </div>
+
       {/* Метаданные */}
       <Section title="Метаданные импрешена">
         <Field label="Impression ID" value={imp.impression_id} mono />
@@ -158,7 +172,7 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
                     </div>
                   )}
                   <Link
-                    href={`/impressions/${seg.id}`}
+                    href={`/admin/impressions/${seg.id}`}
                     className={`${styles.segmentCard} ${isCurrent ? styles.segmentCardCurrent : ''}`}
                   >
                     <div className={styles.segmentCardIndex}>Сегмент {seg.segment_index + 1}</div>
