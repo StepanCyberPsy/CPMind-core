@@ -72,6 +72,7 @@ packages/frontend/
     │   └── user/
     │       ├── Filters.tsx
     │       ├── ImpressionsTable.tsx
+    │       ├── TagBuilderModal.tsx
     │       ├── SignalFilterModal.tsx
     │       ├── UserCampaignsTable.tsx
     │       └── ExportButton.tsx
@@ -81,6 +82,7 @@ packages/frontend/
     │   │   ├── env.ts           # requireEnv(), getBackendUrl(), getPublicBackendUrl()
     │   │   ├── types.ts         # SortField, SortParams, PaginationProps
     │   │   ├── date.ts          # утилиты для ComboboxDatePicker
+    │   │   ├── tag-builder.ts   # единый контракт генератора тега
     │   │   └── use-popover.ts   # единый хук позиционирования поповеров
     │   ├── admin/
     │   │   ├── api.ts           # все функции обращения к backend API
@@ -106,6 +108,8 @@ packages/frontend/
         ├── combobox.module.css
         ├── signal-filter-modal.module.css
         ├── recalibration.module.css
+        ├── tag-builder-modal.module.css
+        ├── user_panel.module.css
         └── create-user-form.module.css
 ```
 

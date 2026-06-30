@@ -61,7 +61,7 @@
   color: var(--text-primary);
 }
 
-.usersBtn {
+.backBtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -77,7 +77,7 @@
   white-space: nowrap;
 }
 
-.usersBtn:hover {
+.backBtn:hover {
   background-color: var(--bg-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);

@@ -21,6 +21,7 @@ interface ComboboxProps {
   onChange: (value: string) => void;
   placeholder: string;
   allLabel?: string;
+  includeAll?: boolean;
 }
 
 // Кастомный select с поиском внутри списка. Первая строка — псевдо-опция "Все" (value: ''), не фильтруется поиском
@@ -30,6 +31,7 @@ export function Combobox({
   onChange,
   placeholder,
   allLabel = 'Все',
+  includeAll = true,
 }: ComboboxProps) {
   const { open, setOpen, triggerRef, panelRef, coords } = usePopover();
   const [query, setQuery] = useState('');
@@ -43,15 +45,18 @@ export function Combobox({
   }, [options, query]);
 
   const rows = useMemo<ComboboxOption[]>(
-    () => [{ value: '', label: allLabel }, ...filteredOptions],
-    [allLabel, filteredOptions],
+    () => includeAll
+      ? [{ value: '', label: allLabel }, ...filteredOptions]
+      : filteredOptions,
+    [allLabel, filteredOptions, includeAll],
   );
 
   const selectedLabel = useMemo(() => {
-    if (value === '') return allLabel;
+    if (includeAll && value === '') return allLabel;
+
     const found = options.find((option) => option.value === value);
     return found ? found.label : value;
-  }, [allLabel, options, value]);
+  }, [allLabel, includeAll, options, value]);
 
   const openPanel = useCallback(() => {
     setQuery('');

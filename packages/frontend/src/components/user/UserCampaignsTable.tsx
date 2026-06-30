@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { TagBuilderModal } from '@/components/user/TagBuilderModal';
 import { useRouter } from 'next/navigation';
 import type { UserCampaignStatsRow } from '@cpmind/shared';
 import type { UserCampaignsTableProps } from '@/lib/user/types';
@@ -83,6 +84,7 @@ function formatRatio(value: number): string {
 export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps) {
   const router = useRouter();
   const [sort, setSort] = useState<SortState>({ column: 'latest', dir: 'desc' });
+  const [tagBuilderOpen, setTagBuilderOpen] = useState(false);
 
   function handleSort(column: SortColumn): void {
     setSort((prev) => prev.column === column
@@ -109,7 +111,11 @@ export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps
   return (
     <>
       <div className={styles.toolbar}>
-        <button type="button" className={styles.tagBuilderBtn}>
+        <button
+          type="button"
+          className={styles.tagBuilderBtn}
+          onClick={() => setTagBuilderOpen(true)}
+        >
           Собрать код тега
         </button>
       </div>
@@ -184,6 +190,10 @@ export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps
           </table>
         </div>
       </div>
+      <TagBuilderModal
+        open={tagBuilderOpen}
+        onClose={() => setTagBuilderOpen(false)}
+      />
     </>
   );
 }

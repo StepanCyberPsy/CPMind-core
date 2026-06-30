@@ -1,4 +1,5 @@
 import type {
+  Tag,
   UserCampaignStatsListResponse,
   UserImpressionListResponse,
 } from '@cpmind/shared';
@@ -91,4 +92,15 @@ export async function fetchUserImpressions(
 
 export function buildUserCsvUrl(params: UserListParams): string {
   return `${CLIENT_BACKEND}/api/impressions/export/csv?${buildQuery(params)}`;
+}
+
+export async function fetchMyTags(): Promise<Tag[]> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/tags/mine`, {
+    credentials: 'include',
+  });
+
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+  const tags = await res.json() as Tag[];
+  return tags.filter((tag) => tag.isActive);
 }

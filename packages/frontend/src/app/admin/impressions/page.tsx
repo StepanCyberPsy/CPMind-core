@@ -44,7 +44,7 @@ export default async function ImpressionsPage({
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <Link href="/admin/users_panel" className={styles.usersBtn}>
+        <Link href="/admin/users_panel" className={styles.backBtn}>
           ← К пользователям
         </Link>
         <div className={styles.headerCenter}>

@@ -1,6 +1,7 @@
 import type { SortParams, PaginationProps } from '@/lib/shared/types';
 
 export type {
+  Tag,
   UserCampaignStatsRow,
   UserCampaignStatsListResponse,
   UserImpressionRow,
@@ -8,9 +9,34 @@ export type {
 } from '@cpmind/shared';
 export type { UserListParams } from './api.js';
 export type { SortParams, PaginationProps };
+export type {
+  TagBuilderCopyTarget,
+  TagBuilderFormat,
+  TagBuilderFormErrors,
+  TagBuilderGeneratedCode,
+  TagBuilderPlatform,
+  TagBuilderPlatformOption,
+  TagBuilderStep,
+} from '@/lib/shared/tag-builder';
 
 export interface UserCampaignsTableProps {
   initialCampaigns: import('@cpmind/shared').UserCampaignStatsRow[];
+}
+
+export type TagBuilderCreativeType = 'banner_static' | 'banner_gif' | 'banner_html5';
+
+export interface TagBuilderFormState {
+  campaignId: string;
+  creativeId: string;
+  creativeType: TagBuilderCreativeType;
+  width: string;
+  height: string;
+}
+
+export interface TagBuilderModalProps {
+  open: boolean;
+  onClose: () => void;
+  initialCampaignId?: string;
 }
 
 export interface UserImpressionsTableProps {
