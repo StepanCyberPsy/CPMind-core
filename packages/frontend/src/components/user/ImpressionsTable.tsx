@@ -9,7 +9,7 @@ import {
 } from '@tanstack/react-table';
 import { useState, useCallback, useMemo } from 'react';
 import type { UserImpressionRow } from '@cpmind/shared';
-import { getSignalMeta, type SignalField } from '@/lib/user/signals-meta';
+import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
 import { SignalFilterModal } from './SignalFilterModal';
 import type { UserImpressionsTableProps } from '@/lib/user/types';
 import type { UserListParams } from '@/lib/user/api';
@@ -32,7 +32,11 @@ function renderFilterableHeader(
   return (
     <div className={styles.thFilterable}>
       <span>{label}</span>
-      <SignalFilterModal meta={getSignalMeta(field)} currentParams={currentParams} navigateTo={navigateTo} />
+      <SignalFilterModal
+        meta={getSignalMeta(field)}
+        currentParams={currentParams}
+        navigateTo={navigateTo}
+      />
     </div>
   );
 }
@@ -47,7 +51,46 @@ function formatDate(timestamp: number): string {
   });
 }
 
-function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArgs) {
+function DeviceIcon({ deviceType }: { deviceType: string }): React.ReactNode {
+  if (deviceType === 'desktop') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" focusable="false">
+        <path d="M5 5.5h14A1.5 1.5 0 0 1 20.5 7v8A1.5 1.5 0 0 1 19 16.5H5A1.5 1.5 0 0 1 3.5 15V7A1.5 1.5 0 0 1 5 5.5Z" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M9 20h6M12 16.5V20" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (deviceType === 'mobile') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" focusable="false">
+        <path d="M8 3.5h8A1.5 1.5 0 0 1 17.5 5v14A1.5 1.5 0 0 1 16 20.5H8A1.5 1.5 0 0 1 6.5 19V5A1.5 1.5 0 0 1 8 3.5Z" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M11 17.5h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (deviceType === 'tablet') {
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" focusable="false">
+        <path d="M6 4.5h12A1.5 1.5 0 0 1 19.5 6v12A1.5 1.5 0 0 1 18 19.5H6A1.5 1.5 0 0 1 4.5 18V6A1.5 1.5 0 0 1 6 4.5Z" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M11 16.5h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+function formatDeviceType(deviceType: string): string {
+  if (deviceType === 'desktop') return 'Десктоп';
+  if (deviceType === 'mobile') return 'Мобильный';
+  if (deviceType === 'tablet') return 'Планшет';
+  return deviceType;
+}
+
+function buildColumns({
+  currentParams,
+  campaignId,
+  navigateTo,
+}: BuildColumnsArgs) {
   const dateColumn = col.accessor('timestamp_start', {
     header: 'Дата',
     enableSorting: true,
@@ -72,9 +115,15 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       header: 'Устройство',
       enableSorting: false,
       cell: ({ getValue }) => {
-        const icons: Record<string, string> = { desktop: '🖥', mobile: '📱', tablet: '📟' };
         const v = getValue();
-        return `${icons[v] ?? ''} ${v}`;
+        return (
+          <span className={styles.cellDevice}>
+            <span className={styles.deviceIcon} aria-hidden="true">
+              <DeviceIcon deviceType={v} />
+            </span>
+            <span>{formatDeviceType(v)}</span>
+          </span>
+        );
       },
     }),
     col.accessor('is_suspicious', {
@@ -99,7 +148,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>—</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
     col.accessor('s2_normalized', {
@@ -107,7 +158,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>—</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
     col.accessor('s3_normalized', {
@@ -115,7 +168,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>n/a</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>n/a</span>;
       },
     }),
     col.accessor('s4_normalized', {
@@ -123,7 +178,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>—</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
     col.accessor('s5_normalized', {
@@ -131,7 +188,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>—</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
     col.accessor('s7_normalized', {
@@ -139,7 +198,9 @@ function buildColumns({ currentParams, campaignId, navigateTo }: BuildColumnsArg
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
-        return v !== null ? <span className={styles.cellMono}>{v.toFixed(1)}</span> : <span className={styles.cellNull}>—</span>;
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
   ];
@@ -165,7 +226,7 @@ export function UserImpressionsTableClient({
   const navigateTo = useCallback((params: Record<string, string>) => {
     const url = new URL(window.location.href);
     for (const [k, v] of Object.entries(params)) {
-      if (v) url.searchParams.set(k, v);
+      if (v !== '') url.searchParams.set(k, v);
       else url.searchParams.delete(k);
     }
     window.location.href = url.pathname + url.search;
@@ -180,7 +241,9 @@ export function UserImpressionsTableClient({
     [currentParams, campaignId, navigateTo],
   );
 
-  function onSortingChange(updater: SortingState | ((prev: SortingState) => SortingState)): void {
+  function onSortingChange(
+    updater: SortingState | ((prev: SortingState) => SortingState),
+  ): void {
     const next = typeof updater === 'function' ? updater(sorting) : updater;
     setSorting(next);
     const first = next[0];
@@ -215,7 +278,7 @@ export function UserImpressionsTableClient({
                     <th
                       key={header.id}
                       className={`${styles.th} ${canSort ? styles.thSortable : ''}`}
-                      onClick={header.column.getToggleSortingHandler()}
+                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {canSort && (
@@ -256,10 +319,18 @@ export function UserImpressionsTableClient({
           Страница {currentPage} из {pageCount || 1}
         </span>
         <div className={styles.pageButtons}>
-          <button className={styles.pageBtn} onClick={() => onPageChange(currentPage - 1)} disabled={currentPage <= 1}>
+          <button
+            className={styles.pageBtn}
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
             ← Назад
           </button>
-          <button className={styles.pageBtn} onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= pageCount}>
+          <button
+            className={styles.pageBtn}
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= pageCount}
+          >
             Вперед →
           </button>
         </div>

@@ -8,9 +8,9 @@ import type { FiltersProps } from '@/lib/admin/types';
 import styles from '@/styles/filters.module.css';
 
 const DEVICE_OPTIONS = [
-  { value: 'desktop', label: 'Desktop' },
-  { value: 'mobile', label: 'Mobile' },
-  { value: 'tablet', label: 'Tablet' },
+  { value: 'desktop', label: 'Десктоп' },
+  { value: 'mobile', label: 'Мобильный' },
+  { value: 'tablet', label: 'Планшет' },
 ];
 
 const ANOMALY_OPTIONS = [

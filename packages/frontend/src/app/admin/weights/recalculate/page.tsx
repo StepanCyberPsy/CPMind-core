@@ -9,6 +9,37 @@ import { RecalibrationWorkspace } from '@/components/admin/RecalibrationWorkspac
 import type { ListParams } from '@/lib/admin/api';
 import styles from '@/styles/recalibration.module.css';
 
+function RecalibrationInstructions(): React.ReactNode {
+  return (
+    <details className={styles.instructions}>
+      <summary className={styles.instructionsSummary}>
+        <span className={styles.instructionsIcon} aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" focusable="false">
+            <path d="M8 10l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <span>Как выполнить пересчет</span>
+      </summary>
+
+      <div className={styles.instructionsBody}>
+        <ol>
+          <li>Выберите версию весов, по которой нужно пересчитать Score.</li>
+          <li>Отметьте нужные импрешены или нажмите "Выбрать все".</li>
+          <li>Нажмите "Пересчитать". Будет показан результат без сохранения в базу.</li>
+          <li>Проверьте изменения в таблице и сохраните только если результат корректен.</li>
+        </ol>
+
+        <p>
+          <strong>Отменить:</strong> удалить черновик без изменений.
+        </p>
+        <p>
+          <strong>Сохранить:</strong> записать новые значения окончательно.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 export default async function RecalculatePage({
   searchParams,
 }: {
@@ -52,24 +83,7 @@ export default async function RecalculatePage({
       </header>
 
       <div className={styles.content}>
-        <details className={styles.instructions} open>
-          <summary className={styles.instructionsSummary}>
-            <span className={styles.instructionsIcon}>▾</span>
-            Как откалибровать значения
-          </summary>
-          <div className={styles.instructionsBody}>
-            <ol>
-              <li>Выберите версию весов, по которой нужно пересчитать значения.</li>
-              <li>Отметьте нужные импрешены галочками или нажмите «Выбрать все», чтобы взять все подходящие по фильтрам выше.</li>
-              <li>Нажмите <strong>«Пересчитать»</strong> — система покажет, как изменится Score, пока ничего не сохраняя.</li>
-              <li>Проверьте результат в таблице.</li>
-            </ol>
-            <p>
-              <strong>«Отменить»</strong> — отказаться от пересчёта, ничего не изменится.{' '}
-              <strong>«Сохранить»</strong> — записать новые значения в базу данных навсегда; отменить это действие будет нельзя.
-            </p>
-          </div>
-        </details>
+        <RecalibrationInstructions />
 
         <Filters
           current={params}

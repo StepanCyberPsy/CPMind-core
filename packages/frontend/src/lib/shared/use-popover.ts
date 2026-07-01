@@ -55,7 +55,11 @@ export function usePopover(): PopoverHandlers {
       }
     }
 
-    function handleScroll(): void {
+    function handleScroll(event: Event): void {
+      const target = event.target;
+
+      if (target instanceof Node && panelRef.current?.contains(target)) return;
+
       setOpen(false);
     }
 

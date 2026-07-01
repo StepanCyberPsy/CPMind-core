@@ -88,7 +88,23 @@ export function ComboboxDatePicker({
         <span className={value === '' ? styles.triggerPlaceholder : styles.triggerValue}>
           {value === '' ? placeholder : value}
         </span>
-        <span className={styles.triggerIcon}>📅</span>
+        <span className={styles.triggerIcon} aria-hidden="true">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            focusable="false"
+          >
+            <path
+              d="M7 3v3M17 3v3M4.5 9h15M6.5 5h11A2.5 2.5 0 0 1 20 7.5v10A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-10A2.5 2.5 0 0 1 6.5 5Z"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
       </button>
 
       {open && (

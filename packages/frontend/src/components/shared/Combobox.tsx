@@ -22,6 +22,7 @@ interface ComboboxProps {
   placeholder: string;
   allLabel?: string;
   includeAll?: boolean;
+  includeSearch?: boolean;
 }
 
 // Кастомный select с поиском внутри списка. Первая строка — псевдо-опция "Все" (value: ''), не фильтруется поиском
@@ -32,6 +33,7 @@ export function Combobox({
   placeholder,
   allLabel = 'Все',
   includeAll = true,
+  includeSearch = true,
 }: ComboboxProps) {
   const { open, setOpen, triggerRef, panelRef, coords } = usePopover();
   const [query, setQuery] = useState('');
@@ -118,18 +120,20 @@ export function Combobox({
           style={coords ? { top: coords.top, left: coords.left } : undefined}
           role="listbox"
         >
-          <input
-            ref={searchInputRef}
-            type="text"
-            className={styles.search}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setActiveIndex(0);
-            }}
-            onKeyDown={handleSearchKeyDown}
-            placeholder="Поиск..."
-          />
+          {includeSearch && (
+            <input
+              ref={searchInputRef}
+              type="text"
+              className={styles.search}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveIndex(0);
+              }}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Поиск..."
+            />
+          )}
           <div className={styles.list}>
             {rows.length === 0 ? (
               <div className={styles.empty}>Ничего не найдено</div>

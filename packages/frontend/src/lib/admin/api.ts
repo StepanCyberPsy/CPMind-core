@@ -50,6 +50,24 @@ export interface ListParams {
   sortDir?: 'asc' | 'desc';
 }
 
+function toBackendDateTime(
+  value: string,
+  boundary: 'from' | 'to',
+): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const [yearRaw, monthRaw, dayRaw] = value.split('-');
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+
+  const date = boundary === 'from'
+    ? new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
+    : new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+
+  return date.toISOString();
+}
+
 function buildQuery(params: ListParams): string {
   const q = new URLSearchParams();
   if (params.page) q.set('page', String(params.page));
@@ -76,8 +94,8 @@ function buildQuery(params: ListParams): string {
   if (params.s7Max !== undefined) q.set('s7Max', String(params.s7Max));
   if (params.deviceType) q.set('deviceType', params.deviceType);
   if (params.isSuspicious !== undefined) q.set('isSuspicious', String(params.isSuspicious));
-  if (params.dateFrom) q.set('dateFrom', params.dateFrom);
-  if (params.dateTo) q.set('dateTo', params.dateTo);
+  if (params.dateFrom) q.set('dateFrom', toBackendDateTime(params.dateFrom, 'from'));
+  if (params.dateTo) q.set('dateTo', toBackendDateTime(params.dateTo, 'to'));
   if (params.sortBy) q.set('sortBy', params.sortBy);
   if (params.sortDir) q.set('sortDir', params.sortDir);
   return q.toString();

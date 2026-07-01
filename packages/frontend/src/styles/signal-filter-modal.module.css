@@ -62,7 +62,7 @@
 
 .rowLabel {
     flex-shrink: 0;
-    width: 80px;
+    width: 96px;
     font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
@@ -76,14 +76,26 @@
     min-width: 0;
 }
 
-.modeSelect {
+.comboboxMode {
     flex-shrink: 0;
-    width: 100px;
+    width: 120px;
+}
+
+.comboboxSort {
+    flex-shrink: 0;
+    width: 160px;
 }
 
 .numberInput {
     min-width: 64px;
     flex: 1;
+}
+
+.hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    flex-basis: 100%;
+    margin-top: 2px;
 }
 
 .rangeDash {

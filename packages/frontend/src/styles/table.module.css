@@ -101,6 +101,30 @@
     color: var(--text-secondary);
 }
 
+.cellDate {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.cellDevice {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.deviceIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
 .cellScore {
     font-family: var(--font-mono);
     font-size: 13px;
@@ -281,4 +305,40 @@
     background-color: var(--bg-subtle);
     cursor: not-allowed;
     opacity: 1;
+}
+
+/* Raw toggle column */
+
+.thRawToggle {
+    width: 40px;
+    min-width: 40px;
+    padding: 10px 8px;
+    text-align: center;
+    background-color: var(--bg-subtle);
+    border-left: 1px solid var(--border-strong);
+    border-right: 1px dashed var(--border);
+}
+
+.tdRawToggle {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    border-left: 1px solid var(--border);
+    border-right: 1px dashed var(--border);
+}
+
+.rawToggleBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.rawToggleBtn:hover {
+    color: var(--accent);
+    background-color: var(--accent-bg);
 }

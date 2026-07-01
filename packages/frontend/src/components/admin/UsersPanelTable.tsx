@@ -86,8 +86,51 @@ function CopyableUuid({ uuid }: CopyableUuidProps) {
   return (
     <div className={styles.uuidCell}>
       <span className={styles.uuidText} title={uuid}>{uuid}</span>
-      <button type="button" className={styles.copyBtn} onClick={handleCopy} aria-label="Скопировать UUID">
-        {copied ? '✓' : '📋'}
+      <button
+        type="button"
+        className={styles.copyBtn}
+        onClick={handleCopy}
+        aria-label="Скопировать UUID"
+      >
+        {copied ? (
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            className={styles.copyIcon}
+          >
+            <path
+              d="M4.5 10.5L8 14L15.5 6.5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ) : (
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            className={styles.copyIcon}
+          >
+            <rect
+              x="7"
+              y="3"
+              width="9"
+              height="12"
+              rx="2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M5 13H4C2.9 13 2 12.1 2 11V5C2 3.9 2.9 3 4 3H10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        )}
       </button>
     </div>
   );
@@ -137,7 +180,7 @@ export function UsersPanelTable({ initialUsers, currentUserUuid }: Props) {
                 <th className={styles.th}>Дата</th>
                 <th className={styles.th}>Логин пользователя</th>
                 <th className={styles.th}>UUID пользователя</th>
-                <th className={styles.th}>Tag UUID</th>
+                <th className={styles.th}>UUID тега</th>
                 <SortableHeader label="Кампании" column="campaigns" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Креативы" column="creatives" sort={sort} onSort={handleSort} />
                 <SortableHeader label="Импрешены" column="impressions" sort={sort} onSort={handleSort} />

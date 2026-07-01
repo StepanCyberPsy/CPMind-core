@@ -123,7 +123,7 @@ export function RecalibrationWorkspace({
         }
 
         if (fresh.status === 'expired' || fresh.status === 'discarded') {
-          setErrorMessage('Черновик был автоматически отменён по истечении времени.');
+          setErrorMessage('Черновик был автоматически отменен по истечении времени.');
           setMode('select');
           setBatch(null);
           setPreviewItems(null);

@@ -202,7 +202,7 @@
     font-family: var(--font-mono);
     font-size: 12px;
     font-weight: 500;
-    color: var(--text-primary);
+    color: var(--text-secondary);
 }
 
 .scorePositive {
