@@ -1,0 +1,462 @@
+/* Страница */
+
+.page {
+    min-height: 100vh;
+    background-color: var(--bg-base);
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 24px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.backBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.backBtn:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+
+.headerTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.headerSpacer {
+    flex: 1;
+}
+
+.content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Заголовок секции */
+
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.sectionTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Таблица */
+
+.tableWrapper {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.scrollContainer {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.thActions {
+    text-align: right;
+}
+
+.tr {
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.1s;
+}
+
+.tr:last-child {
+    border-bottom: none;
+}
+
+.trActive {
+    background-color: var(--accent-bg);
+}
+
+.td {
+    padding: 11px 16px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.tdActions {
+    text-align: right;
+}
+
+/* Типы ячеек */
+
+.cellMono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.cellVersion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.activeBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background-color: var(--accent-bg);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.activeDot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--accent);
+    flex-shrink: 0;
+}
+
+.cellNull {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12px;
+}
+
+.expandBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 9px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.expandBtn:hover {
+    color: var(--accent);
+    background-color: var(--accent-bg);
+}
+
+.scriptCell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 240px;
+}
+
+.scriptPath {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.copyBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.copyBtn:hover {
+    color: var(--accent);
+    background-color: var(--accent-bg);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* Раскрытая строка с константами */
+
+.expandedRow {
+    background-color: var(--bg-subtle);
+    border-bottom: 1px solid var(--border);
+}
+
+.expandedCell {
+    padding: 16px 20px;
+}
+
+.constantsGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px 32px;
+}
+
+.constantCard {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.constantLabel {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.constantValue {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* Форма создания */
+
+.formWrapper {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px 24px;
+}
+
+.formTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.formSectionLabel {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.fieldsGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px 20px;
+}
+
+.fieldItem {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.fieldLabel {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fieldUnit {
+    text-transform: none;
+    font-weight: 400;
+    letter-spacing: 0;
+}
+
+.fieldError {
+    font-size: 11px;
+    color: var(--negative);
+    line-height: 1.3;
+}
+
+.inputError {
+    border-color: var(--negative) !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08) !important;
+}
+
+.submitError {
+    font-size: 12px;
+    color: var(--negative);
+    background-color: var(--negative-bg);
+    border: 1px solid rgba(220, 38, 38, 0.2);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-top: 16px;
+}
+
+.formActions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+/* Предупреждающая зона */
+
+.warningZone {
+    background-color: var(--moderate-bg);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+}
+
+.warningZoneTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--moderate);
+    margin-bottom: 6px;
+}
+
+.warningZoneText {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.warningZoneCode {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--moderate);
+    background-color: rgba(217, 119, 6, 0.1);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+}
+
+/* Responsive */
+
+@media (max-width: 1024px) {
+    .constantsGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .fieldsGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .header {
+        padding: 10px 16px;
+    }
+
+    .content {
+        padding: 16px;
+        gap: 16px;
+    }
+
+    .scriptCell {
+        max-width: 160px;
+    }
+
+    .actions {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .content {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .constantsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .fieldsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .formWrapper {
+        padding: 16px;
+    }
+
+    .headerTitle {
+        font-size: 14px;
+    }
+
+    .actions {
+        flex-direction: column;
+        align-items: flex-end;
+    }
+}

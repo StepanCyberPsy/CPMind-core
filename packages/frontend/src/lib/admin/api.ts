@@ -4,6 +4,8 @@ import type {
   WeightConfigRow,
   UserStatsListResponse,
   TagConstantsConfigListResponse,
+  TagConstantsConfig,
+  CreateTagConstantsPayload,
   User,
   TagUuid,
   CalibrationSelection,
@@ -185,6 +187,44 @@ export async function fetchTagConstantsConfigs(
     headers: cookie ? { Cookie: cookie } : {},
   });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createTagConstantsConfig(payload: CreateTagConstantsPayload): Promise<TagConstantsConfig> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/tag-constants`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? err?.message ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function activateTagConstantsConfig(id: string): Promise<TagConstantsConfig> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/tag-constants/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? err?.message ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deactivateTagConstantsConfig(id: string): Promise<TagConstantsConfig> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/tag-constants/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? err?.message ?? `API error: ${res.status}`);
+  }
   return res.json();
 }
 

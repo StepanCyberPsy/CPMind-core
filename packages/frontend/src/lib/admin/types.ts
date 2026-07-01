@@ -8,6 +8,7 @@ export type {
   UserStatsRow,
   UserStatsListResponse,
   TagConstantsConfig,
+  CreateTagConstantsPayload,
 } from '@cpmind/shared';
 export type { ListParams } from './api.js';
 export type { SortParams, PaginationProps };
@@ -65,3 +66,7 @@ export type {
   CalibrationItemListResponse,
   ApproveCalibrationResult,
 } from '@cpmind/shared';
+
+export interface TagConstantsPanelProps {
+  initialConfigs: import('@cpmind/shared').TagConstantsConfig[];
+}

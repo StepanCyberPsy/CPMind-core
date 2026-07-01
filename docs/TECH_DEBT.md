@@ -2,7 +2,7 @@
 
 Ни один из перечисленных пунктов не блокирует MVP и не влияет на корректность сбора данных, если не указано иное.
 
-Источники: `README.md`, `docs/development_history/BUG_FIXING_V1.md` (21.06.2026), `docs/development_history/BUG_FIXING_V2.md` (23.06.2026), разработка 30.06.2026.
+Источники: `README.md`, `docs/development_history/BUG_FIXING_V1.md` (21.06.2026), `docs/development_history/BUG_FIXING_V2.md` (23.06.2026), разработка 30.06.2026, разработка 01.07.2026.
 
 ---
 
@@ -132,9 +132,9 @@
 
 **Источник:** разработка 30.06.2026.
 
-### `/admin/tag_constants` — страница отсутствует
+### `/admin/tag_constants` — реализована
 
-Ссылка "Калибровка тега" в хедере `/admin/impressions` (при `isOwnScopeView`) ведёт на `/admin/tag_constants`. Страница не реализована — переход ведёт к `404`. Требует полноценного UI для управления версиями констант тега (создание, активация, деактивация), аналогично `/admin/weights`.
+`TagConstantsPanel` с полным UI управления версиями констант тега: таблица версий (accordion раскрытия 19 констант), активация/деактивация, форма создания новой версии с per-field валидацией. Подробности: `FRONTEND_LOGIC.md`.
 
 ### `/user/panel` — реализован 30.06.2026
 
@@ -150,9 +150,11 @@ User panel реализован: после login роль `user` попадае
 
 Открытые доработки UI/UX остаются отдельными задачами: визуальные баги, responsive-полировка, логика кнопки "Собрать код тега".
 
-### `WeightsConfigPanel` — обработка ошибок через `alert()`
+### `WeightsConfigPanel`, `TagConstantsPanel` — обработка ошибок через `alert()` / `confirm()`
 
-Ошибки при создании/активации/удалении версий весов (`WeightsConfigPanel.tsx`) показываются через `window.alert()`. Не production UX.
+Ошибки при создании/активации/удалении версий весов (`WeightsConfigPanel.tsx`) показываются через `window.alert()`. В `TagConstantsPanel.tsx` тот же паттерн для ошибок активации/деактивации, плюс `window.confirm()` перед деактивацией. Не production UX.
+
+**Требуется:** inline error state в компонентах вместо браузерных диалогов.
 
 ---
 
@@ -184,7 +186,7 @@ User panel реализован: после login роль `user` попадае
 
 ### Accessibility кастомных компонентов
 
-`Combobox`, `ComboboxDatePicker`, `SignalFilterModal`, `CreateUserForm`, `UserActionsMenu` — кастомные интерактивные компоненты без полной keyboard-навигации (`Tab`, стрелки, `Esc`), `aria-live` для динамических изменений, `focus-trap` внутри открытых поповеров.
+`Combobox`, `ComboboxDatePicker`, `SignalFilterModal`, `CreateUserForm`, `UserActionsMenu`, `TagConstantsPanel` (accordion, форма создания) — кастомные интерактивные компоненты без полной keyboard-навигации (`Tab`, стрелки, `Esc`), `aria-live` для динамических изменений, `focus-trap` внутри открытых поповеров.
 
 ---
 

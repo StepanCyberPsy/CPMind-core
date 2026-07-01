@@ -159,6 +159,7 @@ packages/shared/
 **`DEFAULT_TAG_CONSTANTS`** — общий источник значений для:
 - Backend: bootstrap версии `v0` при первом старте на пустой таблице
 - Тег: CLI-сборка `pnpm --filter @cpmind/tag build` (версия `dev`)
+- Frontend: дефолтные значения полей формы создания новой версии констант (`TagConstantsPanel`)
 
 Никакого дублирования — одно определение, два потребителя.
 

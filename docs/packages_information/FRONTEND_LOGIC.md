@@ -43,7 +43,8 @@ packages/frontend/
     │   │   ├── weights/
     │   │   │   ├── page.tsx
     │   │   │   └── recalculate/page.tsx
-    │   │   └── tag_constants/   # ссылка существует, страница не реализована
+    │   │   └── tag_constants/
+│   │       └── page.tsx
     │   └── user/
     │       ├── layout.tsx
     │       ├── panel/
@@ -68,6 +69,7 @@ packages/frontend/
     │   │   ├── WeightVersionPicker.tsx
     │   │   ├── RecalibrationWorkspace.tsx
     │   │   ├── RecalibrationTable.tsx
+    │   │   ├── TagConstantsPanel.tsx
     │   │   └── RecalibrationActionBar.tsx
     │   └── user/
     │       ├── Filters.tsx
@@ -110,6 +112,7 @@ packages/frontend/
         ├── recalibration.module.css
         ├── tag-builder-modal.module.css
         ├── user_panel.module.css
+        ├── tag-builder-modal.module.css
         └── create-user-form.module.css
 ```
 
@@ -128,7 +131,7 @@ packages/frontend/
 | `/admin/impressions/[id]` | admin | реализовано |
 | `/admin/weights` | admin | реализовано |
 | `/admin/weights/recalculate` | admin | реализовано |
-| `/admin/tag_constants` | admin | ссылка есть, страница не реализована |
+| `/admin/tag_constants` | admin | реализовано |
 | `/user/panel` | user | реализован |
 
 **`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`.
@@ -202,6 +205,7 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `updateUserStatus(userUuid, isActive)`
 - `createUser(body)`
 - `createWeightsConfig(body)`, `activateWeightsConfig(id)`, `deleteWeightsConfig(id)`
+- `createTagConstantsConfig(payload)`, `activateTagConstantsConfig(id)`, `deactivateTagConstantsConfig(id)` — мутирующие операции над версиями констант тега; обработка ошибок покрывает оба формата ответа backend (`err.error ?? err.message`)
 - `createCalibrationBatch(targetWeightsConfigId, selection)`
 - `fetchCalibrationBatch(batchId)`, `fetchCalibrationBatchItems(batchId, page, limit)`
 - `approveCalibrationBatch(batchId, itemIds?)`, `discardCalibrationBatch(batchId)`
@@ -386,6 +390,24 @@ Client Component. Два режима:
 ### `RecalibrationActionBar.tsx`
 
 Client Component. Sticky-панель (над таблицей, `top: 64px`). На мобильных — статичная (`position: static`).
+
+### `TagConstantsPanel.tsx`
+
+Client Component. Управление версиями калибруемых констант тега.
+
+**Таблица** — 5 колонок: Версия (expand-триггер `▶`/`▼` + бейдж активности), Скрипт (`scriptPath` с кнопкой копирования в буфер / `—` при деактивированной), Размер (КБ / `—` при `fileSizeBytes=0`), Создана, Действия.
+
+**Accordion** — `expandedId: string | null`, одна строка открыта в момент времени. Раскрытая строка рендерит `<tr colSpan={5}>` с 19 карточками констант в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` отображается как строка `"0, 0.5, 1"`.
+
+**Кнопки действий:** «Активировать» (`ghostBtn`, `disabled` при `isActive=true`) + «Деактивировать» (`dangerBtn`, `disabled` при `isActive=false`). Раздельные `activatingId`/`deactivatingId` — спиннер только в нажатой кнопке, вторая остаётся видимой.
+
+**Форма** — показывается ниже таблицы при `showForm=true`. Без поля версии (auto-assigned backend через sequence). 19 инпутов в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` — `type="text"`, остальные — `type="number"`.
+
+**`CONSTANTS_META`** — массив из 19 записей `{ key, label, type, min?, minStrict?, max?, unit?, step? }`. Единственный источник истины для рендера таблицы, раскрытой строки, формы и валидации.
+
+**Валидация** — touched-aware per-field через `FormState: Record<keyof TagConstantsValues, { value, touched, error }>`. Ошибка вычисляется при каждом `onChange`, красная граница через класс `inputError` при `touched && error !== null`, inline текст под полем. Кнопка «Создать» `disabled` при любом невалидном поле. При сабмите все поля принудительно помечаются `touched=true` перед проверкой. Дефолты полей — `DEFAULT_TAG_CONSTANTS` из `@cpmind/shared`.
+
+**`validateField(meta, value)`** — `thresholds`: split по запятой → `number[]` → длина 1–10 → все в `[0,1]` → строго возрастающие. `integer`: `Number.isInteger` + min/max. `float`: `parseFloat` + min/minStrict/max.
 
 Три кнопки всегда видны:
 - "Пересчитать" — активна при `mode === 'select'`, выбрана версия весов, `selectedCount > 0`
@@ -588,7 +610,6 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 
 | Пункт | Описание |
 |---|---|
-| `/admin/tag_constants` | Ссылка в хедере страницы импрешенов существует, страница не реализована |
 | `onRowClick` без `userUuid` | При клике на строку импрешена `userUuid` не передаётся в URL детальной страницы — кнопка "Назад" всегда возвращает в собственный контекст, не в контекст просматриваемого чужого юзера |
 | Опции Campaign/Creative | Строятся из отдельного запроса с `limit:200`. При >200 уникальных значений список будет неполным |
 | `WeightsConfigPanel` ошибки | `alert()` вместо inline-ошибок |
