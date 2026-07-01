@@ -101,11 +101,22 @@ export function CreateUserForm() {
               />
               <button
                 type="button"
-                className={styles.toggleVisibilityBtn}
+                className={styles.copyBtn}
                 onClick={() => setPasswordVisible((v) => !v)}
                 aria-label={passwordVisible ? 'Скрыть пароль' : 'Показать пароль'}
               >
-                {passwordVisible ? '🙈' : '👁'}
+                {passwordVisible ? (
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className={styles.copyIcon}>
+                    <path d="M2.5 10C4.1 6.8 6.6 5.2 10 5.2C13.4 5.2 15.9 6.8 17.5 10C15.9 13.2 13.4 14.8 10 14.8C6.6 14.8 4.1 13.2 2.5 10Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="10" cy="10" r="2.3" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M4 16L16 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className={styles.copyIcon}>
+                    <path d="M2.5 10C4.1 6.8 6.6 5.2 10 5.2C13.4 5.2 15.9 6.8 17.5 10C15.9 13.2 13.4 14.8 10 14.8C6.6 14.8 4.1 13.2 2.5 10Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle cx="10" cy="10" r="2.3" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>

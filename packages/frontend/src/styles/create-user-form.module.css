@@ -62,23 +62,31 @@
     padding-right: 36px;
 }
 
-.toggleVisibilityBtn {
+.copyBtn {
     position: absolute;
     top: 50%;
-    right: 4px;
+    right: 6px;
     transform: translateY(-50%);
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     border-radius: var(--radius-sm);
-    font-size: 13px;
     color: var(--text-muted);
+    transition: all 0.15s;
 }
 
-.toggleVisibilityBtn:hover {
+.copyBtn:hover {
     background-color: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.copyIcon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 .error {

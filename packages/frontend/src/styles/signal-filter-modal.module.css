@@ -69,7 +69,8 @@
 }
 
 .rowContent {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: 6px;
     flex: 1;
@@ -77,18 +78,19 @@
 }
 
 .comboboxMode {
-    flex-shrink: 0;
-    width: 120px;
+    width: 100%;
+    min-width: 0;
 }
 
 .comboboxSort {
-    flex-shrink: 0;
-    width: 160px;
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
 }
 
 .numberInput {
-    min-width: 64px;
-    flex: 1;
+    width: 100%;
+    min-width: 0;
 }
 
 .hint {
@@ -161,10 +163,14 @@
     }
 
     .rowContent {
-        flex-wrap: wrap;
+        grid-template-columns: 1fr;
     }
 
-    .modeSelect {
-        width: 100%;
+    .comboboxSort {
+        grid-column: auto;
+    }
+
+    .rangeDash {
+        display: none;
     }
 }

@@ -265,7 +265,7 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
       await navigator.clipboard.writeText(text);
       setCopiedId(configId);
       setTimeout(() => setCopiedId(prev => prev === configId ? null : prev), 1500);
-    } catch (_err) {}
+    } catch (_err) { }
   }, []);
 
   return (
@@ -327,11 +327,22 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
                               {cfg.scriptPath}
                             </span>
                             <button
+                              type="button"
                               className={styles.copyBtn}
                               onClick={() => handleCopy(cfg.id, cfg.scriptPath)}
+                              aria-label="Скопировать путь к скрипту"
                               title="Скопировать путь к скрипту"
                             >
-                              {copiedId === cfg.id ? '✓' : '⧉'}
+                              {copiedId === cfg.id ? (
+                                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className={styles.copyIcon}>
+                                  <path d="M4.5 10.5L8 14L15.5 6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              ) : (
+                                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className={styles.copyIcon}>
+                                  <rect x="7" y="3" width="9" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                                  <path d="M5 13H4C2.9 13 2 12.1 2 11V5C2 3.9 2.9 3 4 3H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                </svg>
+                              )}
                             </button>
                           </div>
                         ) : (
