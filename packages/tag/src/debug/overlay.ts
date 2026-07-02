@@ -144,6 +144,13 @@ export class DebugOverlay {
       this.row('S4 tab_active', this.getTabActivePct(), s.tabSwitchesCount > 0) +
       this.row('S4 switches', String(s.tabSwitchesCount)) +
       this.row('S5 top_event', s5Event, s5Event === 'none') +
+      (s.s6 !== null
+        ? this.row('S6 play', s.s6.play_initiated ? 'true' : 'false', !s.s6.play_initiated) +
+          this.row('S6 completion', s.s6.completion_rate_pct.toFixed(1) + '%', s.s6.completion_rate_pct < 25) +
+          this.row('S6 muted', s.s6.muted_status, s.s6.play_initiated && !s.s6.everUnmutedWhilePlaying) +
+          this.row('S6 audible_sec', s.s6.audible_time_sec.toFixed(1) + 's') +
+          this.row('S6 replays', String(s.s6.replay_count))
+        : '') +
       this.row('Presence events', String(s.eventsDuringImpression), s.eventsDuringImpression === 0) +
       `<div style="color:${LABEL_COLOR};margin-top:6px;border-top:1px solid ${BORDER_COLOR};padding-top:4px;font-size:10px">` +
       `id: ${s.impressionId.slice(0, 8)}... · ${s.deviceType}` +

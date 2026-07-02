@@ -110,6 +110,7 @@ interface ItemRow {
   s3Normalized: number | null;
   s4Normalized: number | null;
   s5Normalized: number | null;
+  s6Normalized: number | null;
   s7Normalized: number | null;
   previousScoreFinal: number;
   previousWeightsVersion: string;
@@ -131,6 +132,7 @@ function toApiItem(row: ItemRow): CalibrationItem {
     s3Normalized: row.s3Normalized,
     s4Normalized: row.s4Normalized,
     s5Normalized: row.s5Normalized,
+    s6Normalized: row.s6Normalized,
     s7Normalized: row.s7Normalized,
     previousScoreFinal: row.previousScoreFinal,
     previousWeightsVersion: row.previousWeightsVersion,
@@ -150,6 +152,7 @@ function buildRangesFromFilters(filters: CalibrationFilters): Partial<Record<Ran
     ['s3', filters.s3Min, filters.s3Max],
     ['s4', filters.s4Min, filters.s4Max],
     ['s5', filters.s5Min, filters.s5Max],
+    ['s6', filters.s6Min, filters.s6Max],
     ['s7', filters.s7Min, filters.s7Max],
   ];
 
@@ -309,6 +312,7 @@ export async function createCalibrationBatch(
     s3: w['s3']!,
     s4: w['s4']!,
     s5: w['s5']!,
+    s6: w['s6'] ?? 0,
     s7: w['s7']!,
   };
 
@@ -365,6 +369,7 @@ export async function listCalibrationBatchItems(
       s3Normalized: impressions.s3Normalized,
       s4Normalized: impressions.s4Normalized,
       s5Normalized: impressions.s5Normalized,
+      s6Normalized: impressions.s6Normalized,
       s7Normalized: impressions.s7Normalized,
       previousScoreFinal: calibrationItems.previousScoreFinal,
       previousWeightsVersion: calibrationItems.previousWeightsVersion,
@@ -408,6 +413,7 @@ export async function getCalibrationBatchItem(
       s3Normalized: impressions.s3Normalized,
       s4Normalized: impressions.s4Normalized,
       s5Normalized: impressions.s5Normalized,
+      s6Normalized: impressions.s6Normalized,
       s7Normalized: impressions.s7Normalized,
       previousScoreFinal: calibrationItems.previousScoreFinal,
       previousWeightsVersion: calibrationItems.previousWeightsVersion,

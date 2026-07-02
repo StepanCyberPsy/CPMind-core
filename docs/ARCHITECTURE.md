@@ -55,13 +55,15 @@ CPMind — система измерения качества рекламных
 └───────────────────────────────────────────────────┘
 ```
 
+**Поддерживаемые типы креативов:** `banner_static`, `banner_gif`, `banner_html5`, `video_creative`.
+
 ---
 
 ## Компоненты
 
 ### JS-тег (`packages/tag`)
 
-~22–24 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie.
+~28 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie.
 
 `tag_uuid` и `tag_constants_version` зашиты в конкретный собранный файл через esbuild `define` — не запрашиваются с сервера в runtime. Сборка происходит не при `docker build`, а в runtime backend-контейнера по запросу администратора. Несколько версий существуют на сервере одновременно.
 
@@ -367,6 +369,20 @@ Desktop: клик, mouseenter/leave/move, расстояние курсора д
 
 Mobile: тап, свайп, зум жестами (gesturechange + pinch).
 
+### S6 — Video Engagement + Audibility (вес 0.40 для video, 0.00 для banner)
+
+Измеряет вовлечённость пользователя в видео-креатив: глубину просмотра и условия прослушивания.
+
+**Video Engagement (9 полей):** `play_initiated`, `quartile_25/50/75`, `completion`, `completion_rate_pct`, `pause_initiated`, `skipped`, `replay_count`.
+
+**Audibility (10 полей, IAB/MRC Nov 2025):** `muted_status` (muted/unmuted/mixed), `volume_level` (0–100), `audio_connection` (speaker/headphones/bluetooth/unknown), `audible_time_sec`, `audible_quartile_25/50/75/100`, `muted_throughout`, `unmuted_by_user`.
+
+Формула: `base_score` (иерархия quartile) + `audibility_modifier` (unmuted_by_user +10, muted_throughout −15, audible_quartile_50 +5) + `replay_bonus` (min(10, replay_count×5)) → clamp [0,100].
+
+Для баннерных креативов: все поля S6 = NULL, S6 не участвует в формуле, вес перераспределяется.
+
+Реализация: event listeners на `<video>` элементе внутри `[data-cpmind-creative]`. Skip-кнопка: `[data-cpmind-skip]`. Audio connection: `navigator.mediaDevices.enumerateDevices()` при наличии разрешения, fallback `'unknown'`.
+
 ### S7 — Page Context (вес 0.05)
 
 Контекст размещения баннера на странице: позиция (выше/ниже fold), высота страницы, количество конкурирующих баннеров в viewport, persistence видимости.
@@ -390,12 +406,18 @@ Mobile: тап, свайп, зум жестами (gesturechange + pinch).
 ## Формула CPMind Score
 
 ```
-CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05) × F_Presence
+Banner:
+CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S6×0.00 + S7×0.05) × F_Presence
+
+Video:
+CPMind_Score = (S1×0.15 + S2×0.10 + S3×0.10 + S4×0.10 + S5×0.10 + S6×0.40 + S7×0.05) × F_Presence
+
+S6=null для баннерных креативов — вес перераспределяется между остальными сигналами по правилу §6.2.
 ```
 
 Результат: `[0, 100]`. При F_Presence = 0 — итог всегда 0.
 
-**Веса** хранятся в `weight_configs`. Активная версия применяется ко всем новым импрешенам. Исторические данные не пересчитываются автоматически при смене активной версии — только через явную калибровку.
+**Веса** хранятся в `weight_configs`. Каждая конфигурация имеет `config_type: 'banner' | 'video'`. Активная версия определяется по `creative_type` входящего payload — `video_creative` → video-конфиг, остальные → banner-конфиг. Database-enforced инвариант: не более одной активной версии на тип (`partial unique index WHERE is_active = true`). Banner и video конфиги активируются независимо. Исторические данные не пересчитываются автоматически при смене активной версии — только через явную калибровку.
 
 **Перераспределение:** если S3=null (cross-domain iframe) — его вес пропорционально добавляется к остальным. Сумма весов всегда 1.0.
 
@@ -458,6 +480,7 @@ CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05)
 | Нормализованные | `signals_normalized` (JSONB) | S1–S7 нормализованные |
 | Raw для таблицы | `s1_raw_time_in_view`, `s2_raw_share_of_screen`, `s3_raw_scroll_speed`, `s4_raw_active_time_pct`, `s5_raw_top_event`, `s7_raw_persistence` | Отображение в панели |
 | Нормализованные (колонки) | `s1_normalized`...`s7_normalized` (real) | Сортировка и диапазонная фильтрация |
+| S6 raw | `s6_raw_completion_rate` (real, nullable) | Отображение в панели; NULL для баннеров |
 | Score | `f_presence`, `score_final`, `weights_version` | |
 | Флаги | `no_events`, `tab_mostly_hidden`, `anomaly_duration`, `is_suspicious` | |
 | Системное | `created_at` | Retention |
@@ -468,7 +491,9 @@ CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05)
 |---|---|---|
 | `id` | uuid PK | |
 | `version` | text UNIQUE | например `v1.1_calibrated` |
-| `weights` | jsonb | `{s1, s2, s3, s4, s5, s7}` |
+| `config_type` | text | `'banner'` или `'video'` |
+| `weights` | jsonb | `{s1, s2, s3, s4, s5, s6, s7}` |
+| `is_active` | boolean | ровно одна `true` на каждый `config_type` одновременно |
 | `description` | text | комментарий |
 | `is_active` | boolean | ровно одна `true` в любой момент |
 | `created_at` | timestamptz | |
@@ -509,7 +534,8 @@ CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05)
 
 `calibration_batches`: составной `(status, created_at)`, `created_by`. `calibration_items`: уникальный составной `(batch_id, impression_id)`, составной `(batch_id, status)`, `impression_id`.
 
-`weight_configs`: `is_active`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`.
+`weight_configs`: `is_active`, partial unique `(config_type) WHERE is_active = true`.
+`impressions`: добавлен `s6_normalized`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`.
 
 ### Retention
 

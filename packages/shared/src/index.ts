@@ -1,5 +1,8 @@
 // Схемы
-export { ImpressionPayloadSchema } from './schemas/impression.js';
+export {
+    ImpressionPayloadSchema,
+    SignalsS6Schema
+} from './schemas/impression.js';
 export {
     LoginSchema,
     MePayloadSchema,
@@ -74,13 +77,16 @@ export {
     normalizeS3,
     normalizeS4,
     normalizeS5,
+    normalizeS6,
     normalizeS7,
     normalizeAll,
-    getS5TopEventLabel 
+    getS5TopEventLabel,
 } from './scoring/normalize.js';
 export {
-    DEFAULT_WEIGHTS,
-    computeEffectiveWeights
+    DEFAULT_BANNER_WEIGHTS,
+    DEFAULT_VIDEO_WEIGHTS,
+    computeEffectiveWeights,
+    detectNullSignals,
 } from './scoring/weights.js';
 export {
     computeScore,

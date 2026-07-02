@@ -85,6 +85,8 @@ packages/shared/
 - `tag_constants_version` — обязательное поле. Заявляет версию калибруемых констант, которой собран конкретный файл тега.
 - Cross-field валидация: `timestamp_end >= timestamp_start`.
 - `s3` nullable (`null` при cross-domain iframe) — специальный случай, обрабатывается перераспределением весов.
+- `s6: SignalsS6Schema.nullable().optional()` — null для баннеров, отсутствие поля для старых бандлов тега; backend трактует оба случая одинаково
+- `creative_type` расширен значением `'video_creative'`
 
 ### `schemas/user.ts`
 
@@ -116,7 +118,7 @@ packages/shared/
 
 Контракты ответов API для frontend и клиентов API.
 
-**`ImpressionRowSchema`** — строка в таблице импрешенов. Содержит все поля для отображения в таблице, включая денормализованные `tag_uuid`, `user_uuid`, `tag_label`, `user_login`, `tag_constants_version`. Добавлены в эту сессию относительно исходной версии: `tag_constants_version`, `weights_version`, `s1_normalized`...`s7_normalized` как отдельные числовые колонки (для сортировки и фильтрации по диапазону без парсинга JSONB).
+**`ImpressionRowSchema`** — строка в таблице импрешенов. Содержит все поля для отображения в таблице, включая денормализованные `tag_uuid`, `user_uuid`, `tag_label`, `user_login`, `tag_constants_version`, `tag_constants_version`, `weights_version`,`tag_constants_version`, `weights_version`, `s1_normalized`...`s7_normalized`
 
 **`ImpressionDetailSchema`** — расширяет `ImpressionRowSchema`. Добавляет:
 - `signals_raw: z.unknown()` — полный JSONB payload от тега
@@ -225,17 +227,21 @@ normalizeS7(s7_raw): base_position + position_bonus
                      + clutter_penalty + persistence_bonus
 ```
 
-`normalizeAll(capped)` — агрегатор: вызывает все шесть функций, возвращает `NormalizedSignals`.
+`normalizeS6(s6Raw: SignalsS6 | null): number | null` — возвращает null при null (баннер). Иерархический base_score: completion→85, quartile_75→75, quartile_50→55, quartile_25→35, play_initiated→15, skipped→5, нет→0. audibility_modifier: unmuted_by_user +10, muted_throughout −15, audible_quartile_50 +5. replay_bonus: min(10, replay_count×5). Результат: clamp [0,100].
+
+`normalizeAll(capped)` — агрегатор: вызывает все семь функций включая normalizeS6, возвращает `NormalizedSignals` с полем `s6: number | null`.
 
 `getS5TopEventLabel(s5)` — текстовая метка наивысшего события для отображения в таблице (`'clicked' | 'zoom' | 'swipe' | 'tap' | 'hover_500ms' | 'hover' | 'proximity' | 'none'`).
 
 ### `weights.ts` — веса и перераспределение
 
-**`DEFAULT_WEIGHTS`** — стартовые веса `v1.0_uncalibrated`:
+**`DEFAULT_BANNER_WEIGHTS`** — стартовые веса для баннеров `v1.0_uncalibrated`: s6: 0.00, сумма 1.0. S6 с нулевым весом не перераспределяется при null (добавляет 0 к availableSum).
 
-```
-{ version: 'v1.0_uncalibrated', s1: 0.30, s2: 0.20, s3: 0.15, s4: 0.15, s5: 0.15, s7: 0.05 }
-```
+**`DEFAULT_VIDEO_WEIGHTS`** — стартовые веса для видео `v1.0_uncalibrated`: s6: 0.40, s1: 0.15, s2: 0.10, s3: 0.10, s4: 0.10, s5: 0.10, s7: 0.05, сумма 1.0.
+
+**`CreativeCategory`** = `'banner' | 'video'` — тип для per-creative-type routing.
+
+**`WeightsValues`** и **`SignalKey`** расширены `s6`.
 
 Используется как fallback в `getActiveWeightsConfig()`, если таблица `weight_configs` пуста. Не влияет на новые показы, пока в таблице есть хотя бы одна активная версия.
 
@@ -280,7 +286,7 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 
 **`UserImpressionRowSchema`** — производный через `ImpressionRowSchema.pick(USER_VISIBLE_IMPRESSION_FIELDS)`. Не отдельно поддерживаемая копия — изменение whitelist автоматически меняет схему.
 
-`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`) — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `score_final`, `is_suspicious`.
+`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`) — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`.
 
 ---
 
@@ -421,7 +427,21 @@ Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
 
 ---
 
-## Изменения, внесённые в эту сессию
+## Изменения, внесённые в эту сессию (S6 + per-creative-type routing)
+
+| Файл | Изменение |
+|---|---|
+| `schemas/impression.ts` | `SignalsS6Schema` (19 полей), `s6` в `ImpressionPayloadSchema`, `'video_creative'` в enum |
+| `schemas/calibration.ts` | `s6Min/Max` в `CalibrationFilterSchema`, `s6Normalized` в `CalibrationItemSchema` |
+| `schemas/api.ts` | `s6_raw_completion_rate`, `s6_normalized` в `ImpressionRowSchema`; `configType`, `s6` в `WeightConfigRowSchema` |
+| `scoring/weights.ts` | `s6` в `WeightsValues`/`SignalKey`; `CreativeCategory`; `DEFAULT_WEIGHTS` → `DEFAULT_BANNER_WEIGHTS` + `DEFAULT_VIDEO_WEIGHTS`; `computeEffectiveWeights` и `detectNullSignals` обновлены |
+| `scoring/normalize.ts` | `normalizeS6()`; `NormalizedSignals` расширён `s6: number \| null`; `normalizeAll` вызывает `normalizeS6` |
+| `scoring/score.ts` | S6 в `weightedSum` обеих функций; `s6_raw_completion_rate` в `ScoreResult`; импорт `DEFAULT_WEIGHTS` удалён |
+| `access/impression-fields.ts` | `s6_normalized` в `USER_VISIBLE_IMPRESSION_FIELDS` |
+| `types/index.ts` | Реэкспорт `SignalsS6`, `CreativeCategory` |
+| `index.ts` | `SignalsS6Schema`, `normalizeS6`, `DEFAULT_BANNER_WEIGHTS`, `DEFAULT_VIDEO_WEIGHTS`, `detectNullSignals`; `DEFAULT_WEIGHTS` удалён из экспорта |
+
+## Изменения, внесённые в предыдущую сессию
 
 | Файл | Изменение |
 |---|---|

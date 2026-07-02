@@ -1,4 +1,4 @@
-export type CreativeType = 'banner_static' | 'banner_gif' | 'banner_html5';
+export type CreativeType = 'banner_static' | 'banner_gif' | 'banner_html5' | 'video_creative';
 export type DeviceType   = 'desktop' | 'mobile' | 'tablet';
 
 export interface TagConfig {
@@ -26,6 +26,62 @@ export interface SignalsS3State {
   direction_changes: number | null;
   reading_pattern_detected: boolean | null;
   is_momentum_scroll: boolean | null;
+}
+
+export interface SignalsS6State {
+  // Внутренние поля отслеживания
+  videoEl: HTMLVideoElement;
+  duration: number;
+  lastSeekTime: number;
+  isSeeking: boolean;
+  videoEndedInSegment: boolean;
+  audibleTimeStart: number | null;
+  everMutedWhilePlaying: boolean;
+  everUnmutedWhilePlaying: boolean;
+
+  // Video Engagement
+  play_initiated: boolean;
+  quartile_25: boolean;
+  quartile_50: boolean;
+  quartile_75: boolean;
+  completion: boolean;
+  completion_rate_pct: number;
+  pause_initiated: boolean;
+  skipped: boolean;
+  replay_count: number;
+
+  // Audibility
+  muted_status: 'muted' | 'unmuted' | 'mixed';
+  volume_level: number;
+  audio_connection: 'speaker' | 'headphones' | 'bluetooth' | 'unknown';
+  audible_time_sec: number;
+  audible_quartile_25: boolean;
+  audible_quartile_50: boolean;
+  audible_quartile_75: boolean;
+  audible_quartile_100: boolean;
+  unmuted_by_user: boolean;
+}
+
+export interface S6RawData {
+  play_initiated: boolean;
+  quartile_25: boolean;
+  quartile_50: boolean;
+  quartile_75: boolean;
+  completion: boolean;
+  completion_rate_pct: number;
+  pause_initiated: boolean;
+  skipped: boolean;
+  replay_count: number;
+  muted_status: 'muted' | 'unmuted' | 'mixed';
+  volume_level: number;
+  audio_connection: 'speaker' | 'headphones' | 'bluetooth' | 'unknown';
+  audible_time_sec: number;
+  audible_quartile_25: boolean;
+  audible_quartile_50: boolean;
+  audible_quartile_75: boolean;
+  audible_quartile_100: boolean;
+  muted_throughout: boolean;
+  unmuted_by_user: boolean;
 }
 
 export interface Session {
@@ -69,6 +125,9 @@ export interface Session {
   zoom: boolean;
   swipeCount: number;
   lastHoverStart: number | null;
+
+  // S6
+  s6: SignalsS6State | null;
 
   // S7
   creativePositionYPx: number;

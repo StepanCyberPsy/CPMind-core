@@ -4,6 +4,7 @@ import type {
   SignalsS3,
   SignalsS4,
   SignalsS5,
+  SignalsS6,
   SignalsS7,
   ImpressionPayload,
 } from '../schemas/impression.js';
@@ -149,6 +150,57 @@ export function getS5TopEventLabel(s5: SignalsS5): string {
 }
 
 /**
+ * Возвращает null если s6 === null (баннерный креатив без видео -> backend перераспределяет веса §6.2).
+ *
+ * base_score — иерархия наивысшего достигнутого уровня просмотра:
+ *   completion              -> 85
+ *   quartile_75             -> 75
+ *   quartile_50             -> 55
+ *   quartile_25             -> 35
+ *   play_initiated (< 25%)  -> 15
+ *   skipped                 -> 5
+ *   нет взаимодействия      -> 0
+ *
+ * audibility_modifier (аддитивно):
+ *   unmuted_by_user         -> +10
+ *   muted_throughout        -> −15
+ *   audible_quartile_50     -> +5
+ *
+ * replay_bonus = min(10, replay_count × 5)
+ *
+ * S6 = max(0, min(100, base_score + audibility_modifier + replay_bonus))
+ */
+export function normalizeS6(s6: SignalsS6 | null): number | null {
+  if (s6 === null) return null;
+
+  let baseScore: number;
+  if (s6.completion) {
+    baseScore = 85;
+  } else if (s6.quartile_75) {
+    baseScore = 75;
+  } else if (s6.quartile_50) {
+    baseScore = 55;
+  } else if (s6.quartile_25) {
+    baseScore = 35;
+  } else if (s6.play_initiated) {
+    baseScore = 15;
+  } else if (s6.skipped) {
+    baseScore = 5;
+  } else {
+    baseScore = 0;
+  }
+
+  let audibilityModifier = 0;
+  if (s6.unmuted_by_user) audibilityModifier += 10;
+  if (s6.muted_throughout) audibilityModifier -= 15;
+  if (s6.audible_quartile_50) audibilityModifier += 5;
+
+  const replayBonus = Math.min(10, s6.replay_count * 5);
+
+  return Math.max(0, Math.min(100, baseScore + audibilityModifier + replayBonus));
+}
+
+/**
  * S7 = max(0, min(100, base_position + position_bonus + clutter_penalty + persistence_bonus))
  *
  * base_position_score:
@@ -205,6 +257,7 @@ export interface NormalizedSignals {
   s3: number | null;
   s4: number;
   s5: number;
+  s6: number | null;
   s7: number;
 }
 
@@ -215,6 +268,7 @@ export function normalizeAll(payload: ImpressionPayload): NormalizedSignals {
     s3: normalizeS3(payload.signals.s3),
     s4: normalizeS4(payload.signals.s4),
     s5: normalizeS5(payload.signals.s5),
+    s6: normalizeS6(payload.signals.s6 ?? null),
     s7: normalizeS7(payload.signals.s7),
   };
 }

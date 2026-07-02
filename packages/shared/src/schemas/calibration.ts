@@ -63,6 +63,8 @@ const CalibrationFilterSchema = z.object({
   s4Max: z.number().optional(),
   s5Min: z.number().optional(),
   s5Max: z.number().optional(),
+  s6Min: z.number().optional(),
+  s6Max: z.number().optional(),
   s7Min: z.number().optional(),
   s7Max: z.number().optional(),
 });
@@ -130,6 +132,7 @@ export const CalibrationItemSchema = z.object({
   s3Normalized: z.number().nullable(),
   s4Normalized: z.number().nullable(),
   s5Normalized: z.number().nullable(),
+  s6Normalized: z.number().nullable(),
   s7Normalized: z.number().nullable(),
   previousScoreFinal: z.number(),
   previousWeightsVersion: z.string(),

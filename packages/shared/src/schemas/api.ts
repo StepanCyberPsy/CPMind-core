@@ -26,6 +26,7 @@ export const ImpressionRowSchema = z.object({
   s3_raw_scroll_speed: z.number().nullable(), // scroll_speed_avg_px_s
   s4_raw_active_time_pct: z.number().nullable(), // tab_active/tab_total * 100
   s5_raw_top_event: z.string(), // label: "clicked" | "zoom/swipe" | ...
+  s6_raw_completion_rate: z.number().nullable(), // completion_rate_pct (null для баннеров)
   s7_raw_persistence: z.number().nullable(), // viewability_persistence_pct
 
   s1_normalized: z.number().nullable(),
@@ -33,6 +34,7 @@ export const ImpressionRowSchema = z.object({
   s3_normalized: z.number().nullable(),
   s4_normalized: z.number().nullable(),
   s5_normalized: z.number().nullable(),
+  s6_normalized: z.number().nullable(),
   s7_normalized: z.number().nullable(),
   f_presence: z.number().int(),
   score_final: z.number(),
@@ -67,12 +69,14 @@ export type ImpressionListResponse = z.infer<typeof ImpressionListResponseSchema
 export const WeightConfigRowSchema = z.object({
   id: z.string().uuid(),
   version: z.string(),
+  configType: z.enum(['banner', 'video']),
   weights: z.object({
     s1: z.number(),
     s2: z.number(),
     s3: z.number(),
     s4: z.number(),
     s5: z.number(),
+    s6: z.number(),
     s7: z.number(),
   }),
   description: z.string().nullable(),

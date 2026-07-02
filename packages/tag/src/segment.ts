@@ -7,6 +7,7 @@ import { resetSegmentS2 } from './signals/s2.js';
 import { resetSegmentS3 } from './signals/s3.js';
 import { resetSegmentS4 } from './signals/s4.js';
 import { resetSegmentS5 } from './signals/s5.js';
+import { resetSegmentS6 } from './signals/s6.js';
 import { resetSegmentS7 } from './signals/s7.js';
 
 /**
@@ -28,6 +29,7 @@ export function startNewSegment(
   resetSegmentS3(creativeEl);
   resetSegmentS4(session);
   resetSegmentS5(creativeEl);
+  resetSegmentS6(session);
   resetSegmentS7(session);
 
   if (cfg.debug) {

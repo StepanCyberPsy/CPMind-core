@@ -36,10 +36,14 @@ packages/backend/
     │   ├── schema.ts                 # Drizzle-схема всех таблиц
     │   └── migrations/               # SQL-файлы Drizzle Kit
     │       ├── 0000_sharp_mauler.sql # CREATE TABLE impressions
-    │       ├── 0001_weight_configs.sql
-    │       ├── 0002_users_tags.sql
-    │       ├── 0003_calibration.sql
-    │       └── 0004_tag_constants.sql
+    │       ├── 0001_secret_whiplash.sql
+    │       ├── 0002_elite_puppet_master.sql
+    │       ├── 0003_f_presence_check_guarded.sql
+    │       └── 0004_public_thunderbolts.sql
+    │       ├── 0005_familiar_zodiak.sql
+    │       ├── 0006_thick_robin_chapel.sql
+    │       ├── 0007_workable_rachel_grey.sql
+    │       └── 0008_fair_chimera.sql
     ├── middleware/
     │   ├── requireAuth.ts            # JWT из httpOnly cookie -> request.authUser.
     │   │                             # Проверяет isActive пользователя из БД на
@@ -183,15 +187,19 @@ packages/backend/
    → PRESENCE_IDLE_TIMEOUT_MS для F_Presence
    → 422 если версия неизвестна или неактивна (жёсткая блокировка)
 
-4. getActiveWeightsConfig()
-   → in-memory кэш, инвалидируется при смене версии
+4. creativeType → CreativeCategory
+   → 'video_creative' = 'video', остальные = 'banner'
+
+4. getActiveWeightsConfig(category)
+   → двухключевой in-memory кэш { banner, video }, инвалидируется при смене версии
 
 5. applyAnomalyCapping(payload)
    → кэппинг аномальных значений по таблице §6.3
    → structuredClone — не мутирует входной payload
 
 6. normalizeAll(capped)
-   → нормализация S1–S7 по формулам §4.1–4.6
+   → нормализация S1–S7 + normalizeS6() по формулам §4.1–4.6, §3.4
+   → S6=null для баннеров, number|null передаётся в detectNullSignals
 
 7. computeScore(normalized, presenceThreshold, weights)
    → computeEffectiveWeights() — перераспределение при S3=null
@@ -202,6 +210,7 @@ packages/backend/
 
 9. INSERT в impressions
    → tag_id, user_id, tag_constants_version, weights_version денормализованы
+   → s6_raw_completion_rate, s6_normalized: null для баннеров
    → signals_raw включает presence (был пробел — исправлен)
    → ON CONFLICT DO NOTHING на impression_id
 
@@ -231,6 +240,7 @@ export const NUMERIC_RANGE_COLUMNS = {
   s3: impressions.s3Normalized,
   s4: impressions.s4Normalized,
   s5: impressions.s5Normalized,
+  s6: impressions.s6Normalized,
   s7: impressions.s7Normalized,
 } as const;
 ```
@@ -245,7 +255,11 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 ### `services/weights_config.ts`
 
-`getActiveWeightsConfig()` — in-memory кэш (`cache: WeightsValues | null`). Fallback на `DEFAULT_WEIGHTS` если таблица пуста. `invalidateWeightsCache()` вызывается из `activateWeightsConfig()` после успешной транзакции смены активной версии.
+`getActiveWeightsConfig(category: CreativeCategory)` — двухключевой in-memory кэш `{ banner: WeightsValues | null, video: WeightsValues | null }`. Запрос фильтруется по `configType = category`. Fallback на `DEFAULT_BANNER_WEIGHTS` / `DEFAULT_VIDEO_WEIGHTS` по категории. `s6: w['s6'] ?? 0` — страховка для исторических строк без S6 в JSONB. `invalidateWeightsCache()` инвалидирует оба ключа.
+
+`createWeightsConfig()` — принимает `configType: CreativeCategory`, валидирует сумму 7 весов (включая s6) = 1.00.
+
+`activateWeightsConfig()` — деактивирует только конфиги того же `configType` перед активацией целевой версии. Banner-активная версия не затрагивается при активации video и наоборот. Database-enforced через partial unique index.
 
 ### `services/calibrations.ts`
 
@@ -348,8 +362,346 @@ Drizzle ORM. Миграции применяются автоматически 
 - `impressions`: 90 дней → retention job 03:00 UTC
 - `calibration_items`: ON DELETE CASCADE с `impressions` (аудит удаляется вместе с данными)
 - `calibration_items (pending)`: по TTL cleanup job каждые 15 минут
-- `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически
+- `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически, `config_type`** (`'banner'` и `'video'` независимы). Поле `config_type text NOT NULL DEFAULT 'banner'`. Partial unique index `(config_type) WHERE is_active = true` — database-enforced инвариант без транзакционной логики.
 - Бэкапы pg_dump: 04:00 UTC, ротация 30 дней
+
+### Коды миграций
+
+0. **packages/backend/drizzle/migrations/0000_sharp_mauler.sql**
+
+```sql
+CREATE TABLE IF NOT EXISTS "impressions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"impression_id" uuid NOT NULL,
+	"campaign_id" text NOT NULL,
+	"creative_id" text NOT NULL,
+	"creative_type" text NOT NULL,
+	"device_type" text NOT NULL,
+	"timestamp_start" bigint NOT NULL,
+	"timestamp_end" bigint NOT NULL,
+	"signals_raw" jsonb NOT NULL,
+	"signals_normalized" jsonb NOT NULL,
+	"s1_raw_time_in_view" real,
+	"s2_raw_share_of_screen" real,
+	"s3_raw_scroll_speed" real,
+	"s4_raw_active_time_pct" real,
+	"s5_raw_top_event" text NOT NULL,
+	"s7_raw_persistence" real,
+	"s1_normalized" real,
+	"s2_normalized" real,
+	"s3_normalized" real,
+	"s4_normalized" real,
+	"s5_normalized" real,
+	"s7_normalized" real,
+	"f_presence" smallint NOT NULL,
+	"score_final" real NOT NULL,
+	"weights_version" text DEFAULT 'v1.0_uncalibrated' NOT NULL,
+	"no_events" boolean DEFAULT false NOT NULL,
+	"tab_mostly_hidden" boolean DEFAULT false NOT NULL,
+	"anomaly_duration" boolean DEFAULT false NOT NULL,
+	"is_suspicious" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_impression_id" ON "impressions" USING btree ("impression_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_created_at" ON "impressions" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_campaign_id" ON "impressions" USING btree ("campaign_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_creative_id" ON "impressions" USING btree ("creative_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_device_type" ON "impressions" USING btree ("device_type");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_is_suspicious" ON "impressions" USING btree ("is_suspicious");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_score_final" ON "impressions" USING btree ("score_final");
+```
+
+1. **packages/backend/drizzle/migrations/0001_secret_whiplash.sql**
+
+```sql
+CREATE TABLE IF NOT EXISTS "weight_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"version" text NOT NULL,
+	"weights" jsonb NOT NULL,
+	"description" text,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "weight_configs_version_unique" UNIQUE("version")
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_weight_configs_is_active" ON "weight_configs" USING btree ("is_active");
+--> statement-breakpoint
+INSERT INTO "weight_configs" ("version", "weights", "description", "is_active")
+VALUES (
+  'v1.0_uncalibrated',
+  '{"s1":0.30,"s2":0.20,"s3":0.15,"s4":0.15,"s5":0.15,"s7":0.05}',
+  'Стартовые экспертные веса, не подтверждённые данными',
+  true
+);
+```
+
+2. **packages/backend/drizzle/migrations/0002_elite_puppet_master.sql**
+
+```sql
+ALTER TABLE "impressions" ADD COLUMN "session_group_id" uuid DEFAULT gen_random_uuid() NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "segment_index" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_session_group_id" ON "impressions" USING btree ("session_group_id");
+```
+
+3. **packages/backend/drizzle/migrations/0003_f_presence_check_guarded.sql**
+
+```sql
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_f_presence_valid'
+  ) THEN
+    ALTER TABLE "impressions" ADD CONSTRAINT "chk_f_presence_valid" CHECK (f_presence IN (0, 1));
+  END IF;
+END $$;
+```
+
+4. **packages/backend/drizzle/migrations/0004_public_thunderbolts.sql**
+
+```sql
+DO $$ BEGIN
+ CREATE TYPE "public"."user_role" AS ENUM('admin', 'user');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "tags" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" bigint NOT NULL,
+	"label" text,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "users" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"login" text NOT NULL,
+	"password_hash" text NOT NULL,
+	"role" "user_role" DEFAULT 'user' NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "tag_id" bigint;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "user_id" bigint;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "tags" ADD CONSTRAINT "tags_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_tags_uuid" ON "tags" USING btree ("uuid");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_tags_user_id" ON "tags" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_users_uuid" ON "users" USING btree ("uuid");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_users_login" ON "users" USING btree ("login");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_users_role" ON "users" USING btree ("role");--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_tag_id_tags_id_fk" FOREIGN KEY ("tag_id") REFERENCES "public"."tags"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_tag_id" ON "impressions" USING btree ("tag_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_user_id" ON "impressions" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_user_id_created_at" ON "impressions" USING btree ("user_id","created_at");
+```
+
+5. **packages/backend/drizzle/migrations/0005_familiar_zodiak.sql**
+
+```sql
+ALTER TABLE "impressions" ALTER COLUMN "tag_id" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ALTER COLUMN "user_id" SET NOT NULL;
+```
+
+6. **packages/backend/drizzle/migrations/0006_thick_robin_chapel.sql**
+
+```sql
+DO $$ BEGIN
+ CREATE TYPE "public"."calibration_batch_status" AS ENUM('processing', 'ready', 'expired', 'failed', 'discarded');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."calibration_item_status" AS ENUM('pending', 'approved');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "calibration_batches" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"target_weights_config_id" uuid NOT NULL,
+	"selection" jsonb NOT NULL,
+	"status" "calibration_batch_status" DEFAULT 'processing' NOT NULL,
+	"created_by" bigint NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"completed_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "calibration_items" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"batch_id" uuid NOT NULL,
+	"impression_id" uuid NOT NULL,
+	"previous_score_final" real NOT NULL,
+	"previous_weights_version" text NOT NULL,
+	"new_score_final" real NOT NULL,
+	"new_weights_version" text NOT NULL,
+	"status" "calibration_item_status" DEFAULT 'pending' NOT NULL,
+	"approved_at" timestamp with time zone
+);
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "calibration_batches" ADD CONSTRAINT "calibration_batches_target_weights_config_id_weight_configs_id_fk" FOREIGN KEY ("target_weights_config_id") REFERENCES "public"."weight_configs"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "calibration_batches" ADD CONSTRAINT "calibration_batches_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "calibration_items" ADD CONSTRAINT "calibration_items_batch_id_calibration_batches_id_fk" FOREIGN KEY ("batch_id") REFERENCES "public"."calibration_batches"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "calibration_items" ADD CONSTRAINT "calibration_items_impression_id_impressions_id_fk" FOREIGN KEY ("impression_id") REFERENCES "public"."impressions"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_calibration_batches_status_created_at" ON "calibration_batches" USING btree ("status","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_calibration_batches_created_by" ON "calibration_batches" USING btree ("created_by");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_calibration_items_batch_impression" ON "calibration_items" USING btree ("batch_id","impression_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_calibration_items_batch_status" ON "calibration_items" USING btree ("batch_id","status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_calibration_items_impression_id" ON "calibration_items" USING btree ("impression_id");
+```
+
+7. **packages/backend/drizzle/migrations/0007_workable_rachel_grey.sql**
+
+```sql
+CREATE SEQUENCE IF NOT EXISTS "tag_constants_version_seq" START WITH 0 MINVALUE 0 INCREMENT BY 1;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "tag_constants_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"version" text NOT NULL,
+	"constants" jsonb NOT NULL,
+	"description" text,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"script_path" text,
+	"file_size_bytes" integer,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "tag_constants_configs_version_unique" UNIQUE("version")
+);
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "tag_constants_version" text;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_tag_constants_configs_is_active" ON "tag_constants_configs" USING btree ("is_active");--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_tag_constants_version_tag_constants_configs_version_fk" FOREIGN KEY ("tag_constants_version") REFERENCES "public"."tag_constants_configs"("version") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_tag_constants_version" ON "impressions" USING btree ("tag_constants_version");
+```
+
+8. **packages/backend/drizzle/migrations/0008_fair_chimera.sql**
+
+```sql
+ALTER TABLE "impressions" ADD COLUMN "s6_raw_completion_rate" real;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "s6_normalized" real;--> statement-breakpoint
+ALTER TABLE "weight_configs" ADD COLUMN "config_type" text DEFAULT 'banner' NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_s6_normalized" ON "impressions" USING btree ("s6_normalized");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_weight_configs_active_type" ON "weight_configs" USING btree ("config_type") WHERE "weight_configs"."is_active" = true;
+UPDATE weight_configs SET config_type = 'banner' WHERE config_type IS NULL;
+```
+
+9. **packages/backend/drizzle/migrations/meta/_journal.json**
+
+```json
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1780321902208,
+      "tag": "0000_sharp_mauler",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781780685407,
+      "tag": "0001_secret_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782212148740,
+      "tag": "0002_elite_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782213644493,
+      "tag": "0003_f_presence_check_guarded",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782311150523,
+      "tag": "0004_public_thunderbolts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782331543227,
+      "tag": "0005_familiar_zodiak",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782384579028,
+      "tag": "0006_thick_robin_chapel",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782391291714,
+      "tag": "0007_workable_rachel_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783010233095,
+      "tag": "0008_fair_chimera",
+      "breakpoints": true
+    }
+  ]
+}
+```
 
 ---
 

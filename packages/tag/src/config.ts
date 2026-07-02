@@ -4,7 +4,8 @@ import { TAG_CONSTANTS_VERSION } from './constants.js';
 const VALID_CREATIVE_TYPES: CreativeType[] = [
   'banner_static',
   'banner_gif',
-  'banner_html5'
+  'banner_html5',
+  'video_creative',
 ];
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

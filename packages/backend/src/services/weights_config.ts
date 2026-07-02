@@ -1,5 +1,10 @@
-import { eq, desc } from 'drizzle-orm';
-import { DEFAULT_WEIGHTS, type WeightsValues } from '@cpmind/shared';
+import { eq, and, desc } from 'drizzle-orm';
+import {
+  DEFAULT_BANNER_WEIGHTS,
+  DEFAULT_VIDEO_WEIGHTS,
+  type WeightsValues,
+  type CreativeCategory,
+} from '@cpmind/shared';
 import { db } from '../db/index.js';
 import { weightConfigs, type WeightConfigSelect } from '../db/schema.js';
 
@@ -20,7 +25,10 @@ class WeightsConfigError extends Error {
     }
 }
 
-let cache: WeightsValues | null = null;
+const cache: Record<CreativeCategory, WeightsValues | null> = {
+  banner: null,
+  video: null,
+};
 
 /**
  * Сбрасывает кэш активной конфигурации весов.
@@ -28,7 +36,8 @@ let cache: WeightsValues | null = null;
  */
 
 export function invalidateWeightsCache(): void {
-    cache = null;
+  cache.banner = null;
+  cache.video = null;
 }
 
 /**
@@ -36,31 +45,38 @@ export function invalidateWeightsCache(): void {
  * Fallback на DEFAULT_WEIGHTS если таблица пуста.
  */
 
-export async function getActiveWeightsConfig(): Promise<WeightsValues> {
-    if (cache) return cache;
+export async function getActiveWeightsConfig(
+  category: CreativeCategory,
+): Promise<WeightsValues> {
+  if (cache[category]) return cache[category]!;
 
-    const rows = await db
-        .select()
-        .from(weightConfigs)
-        .where(eq(weightConfigs.isActive, true))
-        .limit(1);
+  const rows = await db
+    .select()
+    .from(weightConfigs)
+    .where(and(
+      eq(weightConfigs.isActive, true),
+      eq(weightConfigs.configType, category),
+    ))
+    .limit(1);
 
-    if (!rows.length) return DEFAULT_WEIGHTS;
+  const defaultWeights = category === 'video' ? DEFAULT_VIDEO_WEIGHTS : DEFAULT_BANNER_WEIGHTS;
+  if (!rows.length) return defaultWeights;
 
-    const row = rows[0]!;
-    const w = row.weights as Record<string, number>;
+  const row = rows[0]!;
+  const w = row.weights as Record<string, number>;
 
-    cache = {
-        version: row.version,
-        s1: w['s1']!,
-        s2: w['s2']!,
-        s3: w['s3']!,
-        s4: w['s4']!,
-        s5: w['s5']!,
-        s7: w['s7']!,
-    };
+  cache[category] = {
+    version: row.version,
+    s1: w['s1']!,
+    s2: w['s2']!,
+    s3: w['s3']!,
+    s4: w['s4']!,
+    s5: w['s5']!,
+    s6: w['s6'] ?? 0,
+    s7: w['s7']!,
+  };
 
-    return cache;
+  return cache[category]!;
 }
 
 /**
@@ -80,32 +96,34 @@ export async function listWeightsConfigs(): Promise<WeightConfigSelect[]> {
  */
 
 export async function createWeightsConfig(data: {
-    version: string;
-    weights: { s1: number; s2: number; s3: number; s4: number; s5: number; s7: number };
-    description?: string;
+  version: string;
+  configType: CreativeCategory;
+  weights: { s1: number; s2: number; s3: number; s4: number; s5: number; s6: number; s7: number };
+  description?: string;
 }): Promise<WeightConfigSelect> {
-    const { s1, s2, s3, s4, s5, s7 } = data.weights;
-    const sum = s1 + s2 + s3 + s4 + s5 + s7;
+  const { s1, s2, s3, s4, s5, s6, s7 } = data.weights;
+  const sum = s1 + s2 + s3 + s4 + s5 + s6 + s7;
 
-    if (Math.abs(sum - 1.0) > 0.001) {
-        throw new WeightsConfigError(
-            'Сумма весов должна равняться 1.00',
-            400,
-            'WEIGHTS_SUM_INVALID',
-        );
-    }
+  if (Math.abs(sum - 1.0) > 0.001) {
+    throw new WeightsConfigError(
+      'Сумма весов должна равняться 1.00',
+      400,
+      'WEIGHTS_SUM_INVALID',
+    );
+  }
 
-    const rows = await db
-        .insert(weightConfigs)
-        .values({
-            version: data.version,
-            weights: data.weights as unknown as Record<string, unknown>,
-            description: data.description ?? null,
-            isActive: false,
-        })
-        .returning();
+  const rows = await db
+    .insert(weightConfigs)
+    .values({
+      version: data.version,
+      configType: data.configType,
+      weights: data.weights as unknown as Record<string, unknown>,
+      description: data.description ?? null,
+      isActive: false,
+    })
+    .returning();
 
-    return rows[0]!;
+  return rows[0]!;
 }
 
 /**
@@ -115,27 +133,33 @@ export async function createWeightsConfig(data: {
  */
 
 export async function activateWeightsConfig(id: string): Promise<void> {
-    await db.transaction(async (tx) => {
-        await tx
-            .update(weightConfigs)
-            .set({ isActive: false });
+  await db.transaction(async (tx) => {
+    const target = await tx
+      .select({ configType: weightConfigs.configType })
+      .from(weightConfigs)
+      .where(eq(weightConfigs.id, id))
+      .limit(1);
 
-        const updated = await tx
-            .update(weightConfigs)
-            .set({ isActive: true })
-            .where(eq(weightConfigs.id, id))
-            .returning();
+    if (!target.length) {
+      throw new WeightsConfigError(
+        'Конфигурация не найдена',
+        404,
+        'WEIGHTS_CONFIG_NOT_FOUND',
+      );
+    }
 
-        if (!updated.length) {
-            throw new WeightsConfigError(
-                'Конфигурация не найдена',
-                404,
-                'WEIGHTS_CONFIG_NOT_FOUND',
-            );
-        }
-    });
+    await tx
+      .update(weightConfigs)
+      .set({ isActive: false })
+      .where(eq(weightConfigs.configType, target[0]!.configType));
 
-    invalidateWeightsCache();
+    await tx
+      .update(weightConfigs)
+      .set({ isActive: true })
+      .where(eq(weightConfigs.id, id));
+  });
+
+  invalidateWeightsCache();
 }
 
 /**

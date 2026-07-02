@@ -15,6 +15,7 @@ export const USER_VISIBLE_IMPRESSION_FIELDS = [
   's3_normalized',
   's4_normalized',
   's5_normalized',
+  's6_normalized',
   's7_normalized',
   'score_final',
   'is_suspicious',

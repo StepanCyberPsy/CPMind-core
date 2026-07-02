@@ -90,6 +90,7 @@ export const impressions = pgTable('impressions', {
   s3RawScrollSpeed: real('s3_raw_scroll_speed'),
   s4RawActiveTimePct: real('s4_raw_active_time_pct'),
   s5RawTopEvent: text('s5_raw_top_event').notNull(),
+  s6RawCompletionRate: real('s6_raw_completion_rate'),
   s7RawPersistence: real('s7_raw_persistence'),
 
   // Нормализованные значения
@@ -98,6 +99,7 @@ export const impressions = pgTable('impressions', {
   s3Normalized: real('s3_normalized'),
   s4Normalized: real('s4_normalized'),
   s5Normalized: real('s5_normalized'),
+  s6Normalized: real('s6_normalized'),
   s7Normalized: real('s7_normalized'),
 
   // Score
@@ -123,6 +125,7 @@ export const impressions = pgTable('impressions', {
     deviceTypeIdx: index('idx_device_type').on(t.deviceType),
     isSuspiciousIdx: index('idx_is_suspicious').on(t.isSuspicious),
     scoreFinalIdx: index('idx_score_final').on(t.scoreFinal),
+    s6NormalizedIdx: index('idx_impressions_s6_normalized').on(t.s6Normalized),
     tagIdIdx: index('idx_impressions_tag_id').on(t.tagId),
     userIdIdx: index('idx_impressions_user_id').on(t.userId),
     userIdCreatedAtIdx: index('idx_impressions_user_id_created_at').on(t.userId, t.createdAt),
@@ -151,12 +154,16 @@ export const tagConstantsConfigs = pgTable('tag_constants_configs', {
 export const weightConfigs = pgTable('weight_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
   version: text('version').notNull().unique(),
+  configType: text('config_type').notNull().default('banner'),
   weights: jsonb('weights').notNull(),
   description: text('description'),
   isActive: boolean('is_active').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   isActiveIdx: index('idx_weight_configs_is_active').on(t.isActive),
+  activeTypeUniqueIdx: uniqueIndex('uidx_weight_configs_active_type')
+    .on(t.configType)
+    .where(sql`${t.isActive} = true`),
 }));
 
 export const calibrationBatchStatusEnum = pgEnum('calibration_batch_status', ['processing', 'ready', 'expired', 'failed', 'discarded']);

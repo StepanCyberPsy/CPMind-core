@@ -1,6 +1,7 @@
 import type { Session, TagConfig, VisibilityEntry } from './types.js';
 import { generateUUID } from './utils/uuid.js';
 import { detectDeviceType } from './utils/device.js';
+import { getS6Data } from './signals/s6.js';
 
 /**
  * Считает суммарное "активное" (visible) время вкладки строго в диапазоне [rangeStart, rangeEnd].
@@ -85,6 +86,9 @@ export function createSession(cfg: TagConfig): Session {
     zoom: false,
     swipeCount: 0,
     lastHoverStart: null,
+
+    // S6
+    s6: null,
 
     // S7
     creativePositionYPx: 0,
@@ -204,6 +208,7 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
         zoom: session.deviceType !== 'desktop' ? session.zoom : null,
         swipe_count: session.deviceType !== 'desktop' ? session.swipeCount : null,
       },
+      s6: session.s6 !== null ? getS6Data(session.s6) : null,
       s7: {
         creative_position_y_px: session.creativePositionYPx,
         page_height_total_px: session.pageHeightTotalPx || document.documentElement.scrollHeight,

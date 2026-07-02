@@ -2,7 +2,7 @@
 
 export type {
   ImpressionPayload,
-  SignalsS1, SignalsS2, SignalsS3, SignalsS4, SignalsS5, SignalsS7,
+  SignalsS1, SignalsS2, SignalsS3, SignalsS4, SignalsS5, SignalsS6, SignalsS7,
   Presence,
 } from '../schemas/impression.js';
 
@@ -87,4 +87,5 @@ export type {
   WeightsConfig,
   WeightsValues,
   EffectiveWeights,
+  CreativeCategory,
 } from '../scoring/weights.js';

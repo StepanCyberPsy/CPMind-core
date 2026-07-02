@@ -45,6 +45,7 @@ export function processImpression(
       ? (payload.signals.s4.tab_active_time_ms / payload.signals.s4.tab_total_time_ms) * 100
       : 0,
     s5RawTopEvent: getS5TopEventLabel(payload.signals.s5),
+    s6RawCompletionRate: result.s6_raw_completion_rate,
     s7RawPersistence: payload.signals.s7.viewability_persistence_pct,
 
     s1Normalized: result.normalized.s1,
@@ -52,6 +53,7 @@ export function processImpression(
     s3Normalized: result.normalized.s3,
     s4Normalized: result.normalized.s4,
     s5Normalized: result.normalized.s5,
+    s6Normalized: result.normalized.s6,
     s7Normalized: result.normalized.s7,
 
     fPresence: result.f_presence,

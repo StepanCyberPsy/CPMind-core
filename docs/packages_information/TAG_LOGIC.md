@@ -1,6 +1,6 @@
 # CPMind Tag — `packages/tag`
 
-JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один минифицированный файл (~22–24 КБ) через esbuild. Не импортирует `@cpmind/shared` в runtime — только браузерные API. Зависимость от `@cpmind/shared` — `devDependency` исключительно для типизации `TagConstantsValues` на этапе сборки; компилятор вытирает её из выходного бандла.
+JS-тег для встраивания в произвольную HTML-страницу с рекламным баннером. Собирается в один минифицированный файл (~28 КБ) через esbuild. Не импортирует `@cpmind/shared` в runtime — только браузерные API. Зависимость от `@cpmind/shared` — `devDependency` исключительно для типизации `TagConstantsValues` на этапе сборки; компилятор вытирает её из выходного бандла.
 
 ---
 
@@ -49,6 +49,7 @@ packages/tag/
     │   ├── s3.ts             # Scroll Velocity (rAF + Welford)
     │   ├── s4.ts             # Tab Activity (visibilitychange)
     │   ├── s5.ts             # Interaction Events (click/touch/hover)
+    │   ├── s6.ts             # Video Engagement + Audibility
     │   ├── s7.ts             # Page Context (позиция, конкуренция)
     │   └── presence.ts       # F_Presence (таймер активности пользователя)
     ├── transport/
@@ -114,7 +115,9 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
 
 **Перевод на новую версию** — ручная замена `<script src>`. Обновление констант на уже размещённом теге не происходит автоматически при создании новой версии.
 
-**Поддерживаемые типы баннеров:** `banner_static`, `banner_gif`, `banner_html5`.
+**Поддерживаемые типы креативов:** `banner_static`, `banner_gif`, `banner_html5`, `video_creative`.
+
+Для `video_creative`: тег ищет `<video>` элемент внутри `[data-cpmind-creative]`. Кнопка пропуска помечается атрибутом `[data-cpmind-skip]` — тег слушает click на ней.
 
 **Что НЕ нужно:**
 - Устанавливать код на сервер клиента
@@ -135,7 +138,7 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
        └── Для каждого баннера (независимая сессия):
            ├── parseConfig() — data-атрибуты + tag_uuid из cfg
            ├── createSession() — impression_id (UUID v4), session_group_id
-           ├── initS1(), initS2(), initS3(), initS4(), initS5(), initS7()
+           ├── initS1(), initS2(), initS3(), initS4(), initS5(), initS6(), initS7()
            ├── initPresence()
            └── attachUnloadHandlers()
 
@@ -145,6 +148,7 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
    ├── S3: rAF-throttled scroll — паттерн скролла
    ├── S4: visibilitychange — активность вкладки
    ├── S5: click/touch/hover — взаимодействие
+   ├── S6: video event listeners (только video_creative, null если нет <video>)
    ├── S7: позиция + сэмплирование каждые 1000 мс
    └── presence: 10 типов событий, таймер простоя
 
@@ -179,7 +183,8 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
 5. `resetSegmentS3()` — сброс running stats, таймеров пауз, `pauseCheckInterval`
 6. `resetSegmentS4()` — сброс `visibility_state_history`, счётчиков переключений
 7. `resetSegmentS5()` — сброс счётчиков взаимодействия, приватных замыканий
-8. `resetSegmentS7()` — сброс persistence-сэмплов (`is_above_the_fold` **не сбрасывается** — свойство загрузки страницы, не сегмента)
+8. `resetSegmentS6()` — сброс всех accumulator-полей in-place; video element ref и event listeners сохраняются; при воспроизводящемся видео инициализирует состояние нового сегмента от текущего положения
+9. `resetSegmentS7()` — сброс persistence-сэмплов (`is_above_the_fold` **не сбрасывается** — свойство загрузки страницы, не сегмента)
 9. `session.segmentIndex++` — следующий сегмент получает тот же `session_group_id`, новый `segment_index`, новый `impression_id`
 
 **Ключевое свойство `isFinal=false`:** `session.sent` не залипает — следующий сегмент тоже будет отправлен. При `isFinal=true` (`session.sent = true`) дальнейшие вызовы `finalizeAndSend` идемпотентны.
@@ -200,14 +205,16 @@ IIFE-обёртка: `(function() { ... })()` — не загрязняет гл
 
 ### `src/types.ts` — типы состояния сессии
 
-- `TagConfig` — конфигурация из data-атрибутов + `tagUuid` + `tagConstantsVersion`
-- `Session` — полное состояние одной сессии показа: все накопленные сигналы, `sessionGroupId` (неизменен при сбросе сегмента), `segmentIndex`, флаг `sent`
+- `TagConfig` — конфигурация из data-атрибутов + `tagUuid` + `tagConstantsVersion`; `creativeType` расширен `'video_creative'`
+- `Session` — полное состояние одной сессии показа; добавлено `s6: SignalsS6State | null` между S5 и S7
 - `VisibilityEntry` — запись истории состояний видимости вкладки (для S4)
 - `SignalsS3State` — состояние Welford-аккумулятора для S3
+- `SignalsS6State` — внутренний tracking state: `videoEl`, `duration`, `lastSeekTime`, `isSeeking`, `videoEndedInSegment`, `audibleTimeStart`, `everMuted/UnmutedWhilePlaying` + 18 payload-полей (без `muted_throughout` — вычисляется в `getS6Data`)
+- `S6RawData` — финальный объект для payload (19 полей, включая `muted_throughout`)
 
 ### `src/config.ts` — `parseConfig()`
 
-Читает data-атрибуты контейнера. Обязательные: `data-tag-uuid` (regex-валидация формата UUID), `data-campaign-id`, `data-creative-id`, `data-creative-type`, `data-endpoint`. `tagConstantsVersion` — из `constants.ts`, не из data-атрибута: версия "знает себя" из сборки.
+Читает data-атрибуты контейнера. Обязательные: `data-tag-uuid` (regex-валидация формата UUID), `data-campaign-id`, `data-creative-id`, `data-creative-type`, `data-endpoint`. `VALID_CREATIVE_TYPES` включает `'video_creative'`. `tagConstantsVersion` — из `constants.ts`, не из data-атрибута: версия "знает себя" из сборки.
 
 ### `src/session.ts`
 
@@ -285,6 +292,20 @@ rAF-throttled обработчик `scroll`. Зона наблюдения: ±`S
 8 констант калибруемы. `EVENT_TYPES` и `AD_SELECTORS` (s7.ts) — **не** калибруются, захардкожены.
 
 `resetSegmentS5()` — сброс счётчиков, приватных замыканий (trajectory state, touch state).
+
+### S6 (`signals/s6.ts`) — Video Engagement + Audibility
+
+`initS6(creativeEl, session)` — ищет `creativeEl.querySelector('video')`. Если не найден — `session.s6 = null`, модуль не активируется. При обнаружении инициализирует `SignalsS6State` и вешает event listeners.
+
+**Event listeners:** `loadedmetadata` (duration), `play` (play_initiated, replay detection при videoEndedInSegment, audible state), `pause` (pause_initiated, accumulateAudibleTime), `ended` (completion, audible_quartile_100), `timeupdate` (quartile detection, volume_level), `volumechange` (audibility tracking, unmuted_by_user detection через previousMuted closure), `seeking`/`seeked` (isSeeking flag, rewind detection при currentTime < lastSeekTime − 0.5с), click на `[data-cpmind-skip]` (skipped).
+
+**Audibility:** `isAudible(video)` = `!video.muted && video.volume > 0`. `accumulateAudibleTime()` — финализирует накопленное audible время в state. `audibleTimeStart` — timestamp начала текущего audible-периода.
+
+**`detectAudioConnection()`** — async, через `navigator.mediaDevices.enumerateDevices()` только при наличии выданного разрешения (без проактивного запроса). Определяет bluetooth → headphones → speaker по label устройства. Fallback: `'unknown'`.
+
+**`resetSegmentS6(session)`** — аккумулирует оставшееся audible время, сбрасывает все поля кроме `videoEl`, `audio_connection`. Не пересоздаёт event listeners. Инициализирует начальное состояние нового сегмента от текущего состояния видео.
+
+**`getS6Data(state)`** — вычисляет финальный `S6RawData`: финализирует `audible_time_sec`, вычисляет `muted_throughout` (play_initiated && !everUnmutedWhilePlaying) и `muted_status` из everMuted/Unmuted флагов. Вызывается из `buildPayload()`.
 
 ### S7 (`signals/s7.ts`) — Page Context
 
@@ -400,4 +421,10 @@ python3 -m http.server 8080
 
 **`computeActiveTimeMsInRange()` из истории состояний.** P-05: правильный подход — вычислять active time из `visibility_state_history`, а не хранить накапливающийся счётчик, который может рассинхронизироваться с таймерами при скрытии/показе вкладки.
 
-**`S7_SAMPLE_INTERVAL_MS` vs `S2_SAMPLE_INTERVAL_MS`.** Две разные константы для двух разных сигналов, хотя дефолтные значения исторически совпадали. Разделены явно, чтобы калибровка одного не ломала другой.
+**`S7_SAMPLE_INTERVAL_MS` vs `S2_SAMPLE_INTERVAL_MS`.** Две разные константы для двух разных сигналов, хотя дефолтные значения исторически совпадали.
+
+**S6 event listeners не пересоздаются при сегментации.** `resetSegmentS6()` мутирует state in-place, сохраняя ссылку на `<video>` элемент и все навешенные listeners — по аналогии с S1–S5. Исключение: IntersectionObserver для S1 пересоздаётся явно, для S6 аналогичной необходимости нет.
+
+**`muted_throughout` — вычисляемое поле.** Не хранится в `SignalsS6State`, вычисляется в `getS6Data()` как `play_initiated && !everUnmutedWhilePlaying` — единственный источник истины, без риска рассинхронизации при сегментации.
+
+**Replay vs rewind.** `replay_count` инкрементируется в двух случаях: видео дошло до `ended` и снова запустилось (повторный просмотр), либо `seeked` с `currentTime < lastSeekTime − 0.5с` (перемотка назад). Порог 0.5с исключает float-погрешности `currentTime`. Разделены явно, чтобы калибровка одного не ломала другой.

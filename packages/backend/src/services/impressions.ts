@@ -21,6 +21,7 @@ export const NUMERIC_RANGE_COLUMNS = {
   s3: impressions.s3Normalized,
   s4: impressions.s4Normalized,
   s5: impressions.s5Normalized,
+  s6: impressions.s6Normalized,
   s7: impressions.s7Normalized,
 } as const;
 
@@ -142,6 +143,7 @@ export const USER_VISIBLE_COLUMNS = {
   s3_normalized: impressions.s3Normalized,
   s4_normalized: impressions.s4Normalized,
   s5_normalized: impressions.s5Normalized,
+  s6_normalized: impressions.s6Normalized,
   s7_normalized: impressions.s7Normalized,
   score_final: impressions.scoreFinal,
   is_suspicious: impressions.isSuspicious,
@@ -157,6 +159,7 @@ const ADMIN_ONLY_COLUMNS = {
   s3_raw_scroll_speed: impressions.s3RawScrollSpeed,
   s4_raw_active_time_pct: impressions.s4RawActiveTimePct,
   s5_raw_top_event: impressions.s5RawTopEvent,
+  s6_raw_completion_rate: impressions.s6RawCompletionRate,
   s7_raw_persistence: impressions.s7RawPersistence,
   f_presence: impressions.fPresence,
   weights_version: impressions.weightsVersion,
@@ -209,12 +212,14 @@ export interface JoinedImpressionRow {
   s3_raw_scroll_speed: number | null;
   s4_raw_active_time_pct: number | null;
   s5_raw_top_event: string;
+  s6_raw_completion_rate: number | null;
   s7_raw_persistence: number | null;
   s1_normalized: number | null;
   s2_normalized: number | null;
   s3_normalized: number | null;
   s4_normalized: number | null;
   s5_normalized: number | null;
+  s6_normalized: number | null;
   s7_normalized: number | null;
   f_presence: number;
   score_final: number;
@@ -243,6 +248,7 @@ export interface UserVisibleRow {
   s3_normalized: number | null;
   s4_normalized: number | null;
   s5_normalized: number | null;
+  s6_normalized: number | null;
   s7_normalized: number | null;
   score_final: number;
   is_suspicious: boolean;
@@ -289,6 +295,7 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     s3_raw_scroll_speed: row.s3_raw_scroll_speed,
     s4_raw_active_time_pct: row.s4_raw_active_time_pct,
     s5_raw_top_event: row.s5_raw_top_event,
+    s6_raw_completion_rate: row.s6_raw_completion_rate,
     s7_raw_persistence: row.s7_raw_persistence,
 
     s1_normalized: row.s1_normalized,
@@ -296,6 +303,7 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     s3_normalized: row.s3_normalized,
     s4_normalized: row.s4_normalized,
     s5_normalized: row.s5_normalized,
+    s6_normalized: row.s6_normalized,
     s7_normalized: row.s7_normalized,
 
     f_presence: row.f_presence,
@@ -329,6 +337,7 @@ const SORT_COLUMN_MAP = {
   s3Normalized: impressions.s3Normalized,
   s4Normalized: impressions.s4Normalized,
   s5Normalized: impressions.s5Normalized,
+  s6Normalized: impressions.s6Normalized,
   s7Normalized: impressions.s7Normalized,
 } as const;
 

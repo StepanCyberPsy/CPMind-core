@@ -8,7 +8,6 @@ import {
 import {
   computeEffectiveWeights,
   detectNullSignals,
-  DEFAULT_WEIGHTS,
   type WeightsConfig,
   type EffectiveWeights,
 } from './weights.js';
@@ -33,6 +32,7 @@ export interface ScoreResult {
   s3_raw_scroll_speed: number | null;
   s4_raw_active_time_pct: number;
   s5_raw_top_event: string;
+  s6_raw_completion_rate: number | null;
   s7_raw_persistence: number;
 }
 
@@ -69,7 +69,7 @@ export function computeScore(
   const f_presence: 0 | 1 = presenceFailed ? 0 : 1;
 
   // 5. CPMind Score §4.8
-  // Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
+  // Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S6×w6 + S7×w7) × F_Presence
   // Null-сигналы: effective_weight = 0 -> (null ?? 0) × 0 = 0 — корректно
   // Диапазон: Si ∈ [0, 100], Σwi = 1.0 -> weightedSum ∈ [0, 100]
   // F_Presence ∈ {0, 1} -> score_final ∈ [0, 100]
@@ -79,6 +79,7 @@ export function computeScore(
     (normalized.s3 ?? 0) * effective_weights.s3 +
     normalized.s4 * effective_weights.s4 +
     normalized.s5 * effective_weights.s5 +
+    (normalized.s6 ?? 0) * effective_weights.s6 +
     normalized.s7 * effective_weights.s7;
 
   const score_final = weightedSum * f_presence;
@@ -119,6 +120,7 @@ export function computeScore(
     s3_raw_scroll_speed: payload.signals.s3?.scroll_speed_avg_px_s ?? null,
     s4_raw_active_time_pct,
     s5_raw_top_event: getS5TopEventLabel(payload.signals.s5),
+    s6_raw_completion_rate: payload.signals.s6?.completion_rate_pct ?? null,
     s7_raw_persistence: payload.signals.s7.viewability_persistence_pct,
   };
 }
@@ -148,6 +150,7 @@ export function recomputeScoreFromNormalized(
     (normalized.s3 ?? 0) * effective_weights.s3 +
     normalized.s4 * effective_weights.s4 +
     normalized.s5 * effective_weights.s5 +
+    (normalized.s6 ?? 0) * effective_weights.s6 +
     normalized.s7 * effective_weights.s7;
 
   return {

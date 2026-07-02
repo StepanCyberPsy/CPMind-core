@@ -5,6 +5,7 @@ import { initS2 } from './signals/s2.js';
 import { initS3 } from './signals/s3.js';
 import { initS4 } from './signals/s4.js';
 import { initS5 } from './signals/s5.js';
+import { initS6 } from './signals/s6.js';
 import { initS7 } from './signals/s7.js';
 import { initPresence } from './signals/presence.js';
 import type { PresenceHandle } from './signals/presence.js';
@@ -39,6 +40,7 @@ import { DebugOverlay } from './debug/overlay.js';
       initS3(container, session, cfg);
       initS4(session, cfg);
       initS5(container, session, cfg);
+      initS6(container, session);
       initS7(container, session, cfg);
 
       const presenceHandle = initPresence(session, cfg, () => {

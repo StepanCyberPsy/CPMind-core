@@ -37,7 +37,7 @@ const ADMIN_CSV_HEADER = [
   'creative_position_y_px', 'page_height_total_px', 'is_above_the_fold',
   'competing_ads_visible', 'viewability_persistence_pct',
   'last_user_event_timestamp', 'time_since_last_event_ms', 'events_count_during_impression',
-  's1_normalized', 's2_normalized', 's3_normalized', 's4_normalized', 's5_normalized', 's7_normalized',
+  's1_normalized', 's2_normalized', 's3_normalized', 's4_normalized', 's5_normalized', 's6_normalized', 's7_normalized',
   'f_presence', 'score_final',
   'no_events', 'tab_mostly_hidden', 'anomaly_duration', 'is_suspicious',
 ].join(',');
@@ -81,7 +81,7 @@ function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
     s7['creative_position_y_px'], s7['page_height_total_px'], s7['is_above_the_fold'],
     s7['competing_ads_visible'], s7['viewability_persistence_pct'],
     pr['last_user_event_timestamp'], pr['time_since_last_event_ms'], pr['events_count_during_impression'],
-    row.s1_normalized, row.s2_normalized, row.s3_normalized, row.s4_normalized, row.s5_normalized, row.s7_normalized,
+    row.s1_normalized, row.s2_normalized, row.s3_normalized, row.s4_normalized, row.s5_normalized, row.s6_normalized, row.s7_normalized,
     row.f_presence, row.score_final,
     row.no_events, row.tab_mostly_hidden, row.anomaly_duration, row.is_suspicious,
   ];

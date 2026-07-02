@@ -11,12 +11,14 @@ import {
 
 const CreateWeightsConfigSchema = z.object({
     version: z.string().min(1).max(100),
+    configType: z.enum(['banner', 'video']),
     weights: z.object({
         s1: z.number().min(0).max(1),
         s2: z.number().min(0).max(1),
         s3: z.number().min(0).max(1),
         s4: z.number().min(0).max(1),
         s5: z.number().min(0).max(1),
+        s6: z.number().min(0).max(1),
         s7: z.number().min(0).max(1),
     }),
     description: z.string().max(500).optional(),
@@ -38,9 +40,10 @@ export const weightsConfigRoute: FastifyPluginAsync = async (app) => {
             return reply.status(422).send({ errors: parsed.error.flatten() });
         }
 
-        const { version, weights, description } = parsed.data;
+        const { version, configType, weights, description } = parsed.data;
         const config = await createWeightsConfig({
             version,
+            configType,
             weights,
             ...(description !== undefined && { description }),
         });

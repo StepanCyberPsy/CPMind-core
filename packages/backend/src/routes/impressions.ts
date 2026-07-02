@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { FastifyPluginAsync } from 'fastify';
-import { ImpressionPayloadSchema, UserUuidSchema } from '@cpmind/shared';
+import {
+  ImpressionPayloadSchema,
+  UserUuidSchema,
+  type CreativeCategory
+} from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
@@ -46,6 +50,8 @@ const ImpressionListQuerySchema = z.object({
   s4Max: z.coerce.number().optional(),
   s5Min: z.coerce.number().optional(),
   s5Max: z.coerce.number().optional(),
+  s6Min: z.coerce.number().optional(),
+  s6Max: z.coerce.number().optional(),
   s7Min: z.coerce.number().optional(),
   s7Max: z.coerce.number().optional(),
 });
@@ -88,7 +94,10 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       'Impression received',
     );
 
-    const config = await getActiveWeightsConfig();
+    const creativeCategory: CreativeCategory =
+      parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
+
+    const config = await getActiveWeightsConfig(creativeCategory);
     const record = processImpression(parsed.data, config, owner, constantsVersionResolution.presenceIdleThresholdMs);
 
     try {
@@ -144,6 +153,8 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       s4Max,
       s5Min,
       s5Max,
+      s6Min,
+      s6Max,
       s7Min,
       s7Max,
     } = parsed.data;
@@ -159,6 +170,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     setRange('s3', s3Min, s3Max);
     setRange('s4', s4Min, s4Max);
     setRange('s5', s5Min, s5Max);
+    setRange('s6', s6Min, s6Max);
     setRange('s7', s7Min, s7Max);
 
     const listParams = {

@@ -71,6 +71,32 @@ export const SignalsS7Schema = z.object({
   viewability_persistence_pct: z.number().min(0).max(100),
 });
 
+// S6 Video Engagement + Audibility
+export const SignalsS6Schema = z.object({
+  // Video Engagement
+  play_initiated: z.boolean(),
+  quartile_25: z.boolean(),
+  quartile_50: z.boolean(),
+  quartile_75: z.boolean(),
+  completion: z.boolean(),
+  completion_rate_pct: z.number().min(0).max(100),
+  pause_initiated: z.boolean(),
+  skipped: z.boolean(),
+  replay_count: z.number().int().min(0),
+
+  // Audibility
+  muted_status: z.enum(['muted', 'unmuted', 'mixed']),
+  volume_level: z.number().int().min(0).max(100),
+  audio_connection: z.enum(['speaker', 'headphones', 'bluetooth', 'unknown']),
+  audible_time_sec: z.number().min(0),
+  audible_quartile_25: z.boolean(),
+  audible_quartile_50: z.boolean(),
+  audible_quartile_75: z.boolean(),
+  audible_quartile_100: z.boolean(),
+  muted_throughout: z.boolean(),
+  unmuted_by_user: z.boolean(),
+});
+
 // F_Presence
 export const PresenceSchema = z.object({
   last_user_event_timestamp: z.number().positive().nullable(),
@@ -87,7 +113,12 @@ export const ImpressionPayloadSchema = z
     tag_constants_version: z.string().min(1),
     campaign_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
-    creative_type: z.enum(['banner_static', 'banner_gif', 'banner_html5']),
+    creative_type: z.enum([
+      'banner_static',
+      'banner_gif',
+      'banner_html5',
+      'video_creative'
+    ]),
     device_type: z.enum(['desktop', 'mobile', 'tablet']),
     timestamp_start: z.number().positive(),
     timestamp_end: z.number().positive(),
@@ -97,6 +128,7 @@ export const ImpressionPayloadSchema = z
       s3: SignalsS3Schema,
       s4: SignalsS4Schema,
       s5: SignalsS5Schema,
+      s6: SignalsS6Schema.nullable().optional(),
       s7: SignalsS7Schema,
     }),
     presence: PresenceSchema,
@@ -115,6 +147,7 @@ export type SignalsS2 = z.infer<typeof SignalsS2Schema>;
 export type SignalsS3 = z.infer<typeof SignalsS3Schema>;
 export type SignalsS4 = z.infer<typeof SignalsS4Schema>;
 export type SignalsS5 = z.infer<typeof SignalsS5Schema>;
+export type SignalsS6 = z.infer<typeof SignalsS6Schema>;
 export type SignalsS7 = z.infer<typeof SignalsS7Schema>;
 export type Presence = z.infer<typeof PresenceSchema>;
 export type VisibilityStateEntry = z.infer<typeof VisibilityStateEntrySchema>;
