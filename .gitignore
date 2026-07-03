@@ -75,3 +75,6 @@ docker-compose.prod.v1.yml
 # Куки, экспорты и др
 *_cookies.txt
 *_export.csv
+
+# Тестовые файлы
+*.mp4

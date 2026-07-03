@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPMind — Video Creative Test</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, 'Segoe UI', sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+        }
+
+        .instructions {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            font-size: 12px;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .instructions-title {
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            font-size: 13px;
+        }
+
+        .steps {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #94a3b8;
+        }
+
+        .step-num {
+            width: 18px;
+            height: 18px;
+            background: #1e3a5f;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            color: #60a5fa;
+            flex-shrink: 0;
+        }
+
+        .badge {
+            margin-left: auto;
+            background: #1e3a5f;
+            color: #60a5fa;
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .page-header {
+            max-width: 900px;
+            margin: 48px auto 0;
+            padding: 0 24px;
+        }
+
+        .page-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .page-header p {
+            font-size: 15px;
+            color: #64748b;
+            max-width: 560px;
+        }
+
+        .article {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .section {
+            padding: 40px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 12px;
+            letter-spacing: -0.3px;
+        }
+
+        .section p {
+            font-size: 15px;
+            color: #475569;
+            margin-bottom: 12px;
+            max-width: 680px;
+        }
+
+        .banner-slot {
+            margin: 32px 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .banner-label {
+            text-align: center;
+            font-size: 10px;
+            font-weight: 500;
+            color: #94a3b8;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .banner-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        [data-cpmind-creative] {
+            display: block;
+            overflow: hidden;
+        }
+
+        .scroll-hint {
+            text-align: center;
+            padding: 32px 0;
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        .scroll-hint .arrow {
+            display: block;
+            font-size: 20px;
+            animation: bounce 1.5s infinite;
+            margin-bottom: 4px;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(6px);
+            }
+        }
+
+        .video-container {
+            position: relative;
+            width: 640px;
+            background: #0f172a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .video-container video {
+            display: block;
+            width: 100%;
+        }
+
+        .skip-btn {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .skip-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+
+        .test-matrix {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .test-matrix h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0369a1;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .test-matrix ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .test-matrix li {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            color: #1e40af;
+            font-size: 13px;
+        }
+
+        .test-matrix li::before {
+            content: '→';
+            color: #3b82f6;
+            flex-shrink: 0;
+        }
+
+        .page-footer {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 24px 64px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="instructions">
+        <span class="instructions-title">CPMind Debug — Video S6</span>
+        <div class="steps">
+            <div class="step">
+                <span class="step-num">1</span>
+                <span>Воспроизведите видео — досмотрите или нажмите «Пропустить»</span>
+            </div>
+            <div class="step">
+                <span class="step-num">2</span>
+                <span>Проверьте S6 в debug-оверлее: play, completion%, muted</span>
+            </div>
+            <div class="step">
+                <span class="step-num">3</span>
+                <span>Закройте вкладку — payload уйдёт через sendBeacon</span>
+            </div>
+            <div class="step">
+                <span class="step-num">4</span>
+                <span>Проверьте s6_normalized и s6_raw в панели аналитики</span>
+            </div>
+        </div>
+        <span class="badge">?cpmind_debug=1</span>
+    </div>
+
+    <div class="page-header">
+        <h1>CPMind — Video Creative Test</h1>
+        <p>
+            Тестовая страница для проверки сигнала S6 (Video Engagement + Audibility).
+            Используйте debug-оверлей для наблюдения за сбором данных в реальном времени.
+        </p>
+    </div>
+
+    <div class="scroll-hint">
+        <span class="arrow">↓</span>
+        Скрольте вниз до видео
+    </div>
+
+    <div class="article">
+
+        <div class="section">
+            <h2>Сигнал S6 — Video Engagement + Audibility</h2>
+            <p>
+                Измеряет вовлечённость пользователя в видеокреатив: квартили просмотра,
+                процент завершения, паузы, пропуск, повторные просмотры.
+                Дополняется аудио-статусом: был ли включён звук, включил ли пользователь его сам.
+            </p>
+
+            <div class="test-matrix">
+                <h3>Что тестируем</h3>
+                <ul>
+                    <li>Досмотреть видео до конца → completion=true, quartile_100=true, base_score=85</li>
+                    <li>Включить звук в процессе → unmuted_by_user=true, +10 к score</li>
+                    <li>Нажать «Пропустить» → skipped=true, base_score=5</li>
+                    <li>Перемотать назад → replay_count++</li>
+                    <li>Поставить на паузу → pause_initiated=true</li>
+                    <li>Закрыть вкладку на середине → completion_rate_pct≈50, quartile_50=true</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Видео-креатив с кнопкой «Пропустить»</h2>
+
+            <div class="banner-slot">
+                <div class="banner-wrapper">
+                    <div class="banner-label">Video Creative · 640×360 · data-creative-type="video_creative"</div>
+                    <div data-cpmind-creative data-tag-uuid="456cfd58-6b28-44f4-8698-9e18c063ea59"
+                        data-campaign-id="demo_video_campaign" data-creative-id="video_640x360_v1"
+                        data-creative-type="video_creative" data-endpoint="http://localhost:3001/api/collect"
+                        style="width: 640px; height: 360px; position: relative;">
+                        <div class="video-container">
+                            <video width="640" height="360" controls preload="metadata">
+                                <!--
+                                Для теста используйте любой короткий MP4 (10–30 сек).
+                                Вариант 1 — публичное тестовое видео (нет зависимости от файловой системы):
+                                -->
+                                <source src="/test/test-video.mp4" type="video/mp4">
+                                Ваш браузер не поддерживает video.
+                            </video>
+                            <button class="skip-btn" data-cpmind-skip type="button">
+                                Пропустить →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <p>
+                Кнопка «Пропустить» помечена атрибутом <code>data-cpmind-skip</code> —
+                тег автоматически фиксирует клик по ней как <code>skipped=true</code>.
+                Без этого атрибута поле всегда будет <code>false</code>.
+            </p>
+        </div>
+
+        <div class="section">
+            <h2>Видео-креатив без кнопки «Пропустить»</h2>
+            <p>
+                Второй блок — для проверки поведения без skip-кнопки.
+                S6 собирается в полном объёме, <code>skipped</code> останется <code>false</code>.
+            </p>
+
+            <div class="banner-slot">
+                <div class="banner-wrapper">
+                    <div class="banner-label">Video Creative #2 · без skip</div>
+                    <div data-cpmind-creative data-tag-uuid="456cfd58-6b28-44f4-8698-9e18c063ea59"
+                        data-campaign-id="demo_video_campaign" data-creative-id="video_640x360_noskip"
+                        data-creative-type="video_creative" data-endpoint="http://localhost:3001/api/collect"
+                        style="width: 640px; height: 360px; position: relative;">
+                        <div class="video-container">
+                            <video width="640" height="360" controls preload="metadata">
+                                <source src="/test/test-video.mp4" type="video/mp4">
+                                Ваш браузер не поддерживает video.
+                            </video>
+                            <button class="skip-btn" data-cpmind-skip type="button">
+                                Пропустить →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Сценарии для SQL-проверки</h2>
+            <p>После закрытия вкладки запусти в psql:</p>
+            <pre
+                style="background:#0f172a;color:#e2e8f0;padding:16px;border-radius:8px;font-size:12px;overflow-x:auto;margin-top:12px;">
+SELECT creative_id, s6_raw_completion_rate, s6_normalized, score_final
+FROM impressions
+WHERE campaign_id = 'demo_video_campaign'
+ORDER BY created_at DESC
+LIMIT 5;</pre>
+        </div>
+
+    </div>
+
+    <div class="page-footer">
+        CPMind MVP · Video S6 Test Page · endpoint: http://localhost:3001
+    </div>
+
+    <script async src="/packages/tag/dist/cpmind-tag.min.js"></script>
+
+</body>
+
+</html>

@@ -56,7 +56,13 @@ export function attachUnloadHandlers(
 ): void {
 
   // 1. Click — Mobile Safari: отправляем в момент клика
-  creativeEl.addEventListener('click', () => {
+  creativeEl.addEventListener('click', (e) => {
+    if (session.s6 !== null) {
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-cpmind-skip]') !== null) {
+        session.s6.skipped = true;
+      }
+    }
     finalizeAndSend(session, cfg, true);
   }, { capture: true });
   // capture: true — обрабатываем до того как событие дойдет до ссылки внутри баннера
