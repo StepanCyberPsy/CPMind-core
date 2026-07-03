@@ -193,6 +193,16 @@ function buildColumns({
           : <span className={styles.cellNull}>—</span>;
       },
     }),
+    col.accessor('s6_normalized', {
+      header: () => renderFilterableHeader('S6', 's6_normalized', currentParams, navigateTo),
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
+      },
+    }),
     col.accessor('s7_normalized', {
       header: () => renderFilterableHeader('S7', 's7_normalized', currentParams, navigateTo),
       enableSorting: false,

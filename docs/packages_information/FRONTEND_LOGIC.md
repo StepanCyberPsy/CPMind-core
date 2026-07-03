@@ -177,7 +177,8 @@ Server Components не могут использовать `credentials: 'includ
 
 ```typescript
 type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
-               | 's3Normalized' | 's4Normalized' | 's5Normalized' | 's7Normalized'
+               | 's3Normalized' | 's4Normalized' | 's5Normalized' | 's6Normalized'
+               | 's7Normalized'
 ```
 
 Расширен в эту сессию: добавлены `s1Normalized`...`s7Normalized` при переносе сортировки по сигналам на backend.
@@ -211,7 +212,7 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `approveCalibrationBatch(batchId, itemIds?)`, `discardCalibrationBatch(batchId)`
 - `buildCsvUrl(params)` — строит URL для CSV-экспорта (без fetch, ссылка для `<a download>`)
 
-**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Расширен в эту сессию: добавлены `tagConstantsVersion`, `weightsVersion`, все 14 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s7Min/Max`), расширен `sortBy` до `SortField`.
+**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`. Функция `createWeightsConfig` расширена: добавлены `configType: 'banner' | 'video'` и `s6: number` в объект весов.
 
 **`buildQuery(params)`** — собирает `URLSearchParams` из `ListParams`. Числовые параметры диапазонов проверяются на `undefined` через явный guard, не `if (params.scoreMin)` — потому что `0` является валидным значением.
 
@@ -225,12 +226,12 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 
 ### `src/lib/admin/signals-meta.ts`
 
-**`SIGNALS_META`** — массив из 7 записей (Score + S1–S7), содержит для каждого сигнала:
+**`SIGNALS_META`** — массив из 8 записей (Score + S1–S7 включая S6), содержит для каждого сигнала:
 - `field: SignalField` — ключ поля в `ImpressionRow`
 - `label` / `shortLabel` — для заголовков
-- `min`, `max` — для плейсхолдеров числовых инпутов
 - `urlParam` — префикс для URL-параметров (`score` → `scoreMin`/`scoreMax`)
 - `sortValue: SortField` — значение `sortBy` для сортировки по этому сигналу
+- `allowSort: boolean` — управляет видимостью блока сортировки в `SignalFilterModal`. S5 переведён в `allowSort: true` (ранее `false` — отсутствие сортировки было ошибкой). S6: `allowSort: true`, с `hint` "Только для video_creative. Для баннеров всегда null".
 
 **`getSignalMeta(field)`** — безопасный поиск по `field`. Бросает при несуществующем поле (не возвращает `undefined`). Единственная точка использования метаданных — `ImpressionsTable`, `RecalibrationTable`, `SignalFilterModal`.
 
@@ -293,7 +294,7 @@ Client Component. URL-based state: все изменения фильтров п
 
 Client Component. TanStack Table v8, `manualSorting: true`, `getCoreRowModel()`. Серверная пагинация — навигация через URL (`router.push`).
 
-**Сортировка:** только колонка "Дата" (`created_at`) имеет нативный TanStack-сорт (`enableSorting: true`). Score и S1–S7 — `enableSorting: false`, сортировка через `SignalFilterModal`.
+**Сортировка:** только колонка "Дата" (`created_at`) имеет нативный TanStack-сорт (`enableSorting: true`). Score и S1–S7 (включая S6) — `enableSorting: false`, сортировка через `SignalFilterModal`. S6 добавлен в нормализованные колонки; в raw-панели добавлен `s6_raw_completion_rate` (% досмотра, null для баннеров). User-таблица отображает только нормализованные значения, S6 включён.
 
 **Цвет сегментов:** `buildSegmentColorMap(initialData)` в `useMemo`. Инлайн-стиль `{ borderColor, color, backgroundColor }` из палитры при наличии цвета; без стиля (нейтральный серый) при одиночном сегменте.
 
@@ -313,11 +314,23 @@ Client Component. Модальное окно воронки для диапаз
 
 ### `ImpressionDetail.tsx`
 
-Client Component. Полный детальный вид импрешена. Секции: Score block, Метаданные, Таймлайн сегментов, Нормализованные сигналы, S1–S7 (raw), F_Presence (raw), Флаги подозрительности.
+Client Component. Полный детальный вид импрешена. Все секции — сворачиваемые через `CollapsibleSection` (внутренний компонент с `useState(defaultOpen)`). SVG-иконка шеврона анимируется при раскрытии (`transform: rotate(180deg)`).
 
-**Баннер пересчёта** (добавлен в эту сессию): сразу после Score block. `imp.lastRecalibratedAt !== undefined` → зелёный баннер с датой и версией весов; иначе нейтральный "Не пересчитывался". Данные берутся из `ImpressionDetailSchema.lastRecalibratedAt` / `lastRecalibratedWeightsVersion` (опциональные поля, добавленные в `@cpmind/shared` в эту сессию).
+**Порядок секций и состояние по умолчанию:**
+- Score block — всегда видим (не сворачивается)
+- Баннер пересчёта — всегда видим
+- Метаданные — скрыта по умолчанию
+- Таймлайн сегментов — всегда видим (не сворачивается, условный)
+- Нормализованные сигналы (0–100) — открыта по умолчанию; включает S6 (`null` → "null (не видео)")
+- F_Presence (raw) — открыта по умолчанию
+- Флаги подозрительности — открыта по умолчанию
+- S1–S7 raw (включая S6) — скрыты по умолчанию
 
-Таймлайн сегментов: видимый простой (`idleGapMs > 0`) между сегментами, переход между сегментами через `Link`.
+**S6 секция** — отображается всегда; при `s6 === null` показывает одно поле "null — не видео-креатив"; при наличии данных — 19 полей Video Engagement + Audibility с подсветкой `completion`, `completion_rate_pct`, `play_initiated`, `unmuted_by_user`.
+
+**Баннер пересчёта:** `imp.lastRecalibratedAt !== undefined` → зелёный баннер с датой и версией весов; иначе нейтральный "Не пересчитывался".
+
+Таймлайн сегментов: видимый простой (`idleGapMs > 0`) между сегментами, переход через `Link`.
 
 ### `ExportButton.tsx`
 
@@ -325,9 +338,11 @@ Client Component. `credentials: 'include'`, blob download через `URL.create
 
 ### `WeightsConfigPanel.tsx`
 
-Client Component. Таблица версий весов + форма создания. Live-валидация суммы весов (должна = 1.00 с допуском 0.001). Активация/удаление через `createWeightsConfig`/`activateWeightsConfig`/`deleteWeightsConfig` + `router.refresh()`.
+Client Component. Две таблицы версий весов (banner / video) с переключением через табы. Кнопка «+ Новая версия» открывает двухшаговый flow: шаг 1 — выбор типа креатива через карточки с SVG-иконками (баннер / видео); шаг 2 — форма с 7 весами (S1–S6–S7) и live-валидацией суммы (допуск 0.001). Хлебная крошка «← Назад» на шаге 2 возвращает к выбору типа. Дефолтные значения при открытии формы зависят от выбранного типа: `DEFAULT_BANNER_WEIGHTS` или `DEFAULT_VIDEO_WEIGHTS` из `@cpmind/shared`. Таблица показывает колонку S6 и фильтрует конфиги по активному табу (`cfg.configType === activeTab`). Активация/удаление через `createWeightsConfig`/`activateWeightsConfig`/`deleteWeightsConfig` + `router.refresh()`.
 
-**Известный технический долг:** обработка ошибок через `alert()`. Не production UX.
+**`configType`** передаётся в `createWeightsConfig` и в backend. `activateWeightsConfig` на backend деактивирует только конфиги того же `configType` — banner и video активные версии независимы. Гарантировано partial unique index: `uidx_weight_configs_active_type ON (config_type) WHERE is_active = true`.
+
+**Известный технический долг:** ошибки активации и удаления — через `alert()`. Форма создания — inline.
 
 ### `UsersPanelTable.tsx`
 
@@ -357,7 +372,7 @@ Client Component. Поповер с формой создания пользов
 
 ### `WeightVersionPicker.tsx`
 
-Client Component. Компактный список версий весов для страницы рекалибровки. Single-select. Показывает: `version` (mono), бейдж "активна", строку весов S1–S7. Блокируется (`disabled`) при активном черновике пересчёта.
+Client Component. Компактный список версий весов для страницы рекалибровки. Single-select. Конфиги группируются по `configType`: секция «БАННЕРЫ» и секция «ВИДЕО», разделённые горизонтальным разделителем. Показывает: `version` (mono), бейдж "активна", строку весов S1–S6–S7 (`s6 ?? 0` для исторических конфигов без поля). Наличие двух активных версий (banner + video) — ожидаемое поведение, визуально разграничено группами. Блокируется (`disabled`) при активном черновике пересчёта.
 
 ### `RecalibrationWorkspace.tsx`
 
@@ -536,6 +551,20 @@ components/user/ExportButton.tsx
 Экспорт выполняется через существующий backend endpoint.
 
 Backend возвращает ограниченный CSV согласно роли пользователя.
+
+---
+
+## User-панель - генератор тега
+
+`components/user/TagBuilderModal.tsx` — модальное окно сборки embed-кода тега для рекламодателя. Два шага: «Параметры» и «Код».
+
+**Шаг «Параметры»:** Campaign ID, Creative ID, Тип креатива (`TAG_BUILDER_CREATIVE_TYPES`: `banner_static`, `banner_gif`, `banner_html5`, `video_creative`), ширина и высота. Валидация: `TAG_BUILDER_ID_PATTERN` (`/^[A-Za-zА-Яа-яЁё0-9_-]+$/`), целые числа 1–10000.
+
+**Шаг «Код»:** платформа (HTML / Битрикс / WordPress / Tilda / React / Python) + формат (html/php/jsx/python). Генерируются два блока: контейнер и скрипт. Кнопка копирования с анимацией (SVG `✓` на 1500 мс).
+
+**`video_creative`:** для всех форматов в контейнер добавляется опциональный комментарий с примером `data-cpmind-skip` на кнопке пропуска. Текст `instructionCard` адаптируется под тип.
+
+**TD-01** (задокументированный долг): tag builder всегда генерирует ссылку на `v0` тега. Смена захардкоженного значения — отдельная задача после стабилизации константного профиля.
 
 ---
 

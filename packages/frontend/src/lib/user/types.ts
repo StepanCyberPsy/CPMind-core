@@ -23,7 +23,7 @@ export interface UserCampaignsTableProps {
   initialCampaigns: import('@cpmind/shared').UserCampaignStatsRow[];
 }
 
-export type TagBuilderCreativeType = 'banner_static' | 'banner_gif' | 'banner_html5';
+export type TagBuilderCreativeType = 'banner_static' | 'banner_gif' | 'banner_html5' | 'video_creative';
 
 export interface TagBuilderFormState {
   campaignId: string;

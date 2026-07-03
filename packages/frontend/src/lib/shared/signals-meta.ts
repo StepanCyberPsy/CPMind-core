@@ -7,6 +7,7 @@ export type SignalField =
   | 's3_normalized'
   | 's4_normalized'
   | 's5_normalized'
+  | 's6_normalized'
   | 's7_normalized';
 
 // S5 — фиксированный набор уровней взаимодействия
@@ -95,7 +96,17 @@ export const SIGNALS_META: readonly SignalMeta[] = [
     urlParam: 's5',
     isS5: false,
     // isS5: true,
-    allowSort: false,
+    allowSort: true,
+  },
+  {
+    field: 's6_normalized',
+    label: 'S6 — Video Engagement',
+    shortLabel: 'S6',
+    sortValue: 's6Normalized',
+    urlParam: 's6',
+    isS5: false,
+    allowSort: true,
+    hint: 'Только для video_creative. Для баннеров всегда null',
   },
   {
     field: 's7_normalized',

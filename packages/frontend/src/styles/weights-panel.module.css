@@ -179,7 +179,7 @@
 
 .weightsGrid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, 1fr);
     gap: 12px;
     margin-bottom: 4px;
 }
@@ -224,11 +224,142 @@
     border-top: 1px solid var(--border);
 }
 
+/* Tabs */
+
+.tabBar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.tabBar::-webkit-scrollbar {
+    display: none;
+}
+
+.tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    margin-bottom: -1px;
+}
+
+.tab:hover {
+    color: var(--text-primary);
+}
+
+.tabActive {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid var(--accent);
+    cursor: pointer;
+    margin-bottom: -1px;
+}
+
+/* Type selector — step 1 */
+
+.typeGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.typeCard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 28px 16px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+    text-align: center;
+    width: 100%;
+}
+
+.typeCard:hover {
+    background: var(--accent-bg);
+    border-color: var(--accent);
+}
+
+.typeCardIcon {
+    width: 28px;
+    height: 28px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.typeCardLabel {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.typeCardHint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Form breadcrumb — step 2 */
+
+.formBreadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.formBreadcrumbBack {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.formBreadcrumbBack:hover {
+    opacity: 0.75;
+}
+
+.formBreadcrumbSep {
+    font-size: 12px;
+    color: var(--border-strong);
+}
+
+.formBreadcrumbCurrent {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
 /* Responsive */
 
 @media (max-width: 768px) {
     .weightsGrid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(4, 1fr);
     }
 
     .cellDescription {
@@ -242,11 +373,35 @@
     }
 
     .weightsGrid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(4, 1fr);
     }
 
     .actions {
         flex-direction: column;
         align-items: flex-end;
+    }
+}
+
+@media (max-width: 480px) {
+    .weightsGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .typeGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .typeCard {
+        padding: 20px 16px;
+    }
+
+    .formWrapper {
+        padding: 12px;
+    }
+
+    .tab,
+    .tabActive {
+        padding: 8px 12px;
+        font-size: 12px;
     }
 }

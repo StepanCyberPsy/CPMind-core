@@ -6,6 +6,7 @@ export type SortField =
   | 's3Normalized'
   | 's4Normalized'
   | 's5Normalized'
+  | 's6Normalized'
   | 's7Normalized';
 
 export interface SortParams {

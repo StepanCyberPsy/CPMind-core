@@ -37,6 +37,7 @@ export const TAG_BUILDER_CREATIVE_TYPES: TagBuilderCreativeType[] = [
   'banner_static',
   'banner_gif',
   'banner_html5',
+  'video_creative',
 ];
 
 export const TAG_BUILDER_ID_PATTERN = /^[A-Za-z0-9_]{1,100}$/;

@@ -251,6 +251,16 @@ function buildColumns({
           : <span className={styles.cellNull}>—</span>;
       },
     }),
+    col.accessor('s6_normalized', {
+      header: () => renderFilterableHeader('S6', 's6_normalized', currentParams, navigateTo),
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}</span>
+          : <span className={styles.cellNull}>—</span>;
+      },
+    }),
     col.accessor('s7_normalized', {
       header: () => renderFilterableHeader('S7', 's7_normalized', currentParams, navigateTo),
       enableSorting: false,
@@ -334,6 +344,17 @@ function buildColumns({
         const v = getValue();
         const cls = v === 'clicked' ? styles.s5Clicked : v === 'none' ? styles.s5None : styles.s5Other;
         return <span className={`${styles.cellS5} ${cls}`}>{v}</span>;
+      },
+    }),
+    col.accessor('s6_raw_completion_rate', {
+      id: '__raw_s6__',
+      header: 'S6 raw (%)',
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const v = getValue();
+        return v !== null
+          ? <span className={styles.cellMono}>{v.toFixed(1)}%</span>
+          : <span className={styles.cellNull}>—</span>;
       },
     }),
     col.accessor('s7_raw_persistence', {

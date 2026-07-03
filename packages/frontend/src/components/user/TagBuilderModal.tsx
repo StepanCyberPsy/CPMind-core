@@ -92,6 +92,9 @@ function buildHtmlContainer(
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
+${form.creativeType === 'video_creative'
+    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+    : ''}
 </div>`;
 }
 
@@ -114,6 +117,9 @@ function buildPhpContainer(
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
+${form.creativeType === 'video_creative'
+    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+    : ''}
 </div>`;
 }
 
@@ -131,6 +137,9 @@ function buildJsxContainer(
   style={{ width: ${form.width}, height: ${form.height} }}
 >
   {/* Вставьте сюда существующий код баннера */}
+${form.creativeType === 'video_creative'
+    ? `  {/* Необязательно: если в видео есть кнопка «Пропустить», добавьте data-cpmind-skip */}\n  {/* Пример: <button data-cpmind-skip>Пропустить</button> */}`
+    : ''}
 </div>`;
 }
 
@@ -149,6 +158,9 @@ function buildPythonContainer(
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
+${form.creativeType === 'video_creative'
+    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+    : ''}
 </div>
 """`;
 }
@@ -514,7 +526,7 @@ export function TagBuilderModal({
                             </label>
 
                             <div className={styles.field}>
-                                <span className={styles.label}>Тип баннера</span>
+                                <span className={styles.label}>Тип креатива</span>
                                 <Combobox
                                     value={form.creativeType}
                                     onChange={(value) => updateForm('creativeType', value as TagBuilderCreativeType)}
@@ -553,7 +565,9 @@ export function TagBuilderModal({
                                 </label>
                             </div>
                             <div className={styles.instructionCard}>
-                                На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить существующий код вашего баннера.
+                                {form.creativeType === 'video_creative'
+                                    ? 'На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить код видеобаннера. Если в видео есть кнопка «Пропустить», добавьте на неё атрибут data-cpmind-skip — это позволит системе зафиксировать факт пропуска.'
+                                    : 'На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить существующий код вашего баннера.'}
                             </div>
                         </section>
                     ) : (

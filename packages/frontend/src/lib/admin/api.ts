@@ -44,6 +44,8 @@ export interface ListParams {
   s4Max?: number;
   s5Min?: number;
   s5Max?: number;
+  s6Min?: number;
+  s6Max?: number;
   s7Min?: number;
   s7Max?: number;
   sortBy?: SortField;
@@ -90,6 +92,8 @@ function buildQuery(params: ListParams): string {
   if (params.s4Max !== undefined) q.set('s4Max', String(params.s4Max));
   if (params.s5Min !== undefined) q.set('s5Min', String(params.s5Min));
   if (params.s5Max !== undefined) q.set('s5Max', String(params.s5Max));
+  if (params.s6Min !== undefined) q.set('s6Min', String(params.s6Min));
+  if (params.s6Max !== undefined) q.set('s6Max', String(params.s6Max));
   if (params.s7Min !== undefined) q.set('s7Min', String(params.s7Min));
   if (params.s7Max !== undefined) q.set('s7Max', String(params.s7Max));
   if (params.deviceType) q.set('deviceType', params.deviceType);
@@ -149,13 +153,15 @@ export async function fetchWeightsConfigs(
 export async function createWeightsConfig(
   body: {
     version: string;
+    configType: 'banner' | 'video';
     weights: {
       s1: number;
       s2: number;
       s3: number;
       s4: number;
       s5: number;
-      s7: number
+      s6: number;
+      s7: number;
     };
     description?: string;
   },

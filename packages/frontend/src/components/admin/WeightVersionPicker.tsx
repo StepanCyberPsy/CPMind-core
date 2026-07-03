@@ -1,6 +1,7 @@
 'use client';
 
 import type { WeightConfigRow } from '@cpmind/shared';
+import type { CreativeCategory } from '@cpmind/shared';
 import styles from '@/styles/recalibration.module.css';
 
 interface Props {
@@ -10,30 +11,71 @@ interface Props {
   disabled: boolean;
 }
 
-export function WeightVersionPicker({ configs, selectedId, onSelect, disabled }: Props) {
+const GROUP_LABELS: Record<CreativeCategory, string> = {
+  banner: 'Баннеры',
+  video: 'Видео',
+};
+
+const GROUPS: CreativeCategory[] = ['banner', 'video'];
+
+function weightsLabel(w: WeightConfigRow['weights']): string {
+  return [
+    `S1 ${w.s1.toFixed(2)}`,
+    `S2 ${w.s2.toFixed(2)}`,
+    `S3 ${w.s3.toFixed(2)}`,
+    `S4 ${w.s4.toFixed(2)}`,
+    `S5 ${w.s5.toFixed(2)}`,
+    `S6 ${(w.s6 ?? 0).toFixed(2)}`,
+    `S7 ${w.s7.toFixed(2)}`,
+  ].join(' · ');
+}
+
+export function WeightVersionPicker({
+  configs,
+  selectedId,
+  onSelect,
+  disabled,
+}: Props) {
   return (
     <div className={styles.versionPicker}>
       <div className={styles.versionPickerTitle}>Версия весов для пересчёта</div>
       <div className={styles.versionList}>
-        {configs.map((config) => {
-          const isSelected = config.id === selectedId;
+        {GROUPS.map((group) => {
+          const groupConfigs = configs.filter((c) => c.configType === group);
+          if (groupConfigs.length === 0) return null;
+
           return (
-            <div key={config.id} className={`${styles.versionRow} ${isSelected ? styles.versionRowSelected : ''}`}>
-              <div className={styles.versionInfo}>
-                <span className={styles.versionName}>{config.version}</span>
-                {config.isActive && <span className={styles.versionActiveBadge}>активна</span>}
-                <span className={styles.versionWeights}>
-                  S1 {config.weights.s1.toFixed(2)} · S2 {config.weights.s2.toFixed(2)} · S3 {config.weights.s3.toFixed(2)} · S4 {config.weights.s4.toFixed(2)} · S5 {config.weights.s5.toFixed(2)} · S7 {config.weights.s7.toFixed(2)}
-                </span>
+            <div key={group} className={styles.versionGroup}>
+              <div className={styles.versionGroupLabel}>
+                {GROUP_LABELS[group]}
               </div>
-              <button
-                type="button"
-                className={isSelected ? styles.versionSelectedBtn : styles.versionSelectBtn}
-                onClick={() => onSelect(config.id)}
-                disabled={disabled}
-              >
-                {isSelected ? 'Выбрано' : 'Выбрать версию'}
-              </button>
+              {groupConfigs.map((config) => {
+                const isSelected = config.id === selectedId;
+                return (
+                  <div
+                    key={config.id}
+                    className={`${styles.versionRow} ${isSelected ? styles.versionRowSelected : ''}`}
+                  >
+                    <div className={styles.versionInfo}>
+                      <span className={styles.versionName}>{config.version}</span>
+                      {config.isActive && (
+                        <span className={styles.versionActiveBadge}>активна</span>
+                      )}
+                      <span className={styles.versionWeights}>
+                        {weightsLabel(config.weights)}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={isSelected ? styles.versionSelectedBtn : styles.versionSelectBtn}
+                      onClick={() => onSelect(config.id)}
+                      disabled={disabled}
+                    >
+                      {isSelected ? 'Выбрано' : 'Выбрать версию'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           );
         })}

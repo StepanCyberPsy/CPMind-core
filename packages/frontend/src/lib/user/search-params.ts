@@ -22,6 +22,8 @@ export interface UserImpressionsSearchParams {
   s4Max?: string;
   s5Min?: string;
   s5Max?: string;
+  s6Min?: string;
+  s6Max?: string;
   s7Min?: string;
   s7Max?: string;
 }
@@ -57,6 +59,8 @@ export function parseUserListSearchParams(
   const s4Max = numericParam(searchParams.s4Max);
   const s5Min = numericParam(searchParams.s5Min);
   const s5Max = numericParam(searchParams.s5Max);
+  const s6Min = numericParam(searchParams.s6Min);
+  const s6Max = numericParam(searchParams.s6Max);
   const s7Min = numericParam(searchParams.s7Min);
   const s7Max = numericParam(searchParams.s7Max);
 
@@ -87,6 +91,8 @@ export function parseUserListSearchParams(
     ...(s4Max !== undefined && { s4Max }),
     ...(s5Min !== undefined && { s5Min }),
     ...(s5Max !== undefined && { s5Max }),
+    ...(s6Min !== undefined && { s6Min }),
+    ...(s6Max !== undefined && { s6Max }),
     ...(s7Min !== undefined && { s7Min }),
     ...(s7Max !== undefined && { s7Max }),
   };

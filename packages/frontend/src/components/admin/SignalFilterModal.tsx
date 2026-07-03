@@ -38,6 +38,7 @@ function getCurrentMin(
   if (field === 's3_normalized') return params.s3Min;
   if (field === 's4_normalized') return params.s4Min;
   if (field === 's5_normalized') return params.s5Min;
+  if (field === 's6_normalized') return params.s6Min;
   return params.s7Min;
 }
 
@@ -51,6 +52,7 @@ function getCurrentMax(
   if (field === 's3_normalized') return params.s3Max;
   if (field === 's4_normalized') return params.s4Max;
   if (field === 's5_normalized') return params.s5Max;
+  if (field === 's6_normalized') return params.s6Max;
   return params.s7Max;
 }
 

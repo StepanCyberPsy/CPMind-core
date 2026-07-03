@@ -285,6 +285,48 @@
     font-style: italic;
 }
 
+/* Collapsible section toggle */
+
+.sectionToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 8px;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.sectionToggle:hover .sectionTitle {
+  color: var(--accent);
+}
+
+.sectionToggle .sectionTitle {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  transition: color 0.15s;
+}
+
+.chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.sectionContent {
+  margin-top: 12px;
+}
+
 /* Responsive */
 
 @media (max-width: 1024px) {
