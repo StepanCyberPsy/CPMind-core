@@ -367,3 +367,9 @@
     color: var(--negative);
     border-color: var(--negative);
 }
+
+.ivtSuspicion {
+    background-color: var(--moderate-bg);
+    color: var(--moderate);
+    border-color: var(--moderate);
+}

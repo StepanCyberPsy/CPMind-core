@@ -47,6 +47,16 @@ export async function listIvtListConfigs(): Promise<IvtListConfigSelect[]> {
     .orderBy(ivtListConfigs.createdAt);
 }
 
+export async function getIvtListConfig(id: string): Promise<IvtListConfigSelect | null> {
+  const rows = await db
+    .select()
+    .from(ivtListConfigs)
+    .where(eq(ivtListConfigs.id, id))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 // Валидирует regex-паттерн: компилируется ли и не вызывает ли катастрофический бэктрекинг
 function validateRegexPattern(pattern: string): boolean {
   const start = Date.now();

@@ -14,6 +14,7 @@ import type {
   CalibrationItemListResponse,
   ApproveCalibrationResult,
   IvtVerdict,
+  IvtListEntry,
   IvtListConfigListResponse,
   IvtThresholdsConfigListResponse,
   IvtThresholds,
@@ -392,6 +393,22 @@ export async function fetchIvtListConfigs(
     cache: 'no-store',
     headers: cookie ? { Cookie: cookie } : {},
   });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchIvtListConfig(
+  id: string,
+  cookie?: string,
+): Promise<{ id: string; version: string; entries: IvtListEntry[]; description: string | null; isActive: boolean; entriesCount: number; createdAt: string } | null> {
+  const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/ivt-lists/${id}`, {
+    cache: 'no-store',
+    ...(cookie
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

@@ -69,6 +69,7 @@ packages/backend/
     │   │                             # POST /:configId/activate, /deactivate
     │   ├── ivt_lists.ts              # GET/POST /api/ivt-lists,
     │   │                             # POST /:id/activate
+    │   │                             # GET /api/ivt-lists/:id
     │   └── ivt_thresholds.ts         # GET/POST /api/ivt-thresholds,
     │                                 # POST /:id/activate
     ├── services/
@@ -314,6 +315,8 @@ export const NUMERIC_RANGE_COLUMNS = {
 `parseIvtListCsv(csv)` — парсер CSV в массив `IvtListEntry[]`. Валидирует каждую строку через `IvtListEntrySchema`. Для `match_type='regex'` — компиляция паттерна с таймаутом (защита от катастрофического бэктрекинга). Для `match_type='cidr'` — валидация CIDR-нотации. Возвращает `{ entries, errors }` — частичный успех, невалидные строки пропускаются с описанием.
 
 `createIvtListConfig()` / `activateIvtListConfig()` — CRUD по паттерну `weights_config.ts`. Активация в транзакции: деактивировать текущую → активировать целевую → `invalidateIvtListCache()`.
+
+`getIvtListConfig()` - список конфигурации.
 
 ### `services/ivt_thresholds.ts`
 

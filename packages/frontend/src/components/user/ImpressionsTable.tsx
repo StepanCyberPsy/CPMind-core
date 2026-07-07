@@ -126,6 +126,23 @@ function buildColumns({
         );
       },
     }),
+    col.accessor('ivt_verdict', {
+      header: 'Валидность',
+      enableSorting: false,
+      cell: ({ getValue }) => {
+        const v = getValue();
+        if (v === 'valid') {
+          return <span className={`${styles.ivtBadge} ${styles.ivtValid}`}>Валиден</span>;
+        }
+        if (v === 'givt') {
+          return <span className={`${styles.ivtBadge} ${styles.ivtViolation}`}>GIVT-Нарушение</span>;
+        }
+        if (v === 'sivt_confirmed') {
+          return <span className={`${styles.ivtBadge} ${styles.ivtViolation}`}>SIVT-Нарушение</span>;
+        }
+        return <span className={`${styles.ivtBadge} ${styles.ivtSuspicion}`}>SIVT-Подозрение</span>;
+      },
+    }),
     col.accessor('is_suspicious', {
       header: 'Аномалии',
       enableSorting: false,

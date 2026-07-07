@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   createIvtListConfig,
+  fetchIvtListConfig,
   activateIvtListConfig,
   deactivateIvtListConfig,
   // deleteIvtListConfig,
@@ -12,7 +13,11 @@ import {
   deactivateIvtThresholdsConfig,
   // deleteIvtThresholdsConfig,
 } from '@/lib/admin/api';
-import type { IvtListConfigListResponse, IvtThresholdsConfigListResponse } from '@cpmind/shared';
+import type {
+  IvtListConfigListResponse,
+  IvtThresholdsConfigListResponse,
+} from '@cpmind/shared';
+import { IvtListEntriesModal } from './IvtListEntriesModal';
 import cStyles from '@/styles/components.module.css';
 import styles from '@/styles/ivt-panel.module.css';
 
@@ -77,6 +82,8 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ActiveTab>('lists');
   const [actionId, setActionId] = useState<string | null>(null);
+  const [modalConfigId, setModalConfigId] = useState<string | null>(null);
+  const [modalVersion, setModalVersion] = useState<string>('');
 
   // Lists form state
   const [showListForm, setShowListForm] = useState(false);
@@ -177,6 +184,16 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
     }
   }, [router]);
   */}
+
+  const handleOpenModal = useCallback((id: string, version: string) => {
+    setModalConfigId(id);
+    setModalVersion(version);
+  }, []);
+
+  const handleCloseModal = useCallback(() => {
+    setModalConfigId(null);
+    setModalVersion('');
+  }, []);
 
   // Thresholds handlers
   const handleThresholdsFieldChange = useCallback((
@@ -324,7 +341,8 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
                     listConfigs.map((cfg) => (
                       <tr
                         key={cfg.id}
-                        className={`${styles.tr} ${cfg.isActive ? styles.trActive : ''}`}
+                        className={`${styles.tr} ${cfg.isActive ? styles.trActive : ''} ${styles.trClickable}`}
+                        onClick={() => handleOpenModal(cfg.id, cfg.version)}
                       >
                         <td className={styles.td}>
                           <div className={styles.cellVersion}>
@@ -355,7 +373,7 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
                             {!cfg.isActive ? (
                               <button
                                 className={cStyles.ghostBtn}
-                                onClick={() => handleActivateList(cfg.id)}
+                                onClick={(e) => { e.stopPropagation(); void handleActivateList(cfg.id); }}
                                 disabled={actionId === cfg.id}
                               >
                                 {actionId === cfg.id ? <span className={cStyles.spinner} /> : 'Активировать'}
@@ -363,7 +381,7 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
                             ) : (
                               <button
                                 className={cStyles.ghostBtn}
-                                onClick={() => handleDeactivateList(cfg.id)}
+                                onClick={(e) => { e.stopPropagation(); void handleDeactivateList(cfg.id); }}
                                 disabled={actionId === cfg.id}
                               >
                                 {actionId === cfg.id ? <span className={cStyles.spinner} /> : 'Деактивировать'}
@@ -372,7 +390,7 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
                             {/*
                             <button
                               className={cStyles.dangerBtn}
-                              onClick={() => handleDeleteList(cfg.id)}
+                              onClick={(e) => { e.stopPropagation(); void handleDeleteList(cfg.id); }}
                               disabled={cfg.isActive || actionId === cfg.id}
                             >
                               Удалить
@@ -436,10 +454,41 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
               </div>
 
               <div className={styles.formField}>
-                <label className={styles.formLabel}>CSV-данные</label>
+                <div className={styles.csvLabelRow}>
+                  <label className={styles.formLabel} style={{ marginBottom: 0 }}>CSV-данные</label>
+                  <label className={styles.csvFileLabel}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Загрузить файл
+                    <input
+                      type="file"
+                      accept=".csv,.txt"
+                      className={styles.csvFileInput}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          setListCsv((ev.target?.result as string) ?? '');
+                          setListFormError(null);
+                        };
+                        reader.readAsText(file, 'UTF-8');
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
                 <div className={styles.csvHint}>
                   Формат: <span className={styles.csvCode}>type,pattern,match_type,category,reason,source</span>
                 </div>
+                {listCsv.trim() && (
+                  <div className={styles.csvFileLoaded}>
+                    ✓ {listCsv.trim().split('\n').length - 1} строк загружено
+                  </div>
+                )}
                 <textarea
                   className={styles.csvTextarea}
                   placeholder={'type,pattern,match_type,category,reason,source\nua,Googlebot,substring,givt_declared_bot,Google crawler,own'}
@@ -697,6 +746,13 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
             </div>
           )}
         </>
+      )}
+      {modalConfigId !== null && (
+        <IvtListEntriesModal
+          configId={modalConfigId}
+          version={modalVersion}
+          onClose={handleCloseModal}
+        />
       )}
     </div>
   );

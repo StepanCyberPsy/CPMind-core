@@ -192,7 +192,10 @@ function buildColumns({
         if (v === 'givt') {
           return <span className={`${styles.ivtBadge} ${styles.ivtViolation}`}>GIVT-Нарушение</span>;
         }
-        return <span className={`${styles.ivtBadge} ${styles.ivtViolation}`}>SIVT-Нарушение</span>;
+        if (v === 'sivt_confirmed') {
+          return <span className={`${styles.ivtBadge} ${styles.ivtViolation}`}>SIVT-Нарушение</span>;
+        }
+        return <span className={`${styles.ivtBadge} ${styles.ivtSuspicion}`}>SIVT-Подозрение</span>;
       },
     }),
     col.accessor('is_suspicious', {

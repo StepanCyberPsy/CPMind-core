@@ -73,6 +73,7 @@ packages/frontend/
     │   │   ├── RecalibrationTable.tsx
     │   │   ├── TagConstantsPanel.tsx
     │   │   ├── RecalibrationActionBar.tsx
+    │   │   ├── IvtListEntriesModal.tsx
     │   │   └── IvtPanel.tsx
     │   └── user/
     │       ├── Filters.tsx
@@ -117,6 +118,7 @@ packages/frontend/
         ├── user_panel.module.css
         ├── tag-builder-modal.module.css
         ├── create-user-form.module.css
+        ├── ivt-list-entries-modal.module.css
         ├── ivt.module.css
         └── ivt-panel.module.css
 ```
@@ -231,6 +233,7 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `activateIvtThresholdsConfig(id)` — активировать
 - `deactivateIvtThresholdsConfig(id)` — деактивировать (частичная реализация, логика уточняется)
 - `deleteIvtThresholdsConfig(id)` — удалить неактивную версию Функция `createWeightsConfig` расширена: добавлены `configType: 'banner' | 'video'` и `s6: number` в объект весов.
+- `fetchIvtListConfig(id, cookie)` - список конфигурации для GIVT.
 
 **`buildQuery(params)`** — собирает `URLSearchParams` из `ListParams`. Числовые параметры диапазонов проверяются на `undefined` через явный guard, не `if (params.scoreMin)` — потому что `0` является валидным значением.
 

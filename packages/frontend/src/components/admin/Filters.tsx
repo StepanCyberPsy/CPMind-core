@@ -21,7 +21,8 @@ const ANOMALY_OPTIONS = [
 const IVT_OPTIONS = [
   { value: 'valid', label: 'Только валидные' },
   { value: 'givt', label: 'GIVT-Нарушения' },
-  { value: 'sivt_confirmed', label: 'SIVT-Нарушения' },
+  { value: 'sivt_suspected', label: 'SIVT-Подозрение' },
+  { value: 'sivt_confirmed', label: 'SIVT-Подтвержден' },
 ];
 
 export function Filters({

@@ -351,6 +351,100 @@
   border-color: var(--accent);
 }
 
+.csvLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.csvFileLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.csvFileLabel:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.csvFileInput {
+  display: none;
+}
+
+.csvFileLoaded {
+  font-size: 11px;
+  color: var(--positive);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+/* Expanded entries */
+
+.trClickable {
+  cursor: pointer;
+}
+
+.trExpanded {
+  background-color: var(--bg-subtle);
+}
+
+.tdExpanded {
+  padding: 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.expandedLoading {
+  padding: 16px 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.entriesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.entriesTh {
+  padding: 8px 16px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background-color: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.entriesTr {
+  border-bottom: 1px solid var(--border);
+}
+
+.entriesTr:last-child {
+  border-bottom: none;
+}
+
+.entriesTd {
+  padding: 8px 16px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Responsive */
 
 @media (max-width: 1024px) {

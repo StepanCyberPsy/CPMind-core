@@ -72,9 +72,10 @@ nginx/nginx_v1.conf
 nginx/nginx_v2.conf
 docker-compose.prod.v1.yml
 
-# Куки, экспорты и др
+# Куки, экспорты, тестовые файлы и др
 *_cookies.txt
 *_export.csv
+test_givt_list.csv
 
 # Тестовые файлы
 *.mp4

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import {
   listIvtListConfigs,
+  getIvtListConfig,
   createIvtListConfig,
   activateIvtListConfig,
   deactivateIvtListConfig,
@@ -75,5 +76,17 @@ export const ivtListsRoute: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string };
     await deactivateIvtListConfig(id);
     return reply.status(200).send({ ok: true });
+  });
+
+  // GET /api/ivt-lists/:id
+  app.get('/ivt-lists/:id', { preHandler: [requireAuth, requireAdmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const config = await getIvtListConfig(id);
+
+    if (!config) {
+      return reply.status(404).send({ error: 'Конфигурация не найдена' });
+    }
+
+    return reply.send(config);
   });
 };
