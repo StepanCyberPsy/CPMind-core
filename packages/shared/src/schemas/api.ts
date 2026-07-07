@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TagUuidSchema } from './tag.js';
 import { UserUuidSchema } from './user.js';
+import { IvtVerdictSchema } from './ivt.js';
 
 // Список импрессенов
 export const ImpressionRowSchema = z.object({
@@ -44,11 +45,17 @@ export const ImpressionRowSchema = z.object({
   tab_mostly_hidden: z.boolean(),
   anomaly_duration: z.boolean(),
   is_suspicious: z.boolean(),
+
+  ivt_verdict: IvtVerdictSchema,
+  ivt_category: z.string().nullable(),
+  ivt_confidence: z.number().min(0).max(1),
+  score_reliable: z.boolean(),
 });
 
 export const ImpressionDetailSchema = ImpressionRowSchema.extend({
   signals_raw: z.unknown(),
   signals_normalized: z.unknown(),
+  ivt_signals: z.unknown(),
   lastRecalibratedAt: z.string().optional(),
   lastRecalibratedWeightsVersion: z.string().optional(),
 });

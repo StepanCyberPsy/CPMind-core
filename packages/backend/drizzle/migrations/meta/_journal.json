@@ -64,6 +64,13 @@
       "when": 1783010233095,
       "tag": "0008_fair_chimera",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783338013342,
+      "tag": "0009_slippery_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }

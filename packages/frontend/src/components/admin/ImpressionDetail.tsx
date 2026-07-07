@@ -211,6 +211,29 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
         </div>
       </CollapsibleSection>
 
+      <CollapsibleSection title="IVT-вердикт" defaultOpen={true}>
+        <div className={styles.fieldGrid}>
+          <Field
+            label="ivt_verdict"
+            value={imp.ivt_verdict}
+            highlight={imp.ivt_verdict !== 'valid'}
+          />
+          <Field
+            label="ivt_category"
+            value={imp.ivt_category ?? '—'}
+          />
+          <Field
+            label="ivt_confidence"
+            value={imp.ivt_confidence !== undefined ? imp.ivt_confidence.toFixed(3) : '0.000'}
+          />
+          <Field
+            label="score_reliable"
+            value={String(imp.score_reliable)}
+            highlight={!imp.score_reliable}
+          />
+        </div>
+      </CollapsibleSection>
+
       {sortedSegments.length > 1 && (
         <div className={styles.section}>
           <div className={styles.sectionTitle}>

@@ -15,7 +15,8 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 7. [Многопользовательская модель](#многопользовательская-модель)
 8. [Калибровка весов](#калибровка-весов)
 9. [Версионирование констант тега](#версионирование-констант-тега)
-10. [Фоновые задачи (jobs)](#фоновые-задачи-jobs)
+10. [IVT — детекция невалидного трафика](#ivt--детекция-невалидного-трафика)
+11. [Фоновые задачи (jobs)](#фоновые-задачи-jobs)
 11. [Безопасность](#безопасность)
 12. [База данных — миграции и схема](#база-данных--миграции-и-схема)
 
@@ -64,13 +65,17 @@ packages/backend/
     │   │                             # GET /:batchId/items,
     │   │                             # POST /:batchId/items/:itemId/approve,
     │   │                             # DELETE /:batchId
-    │   └── tag_constants.ts          # GET/POST /api/tag-constants,
-    │                                 # POST /:configId/activate, /deactivate
+    │   ├── tag_constants.ts          # GET/POST /api/tag-constants,
+    │   │                             # POST /:configId/activate, /deactivate
+    │   ├── ivt_lists.ts              # GET/POST /api/ivt-lists,
+    │   │                             # POST /:id/activate
+    │   └── ivt_thresholds.ts         # GET/POST /api/ivt-thresholds,
+    │                                 # POST /:id/activate
     ├── services/
     │   ├── collect.ts                # processImpression(): полный pipeline
     │   ├── impressions.ts            # listImpressionsForAdmin/User(),
     │   │                             # getImpressionForAdmin(),
-    │                                 # buildWhereFromFilters(),
+    │   │                             # buildWhereFromFilters(),
     │   │                             # NUMERIC_RANGE_COLUMNS, RangeFieldKey,
     │   │                             # RangeValue — декларативная карта
     │   │                             # диапазонной фильтрации по сигналам
@@ -93,10 +98,16 @@ packages/backend/
     │   │                             # discardCalibrationBatch(),
     │   │                             # getLatestApprovedCalibrationForImpression()
     │   ├── tag_constants.ts          # CRUD версий констант, resolveTagConstants()
-    │   └── tag_builder.ts            # buildTagBundle() — esbuild JS API runtime-сборка
+    │   ├── tag_builder.ts            # buildTagBundle() — esbuild JS API runtime-сборка
+    │   ├── ivt_list.ts               # CRUD ivt_list_configs, parseIvtListCsv(),
+    │   │                             # getActiveIvtList() с in-memory кэшем
+    │   └── ivt_thresholds.ts         # CRUD ivt_thresholds_configs,
+    │                                 # getActiveIvtThresholds() с in-memory кэшем
     └── jobs/
         ├── retention.ts              # удаление impressions старше 90 дней, 03:00 UTC
-        └── calibration_cleanup.ts    # истечение calibration_batches по TTL,
+        ├── calibration_cleanup.ts    # истечение calibration_batches по TTL,
+        │                             # каждые 15 минут
+        └── ivt_frequency.ts          # частотный анализ по fp_hash, каждые 30 минут
                                       # каждые 15 минут. Экспортирует
                                       # getDraftTtlMinutes() — единственный
                                       # источник TTL, используется также
@@ -168,6 +179,10 @@ packages/backend/
 | `GET/POST` | `/api/tag-constants` | список / создание версии констант |
 | `POST` | `/api/tag-constants/:configId/activate` | активировать версию |
 | `POST` | `/api/tag-constants/:configId/deactivate` | деактивировать версию |
+| `GET/POST` | `/api/ivt-lists` | список версий GIVT-списков / загрузка CSV |
+| `POST` | `/api/ivt-lists/:id/activate` | активировать версию списка |
+| `GET/POST` | `/api/ivt-thresholds` | список версий порогов / создание |
+| `POST` | `/api/ivt-thresholds/:id/activate` | активировать версию порогов |
 
 ---
 
@@ -208,10 +223,21 @@ packages/backend/
 
 8. Флаги подозрительности (no_events, tab_mostly_hidden, anomaly_duration, is_suspicious)
 
+8.5. classifyIvtSync(payload, ivtList, ivtThresholds, userAgent)
+   → pure function из @cpmind/shared, не обращается к БД
+   → ivtList и ivtThresholds загружаются параллельно с весами через Promise.all
+   → userAgent из request.headers['user-agent']
+   → GIVT early return при совпадении UA-паттерна (SIVT не проверяется)
+   → SIVT: robotic_timing, synthetic_cursor, impossible_event_sequence
+   → confidence-агрегация (вероятностное объединение P(A∪B))
+   → Результат: ivt_verdict, ivt_category, ivt_confidence, score_reliable, ivt_signals
+
 9. INSERT в impressions
    → tag_id, user_id, tag_constants_version, weights_version денормализованы
    → s6_raw_completion_rate, s6_normalized: null для баннеров
-   → signals_raw включает presence (был пробел — исправлен)
+   → signals_raw включает presence
+   → ivt_verdict (DEFAULT 'valid'), ivt_category, ivt_confidence, score_reliable,
+     fp_hash (из payload, nullable), ivt_signals (null при пустом массиве)
    → ON CONFLICT DO NOTHING на impression_id
 
 10. Ответ 202 Accepted
@@ -245,7 +271,9 @@ export const NUMERIC_RANGE_COLUMNS = {
 } as const;
 ```
 
-**`SortField`** — расширен относительно исходной версии: `createdAt | scoreFinal | s1Normalized | s2Normalized | s3Normalized | s4Normalized | s5Normalized | s7Normalized`. `SORT_COLUMN_MAP` — та же идея, что `NUMERIC_RANGE_COLUMNS`: один источник истины для маппинга поля сортировки в колонку Drizzle.
+**`SortField`** — расширен относительно исходной версии: `createdAt | scoreFinal | s1Normalized | s2Normalized | s3Normalized | s4Normalized | s5Normalized | s6Normalized | s7Normalized`.
+
+**`ListFilters.ivtVerdict`** — опциональный фильтр по IVT-вердикту (`valid | givt | sivt_suspected | sivt_confirmed`). Транслируется в `eq(impressions.ivtVerdict, value)` в `buildWhereFromFilters()`. Валидируется через `z.enum` в `ImpressionListQuerySchema`. `SORT_COLUMN_MAP` — та же идея, что `NUMERIC_RANGE_COLUMNS`: один источник истины для маппинга поля сортировки в колонку Drizzle.
 
 **CSV-экспорт** (`buildWhereClause`, вызывается из `/export/csv`): расширен теми же `tagConstantsVersion`, `weightsVersion` и диапазонными параметрами через `parseNumericParam()`.
 
@@ -278,6 +306,20 @@ export const NUMERIC_RANGE_COLUMNS = {
 ### `services/tag_builder.ts`
 
 `buildTagBundle(constants, version, outputPath)` — esbuild JS API. Подставляет `define: { __CPMIND_CONSTANTS__: JSON.stringify(constants), __CPMIND_TAG_VERSION__: JSON.stringify(version) }`. Пишет результат в `outputPath` (Docker volume `tag_dist`). Вызывается из `services/tag_constants.ts` при создании/активации версии. Провал сборки откатывает запись в БД — нет версии без файла.
+
+### `services/ivt_list.ts`
+
+`getActiveIvtList()` — in-memory кэш активной версии `ivt_list_configs`. При отсутствии активной версии возвращает `null` (не пустой массив — различие семантически важно для `classifyIvtSync`). `invalidateIvtListCache()` инвалидирует при активации новой версии.
+
+`parseIvtListCsv(csv)` — парсер CSV в массив `IvtListEntry[]`. Валидирует каждую строку через `IvtListEntrySchema`. Для `match_type='regex'` — компиляция паттерна с таймаутом (защита от катастрофического бэктрекинга). Для `match_type='cidr'` — валидация CIDR-нотации. Возвращает `{ entries, errors }` — частичный успех, невалидные строки пропускаются с описанием.
+
+`createIvtListConfig()` / `activateIvtListConfig()` — CRUD по паттерну `weights_config.ts`. Активация в транзакции: деактивировать текущую → активировать целевую → `invalidateIvtListCache()`.
+
+### `services/ivt_thresholds.ts`
+
+`getActiveIvtThresholds()` — in-memory кэш. Fallback на `DEFAULT_IVT_THRESHOLDS` (все поля null) при отсутствии активной версии — SIVT-правила не срабатывают до первой калибровки. Валидирует JSONB через `IvtThresholdsSchema.safeParse()`.
+
+`createIvtThresholdsConfig()` / `activateIvtThresholdsConfig()` — CRUD по тому же паттерну.
 
 ---
 
@@ -332,6 +374,48 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 **Известное ограничение:** батчи с `status='processing'` (зависшие, если backend упал в процессе) cleanup не подхватывает — только `ready`. Технический долг.
 
+### `jobs/ivt_frequency.ts`
+
+Каждые 30 минут (cron `*/30 * * * *`). Выполняет кросс-сессионный частотный анализ по `fp_hash`.
+
+**Логика:** GROUP BY `fp_hash` в окне `repeat_fp_window_min` минут. Если количество уникальных `creative_id` от одного `fp_hash` превышает `repeat_fp_max_creatives` — обновляет `ivt_verdict` до `sivt_suspected` или `sivt_confirmed` (в зависимости от `confidence >= confidence_confirm`), категория `botnet_frequency`.
+
+**Инварианты:** только `valid`-записи рассматриваются как кандидаты. `givt`-записи не перезаписываются (`ne(impressions.ivtVerdict, 'givt')`). Пороги читаются через `getActiveIvtThresholds()` — если `repeat_fp_window_min` или `repeat_fp_max_creatives` равны null, job пропускается.
+
+**Не блокирует приём.** Асинхронный batch-анализ, не участвует в синхронном pipeline `/api/collect`.
+
+---
+
+## IVT — детекция невалидного трафика
+
+### Архитектурные принципы
+
+- Детекция синхронна и встроена в pipeline шагом 8.5 — не отдельный сервис.
+- `classifyIvtSync()` — pure function из `@cpmind/shared`. Детерминирована, покрыта юнит-тестами, не обращается к БД.
+- Списки и пороги загружаются параллельно с весами через `Promise.all` — нулевой overhead к латентности pipeline.
+- Кросс-сессионный анализ (`fp_hash` frequency) — batch-job, не realtime.
+
+### Версионирование конфигурации
+
+Оба конфига (`ivt_list_configs`, `ivt_thresholds_configs`) следуют паттерну `weight_configs`:
+- Versioned snapshots, partial unique index `WHERE is_active = true`
+- In-memory кэш с инвалидацией при активации
+- Обновление без передеплоя
+
+### Поведение при отсутствии конфигурации
+
+- Нет активного списка (`getActiveIvtList()` → `null`) → GIVT UA-матчинг пропускается
+- Нет активных порогов (`getActiveIvtThresholds()` → `DEFAULT_IVT_THRESHOLDS`) → все SIVT-пороги null → правила не срабатывают
+- Оба случая → `ivt_verdict = 'valid'`, `score_reliable = true`
+
+### `score_reliable`
+
+`false` при любом `ivt_verdict != 'valid'`. Отображается пользователю и в CSV. Не обнуляет Score математически — помечает его как недостоверный.
+
+### Стратегическая развилка
+
+Path A (текущая реализация): поведенческая детекция + fp_hash. Path B (деферред): серверный `X-Real-IP` → CIDR-матчинг, UA vs device_type mismatch из заголовков. IP-тип в `IvtListEntrySchema` заведён, парсер пропускает IP-записи (`entry.type !== 'ua'`) до активации Path B.
+
 ---
 
 ## Безопасность
@@ -351,7 +435,10 @@ Drizzle ORM. Миграции применяются автоматически 
 
 ### Индексы
 
-`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`.
+`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`, `ivt_verdict`, `fp_hash`.
+
+`ivt_list_configs`: partial unique `(is_active) WHERE is_active = true`.
+`ivt_thresholds_configs`: partial unique `(is_active) WHERE is_active = true`.
 
 `calibration_batches`: составной `(status, created_at)`, `created_by`. `calibration_items`: уникальный составной `(batch_id, impression_id)`, составной `(batch_id, status)`, `impression_id`.
 
@@ -629,7 +716,45 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uidx_weight_configs_active_type" ON "weight_c
 UPDATE weight_configs SET config_type = 'banner' WHERE config_type IS NULL;
 ```
 
-9. **packages/backend/drizzle/migrations/meta/_journal.json**
+9. **packages/backend/drizzle/migrations/0009_slippery_marten_broadcloak.sql**
+
+```sql
+CREATE TABLE IF NOT EXISTS "ivt_list_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"version" text NOT NULL,
+	"entries" jsonb NOT NULL,
+	"description" text,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"entries_count" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ivt_list_configs_version_unique" UNIQUE("version")
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "ivt_thresholds_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"version" text NOT NULL,
+	"thresholds" jsonb NOT NULL,
+	"description" text,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ivt_thresholds_configs_version_unique" UNIQUE("version")
+);
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "ivt_verdict" text DEFAULT 'valid' NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "ivt_category" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "ivt_confidence" real DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "score_reliable" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "fp_hash" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "ivt_signals" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_ivt_list_active" ON "ivt_list_configs" USING btree ("is_active") WHERE "ivt_list_configs"."is_active" = true;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_ivt_thresholds_active" ON "ivt_thresholds_configs" USING btree ("is_active") WHERE "ivt_thresholds_configs"."is_active" = true;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_ivt_verdict" ON "impressions" USING btree ("ivt_verdict");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_fp_hash" ON "impressions" USING btree ("fp_hash");
+ALTER TABLE "impressions" ADD CONSTRAINT "chk_ivt_verdict_valid"
+  CHECK (ivt_verdict IN ('valid', 'givt', 'sivt_suspected', 'sivt_confirmed'))
+```
+
+10. **packages/backend/drizzle/migrations/meta/_journal.json**
 
 ```json
 {
@@ -697,6 +822,13 @@ UPDATE weight_configs SET config_type = 'banner' WHERE config_type IS NULL;
       "version": "7",
       "when": 1783010233095,
       "tag": "0008_fair_chimera",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783338013342,
+      "tag": "0009_slippery_marten_broadcloak",
       "breakpoints": true
     }
   ]

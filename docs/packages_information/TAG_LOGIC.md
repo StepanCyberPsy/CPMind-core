@@ -51,7 +51,8 @@ packages/tag/
     │   ├── s5.ts             # Interaction Events (click/touch/hover)
     │   ├── s6.ts             # Video Engagement + Audibility
     │   ├── s7.ts             # Page Context (позиция, конкуренция)
-    │   └── presence.ts       # F_Presence (таймер активности пользователя)
+    │   ├── presence.ts       # F_Presence (таймер активности пользователя)
+    │   └── headless.ts       # collectFpHash() — device fingerprint для IVT
     ├── transport/
     │   └── send.ts           # finalizeAndSend(), sendPayload(), attachUnloadHandlers()
     ├── utils/
@@ -138,6 +139,7 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
        └── Для каждого баннера (независимая сессия):
            ├── parseConfig() — data-атрибуты + tag_uuid из cfg
            ├── createSession() — impression_id (UUID v4), session_group_id
+           ├── collectFpHash() — fire-and-forget async, результат → session.fpHash
            ├── initS1(), initS2(), initS3(), initS4(), initS5(), initS6(), initS7()
            ├── initPresence()
            └── attachUnloadHandlers()
@@ -158,7 +160,9 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
    └── pagehide — закрытие/переход
 
 5. finalizeAndSend(session, cfg, isFinal=true)
-   ├── buildPayload() — сборка ImpressionPayload
+   ├── buildPayload() — сборка ImpressionPayload, включает:
+   │   ├── fp_hash: session.fpHash ?? undefined (null → поле опускается)
+   │   └── presence.event_intervals_ms: session.eventIntervals (если непустой)
    ├── sendBeacon(endpoint, payload)  ← основной
    └── fetch keepalive (payload)      ← fallback
 
@@ -177,7 +181,7 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
 **Алгоритм разрыва (`segment.ts → startNewSegment()`):**
 
 1. `finalizeAndSend(session, cfg, isFinal=false)` — отправить текущий сегмент
-2. `resetSessionForNewSegment()` — сброс полей сессии in-place (без пересоздания объекта, без потери event-листенеров)
+2. `resetSessionForNewSegment()` — сброс полей сессии in-place (без пересоздания объекта, без потери event-листенеров). Сбрасывает `lastThrottledEventTimestamp` и `eventIntervals`. `fpHash` **не сбрасывается** — fingerprint устройства одинаков для всех сегментов одной сессии.
 3. `resetSegmentS1()` — пересоздание IntersectionObserver (свежий callback для нового сегмента)
 4. `resetSegmentS2()` — очистка накопленных сэмплов
 5. `resetSegmentS3()` — сброс running stats, таймеров пауз, `pauseCheckInterval`
@@ -206,7 +210,7 @@ IIFE-обёртка: `(function() { ... })()` — не загрязняет гл
 ### `src/types.ts` — типы состояния сессии
 
 - `TagConfig` — конфигурация из data-атрибутов + `tagUuid` + `tagConstantsVersion`; `creativeType` расширен `'video_creative'`
-- `Session` — полное состояние одной сессии показа; добавлено `s6: SignalsS6State | null` между S5 и S7
+- `Session` — полное состояние одной сессии показа; добавлено `s6: SignalsS6State | null` между S5 и S7. IVT-поля в секции F_Presence: `lastThrottledEventTimestamp: number | null` (timestamp последнего throttled-события для вычисления интервалов), `eventIntervals: number[]` (накопленные интервалы, cap 50). Служебное поле: `fpHash: string | null`.
 - `VisibilityEntry` — запись истории состояний видимости вкладки (для S4)
 - `SignalsS3State` — состояние Welford-аккумулятора для S3
 - `SignalsS6State` — внутренний tracking state: `videoEl`, `duration`, `lastSeekTime`, `isSeeking`, `videoEndedInSegment`, `audibleTimeStart`, `everMuted/UnmutedWhilePlaying` + 18 payload-полей (без `muted_throughout` — вычисляется в `getS6Data`)
@@ -218,8 +222,9 @@ IIFE-обёртка: `(function() { ... })()` — не загрязняет гл
 
 ### `src/session.ts`
 
-- `createSession()` — начальное состояние: генерация `impression_id` (UUID v4), `session_group_id` (тот же формат, неизменен на всё время жизни тега на странице), `segment_index = 0`
-- `buildPayload()` — сборка `ImpressionPayload` для отправки. Включает `tag_uuid` и `tag_constants_version` из `cfg`
+- `createSession()` — начальное состояние: генерация `impression_id` (UUID v4), `session_group_id` (тот же формат, неизменен на всё время жизни тега на странице), `segment_index = 0`. IVT-поля: `fpHash: null`, `lastThrottledEventTimestamp: null`, `eventIntervals: []`.
+- `buildPayload()` — сборка `ImpressionPayload` для отправки. Включает `tag_uuid` и `tag_constants_version` из `cfg`. IVT-поля: `fp_hash: session.fpHash ?? undefined` (undefined → поле не сериализуется), `presence.event_intervals_ms: session.eventIntervals.length > 0 ? session.eventIntervals : undefined`.
+- `resetSessionForNewSegment()` — сбрасывает `lastThrottledEventTimestamp: null`, `eventIntervals: []`. `fpHash` не сбрасывается.
 - `computeActiveTimeMsInRange()` — пересчёт S4 active time строго в границах `[timestamp_start, timestamp_end]` из `visibility_state_history`. **Фикс P-05:** старый `Math.min(activeTimeMs, totalDuration)` маскировал рассинхрон таймеров через потолок, не устранял его. Новый подход: ответ берётся из истории состояний, не из потенциально рассинхронизированных счётчиков
 - `resetSessionForNewSegment()` — обнуление полей сессии in-place при разрыве показа
 
@@ -325,13 +330,36 @@ rAF-throttled обработчик `scroll`. Зона наблюдения: ±`S
 Отслеживает 10 типов пользовательских событий на `document`:
 `mousemove`, `mousedown`, `mouseup`, `click`, `touchstart`, `touchend`, `keydown`, `keyup`, `scroll`, `wheel`.
 
-Throttle 100 мс для обновления `last_user_event_timestamp` — без throttle для `events_count_during_impression`.
+Throttle 100 мс для обновления `last_user_event_timestamp`. В том же throttle-блоке: вычисляется дельта `now - session.lastThrottledEventTimestamp` и добавляется в `session.eventIntervals` (cap 50 через `shift()` при превышении). `lastThrottledEventTimestamp` обновляется после записи интервала. Без throttle для `events_count_during_impression`.
+
+`resetSegment()` — сбрасывает `lastThrottledEventTimestamp: null` и `eventIntervals: []` наряду с существующими полями.
 
 Таймер простоя (`PRESENCE_IDLE_TIMEOUT_MS`): при отсутствии событий в течение порога запускается `onIdle()` callback — `startNewSegment()` для разрыва показа.
 
 **Синхронизация с backend:** `PRESENCE_IDLE_TIMEOUT_MS` — тот же источник (`constants.ts` → `DEFAULT_TAG_CONSTANTS` или конкретная версия), что backend резолвит из `tag_constants_version` в payload. Единственный источник истины, не два независимых значения.
 
 Возвращает `{ cleanup, resetSegment }` — не одну `cleanup`-функцию (изменение по итогам P-15 для поддержки сброса сегмента без снятия обработчиков).
+
+### GIVT & SIVT (`signals/headless.ts`) — Device Fingerprint для IVT
+
+`collectFpHash(): Promise<string | null>` — вычисляет необратимый отпечаток устройства для IVT-детекции частотных аномалий.
+
+**Компоненты хэша:**
+1. Canvas fingerprint (200×50, специфичный текст + заливки — различает GPU-рендерер)
+2. `navigator.userAgent`
+3. `screen.width × screen.height × screen.colorDepth`
+4. `new Date().getTimezoneOffset()`
+5. `navigator.language`
+
+Компоненты объединяются через `|`, хэшируются `crypto.subtle.digest('SHA-256', ...)`, берутся первые 32 символа hex-строки (16 байт / 128 бит).
+
+**Обёртка `try/catch`:** любая ошибка → `null`. Типичные причины: `crypto.subtle` недоступен на HTTP (только HTTPS), canvas заблокирован браузерным расширением, приватный режим. Показ не отбрасывается — `fp_hash` просто отсутствует в payload.
+
+**Fire-and-forget:** вызывается в `index.ts` через `void collectFpHash().then(hash => { session.fpHash = hash; })`. Не блокирует инициализацию S1–S7. SHA-256 через `crypto.subtle` завершается за <5 мс — до первого unload trigger `fp_hash` гарантированно вычислен в подавляющем большинстве случаев.
+
+**`FP_COMPONENTS_MAX_LENGTH = 256`** — UA-строки могут достигать 500+ символов. Truncate перед хэшированием защищает от payload-bloat при сохранении достаточной энтропии.
+
+**Юридический статус:** PII не передаётся и не хранится. Компоненты не покидают браузер — только итоговый хэш. Необратим. Не является персональными данными по 152-ФЗ/GDPR.
 
 ---
 
@@ -357,7 +385,7 @@ Throttle 100 мс для обновления `last_user_event_timestamp` — б
 
 **`attachUnloadHandlers()`** — три обработчика:
 
-1. **`click` (capture=true)** — Mobile Safari fix. При клике по баннеру iOS Safari начинает навигацию немедленно. `sendBeacon` в обработчике click с `capture:true` вызывается **до** начала навигации — единственный надёжный способ доставки данных при переходе по ссылке в iOS Safari
+1. **`click` (capture=true)** — Mobile Safari fix. При клике по баннеру iOS Safari начинает навигацию немедленно. `sendBeacon` в обработчике click с `capture:true` вызывается **до** начала навигации — единственный надёжный способ доставки данных при переходе по ссылке в iOS Safari. Дополнительно: если `session.s6 !== null` и `e.target.closest('[data-cpmind-skip]') !== null` — устанавливает `session.s6.skipped = true` **до** вызова `finalizeAndSend`. Порядок гарантирован: `capture=true` обрабатывает event до того, как он доходит до skip-кнопки нативно.
 2. **`visibilitychange`** — когда вкладка уходит в фон
 3. **`pagehide`** — при закрытии вкладки или переходе
 
@@ -369,7 +397,7 @@ Throttle 100 мс для обновления `last_user_event_timestamp` — б
 
 Активируется через URL-параметр `?cpmind_debug=1` или `data-debug="true"` на контейнере.
 
-`src/debug/overlay.ts` — DOM-оверлей в правом нижнем углу страницы. Обновляется каждые 250 мс. Показывает в реальном времени: `time_in_view`, `share_of_screen`, `scroll_speed`, `tab_active`, `top_event`, `score (preview)`, `session_group_id`, `segment_index`.
+`src/debug/overlay.ts` — DOM-оверлей в правом нижнем углу страницы. Обновляется каждые 250 мс. Показывает в реальном времени: `time_in_view`, `share_of_screen`, `scroll_speed`, `tab_active`, `top_event`, S6-секция (для video_creative: `play`, `completion%`, `muted`, `audible_sec`, `replays`), `Presence events`, `FP hash` (первые 8 символов + `...`, или `null`), `Intervals n` (размер буфера `eventIntervals`), `session_group_id`, `device_type`.
 
 **Не влияет на логику сбора данных** — только визуализация. Предназначен для отладки командой CPMind, не для клиентов.
 
@@ -401,8 +429,12 @@ python3 -m http.server 8080
 - `requestAnimationFrame` — S3
 - `document.visibilityState` / `visibilitychange` — S4
 - `PointerEvent` / `TouchEvent` / `GestureEvent` — S5
+- `HTMLVideoElement` events (`play`, `pause`, `ended`, `timeupdate`, `volumechange`, `seeking`, `seeked`, `loadedmetadata`) — S6
+- `navigator.mediaDevices.enumerateDevices()` — S6 audio connection (опционально, без запроса разрешения)
 - `sendBeacon` + `fetch keepalive` — транспорт
 - `crypto.randomUUID()` + `crypto.getRandomValues()` polyfill — UUID
+- `crypto.subtle.digest('SHA-256', ...)` — device fingerprint (только HTTPS; null fallback на HTTP)
+- `HTMLCanvasElement.getContext('2d').toDataURL()` — canvas fingerprint компонент
 - `querySelectorAll` — поддержка нескольких баннеров
 
 ---
@@ -428,3 +460,9 @@ python3 -m http.server 8080
 **`muted_throughout` — вычисляемое поле.** Не хранится в `SignalsS6State`, вычисляется в `getS6Data()` как `play_initiated && !everUnmutedWhilePlaying` — единственный источник истины, без риска рассинхронизации при сегментации.
 
 **Replay vs rewind.** `replay_count` инкрементируется в двух случаях: видео дошло до `ended` и снова запустилось (повторный просмотр), либо `seeked` с `currentTime < lastSeekTime − 0.5с` (перемотка назад). Порог 0.5с исключает float-погрешности `currentTime`. Разделены явно, чтобы калибровка одного не ломала другой.
+
+**`collectFpHash()` — fire-and-forget, не блокирует инициализацию.** `void collectFpHash().then(hash => session.fpHash = hash)` запускается сразу после `createSession()` до `initS1`–`initS7`. Async не блокирует event-листенеры. При закрытии вкладки за первые ~100 мс хэш может не успеть вычислиться — `fp_hash` будет `null` в payload. Принятый trade-off: не задерживать инициализацию ради IVT-сигнала.
+
+**`eventIntervals` — кольцевой буфер cap 50.** `Array.shift()` при превышении cap — O(n) на каждый сдвиг, но при cap=50 это 50 операций — пренебрежимо. `Infinity` возвращается из `stdDev()` при менее 2 элементах — SIVT-правило не срабатывает при недостаточной выборке.
+
+**`fpHash` не сбрасывается при сегментации.** В отличие от всех сигнальных полей, fingerprint устройства постоянен в рамках одной страницы. Все сегменты одного показа несут один и тот же `fp_hash` — это корректно для cross-session частотного анализа в batch-job.

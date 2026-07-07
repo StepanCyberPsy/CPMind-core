@@ -1,5 +1,6 @@
 import { parseConfig } from './config.js';
 import { createSession } from './session.js';
+import { collectFpHash } from './signals/headless.js';
 import { initS1 } from './signals/s1.js';
 import { initS2 } from './signals/s2.js';
 import { initS3 } from './signals/s3.js';
@@ -34,6 +35,10 @@ import { DebugOverlay } from './debug/overlay.js';
       }
 
       const session = createSession(cfg);
+
+      void collectFpHash().then((hash) => {
+        session.fpHash = hash;
+      });
 
       initS1(container, session, cfg);
       initS2(container, session, cfg);

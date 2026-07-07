@@ -1,4 +1,5 @@
 import type { ListParams } from './api';
+import type { IvtVerdict } from '@cpmind/shared';
 
 export interface ImpressionsSearchParams {
   page?: string;
@@ -30,6 +31,7 @@ export interface ImpressionsSearchParams {
   s6Max?: string;
   s7Min?: string;
   s7Max?: string;
+  ivtVerdict?: string;
 }
 
 function numericParam(v: string | undefined): number | undefined {
@@ -105,6 +107,9 @@ export function parseListSearchParams(
     ...(s6Max !== undefined && { s6Max }),
     ...(s7Min !== undefined && { s7Min }),
     ...(s7Max !== undefined && { s7Max }),
+    ...(searchParams.ivtVerdict !== undefined && {
+      ivtVerdict: searchParams.ivtVerdict as IvtVerdict,
+    }),
   };
 
   return { params, sortBy, sortDir };

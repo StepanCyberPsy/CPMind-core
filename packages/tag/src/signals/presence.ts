@@ -64,7 +64,15 @@ export function initPresence(
     session.eventsDuringImpression++;
 
     if (now - lastUpdateTime >= THROTTLE_MS) {
+      if (session.lastThrottledEventTimestamp !== null) {
+        const interval = now - session.lastThrottledEventTimestamp;
+        session.eventIntervals.push(interval);
+        if (session.eventIntervals.length > 50) {
+          session.eventIntervals.shift();
+        }
+      }
       session.lastUserEventTimestamp = now;
+      session.lastThrottledEventTimestamp = now;
       lastUpdateTime = now;
 
       if (cfg.debug) {
@@ -102,7 +110,9 @@ export function initPresence(
   function resetSegment(): void {
     lastUpdateTime = 0;
     session.lastUserEventTimestamp = null;
+    session.lastThrottledEventTimestamp = null;
     session.eventsDuringImpression = 0;
+    session.eventIntervals = [];
     armIdleTimer();
   }
 

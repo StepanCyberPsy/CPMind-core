@@ -18,6 +18,12 @@ const ANOMALY_OPTIONS = [
   { value: 'true', label: 'Только аномальные' },
 ];
 
+const IVT_OPTIONS = [
+  { value: 'valid', label: 'Только валидные' },
+  { value: 'givt', label: 'GIVT-Нарушения' },
+  { value: 'sivt_confirmed', label: 'SIVT-Нарушения' },
+];
+
 export function UserFilters({
   current,
   campaignOptions,
@@ -32,6 +38,7 @@ export function UserFilters({
     current.isSuspicious === true ? 'true' :
       current.isSuspicious === false ? 'false' : '',
   );
+  const [ivtVerdict, setIvtVerdict] = useState(current.ivtVerdict ?? '');
   const [dateFrom, setDateFrom] = useState(current.dateFrom ?? '');
   const [dateTo, setDateTo] = useState(current.dateTo ?? '');
 
@@ -46,22 +53,41 @@ export function UserFilters({
     creativeId ? url.searchParams.set('creativeId', creativeId) : url.searchParams.delete('creativeId');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
     isSuspicious ? url.searchParams.set('isSuspicious', isSuspicious) : url.searchParams.delete('isSuspicious');
+    ivtVerdict ? url.searchParams.set('ivtVerdict', ivtVerdict) : url.searchParams.delete('ivtVerdict');
     dateFrom ? url.searchParams.set('dateFrom', dateFrom) : url.searchParams.delete('dateFrom');
     dateTo ? url.searchParams.set('dateTo', dateTo) : url.searchParams.delete('dateTo');
 
     router.push(url.pathname + url.search);
-  }, [router, lockCampaignId, campaignId, creativeId, deviceType, isSuspicious, dateFrom, dateTo]);
+  }, [
+    router,
+    lockCampaignId,
+    campaignId,
+    creativeId,
+    deviceType,
+    isSuspicious,
+    ivtVerdict,
+    dateFrom,
+    dateTo,
+  ]);
 
   const resetFilters = useCallback(() => {
     if (!lockCampaignId) setCampaignId('');
     setCreativeId('');
     setDeviceType('');
     setIsSuspicious('');
+    setIvtVerdict('');
     setDateFrom('');
     setDateTo('');
 
     const url = new URL(window.location.href);
-    ['creativeId', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach((k) =>
+    [
+      'creativeId',
+      'deviceType',
+      'isSuspicious',
+      'ivtVerdict',
+      'dateFrom',
+      'dateTo'
+    ].forEach((k) =>
       url.searchParams.delete(k),
     );
     if (!lockCampaignId) url.searchParams.delete('campaignId');
@@ -114,6 +140,16 @@ export function UserFilters({
             options={ANOMALY_OPTIONS}
             value={isSuspicious}
             onChange={setIsSuspicious}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>IVT-статус</label>
+          <Combobox
+            options={IVT_OPTIONS}
+            value={ivtVerdict}
+            onChange={setIvtVerdict}
             placeholder="Все"
           />
         </div>

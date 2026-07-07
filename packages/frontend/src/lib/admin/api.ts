@@ -13,6 +13,10 @@ import type {
   CalibrationBatchId,
   CalibrationItemListResponse,
   ApproveCalibrationResult,
+  IvtVerdict,
+  IvtListConfigListResponse,
+  IvtThresholdsConfigListResponse,
+  IvtThresholds,
 } from '@cpmind/shared';
 import { getBackendUrl, getPublicBackendUrl } from '@/lib/shared/env';
 import type { SortField } from '@/lib/shared/types';
@@ -48,6 +52,7 @@ export interface ListParams {
   s6Max?: number;
   s7Min?: number;
   s7Max?: number;
+  ivtVerdict?: IvtVerdict;
   sortBy?: SortField;
   sortDir?: 'asc' | 'desc';
 }
@@ -98,6 +103,7 @@ function buildQuery(params: ListParams): string {
   if (params.s7Max !== undefined) q.set('s7Max', String(params.s7Max));
   if (params.deviceType) q.set('deviceType', params.deviceType);
   if (params.isSuspicious !== undefined) q.set('isSuspicious', String(params.isSuspicious));
+  if (params.ivtVerdict !== undefined) q.set('ivtVerdict', params.ivtVerdict);
   if (params.dateFrom) q.set('dateFrom', toBackendDateTime(params.dateFrom, 'from'));
   if (params.dateTo) q.set('dateTo', toBackendDateTime(params.dateTo, 'to'));
   if (params.sortBy) q.set('sortBy', params.sortBy);
@@ -369,6 +375,112 @@ export async function approveCalibrationBatch(
 export async function discardCalibrationBatch(batchId: string): Promise<void> {
   const res = await fetch(`${CLIENT_BACKEND}/api/calibrations/${batchId}`, {
     method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// IVT списки
+export async function fetchIvtListConfigs(
+  cookie?: string,
+): Promise<IvtListConfigListResponse> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/ivt-lists`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createIvtListConfig(body: {
+  version: string;
+  csv: string;
+  description?: string;
+}): Promise<{ id: string; version: string; entriesCount: number; parseErrors?: unknown[] }> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-lists`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function activateIvtListConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-lists/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateIvtListConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-lists/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// IVT пороги
+export async function fetchIvtThresholdsConfigs(
+  cookie?: string,
+): Promise<IvtThresholdsConfigListResponse> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/ivt-thresholds`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createIvtThresholdsConfig(body: {
+  version: string;
+  thresholds: IvtThresholds;
+  description?: string;
+}): Promise<IvtThresholdsConfigListResponse[number]> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-thresholds`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function activateIvtThresholdsConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-thresholds/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateIvtThresholdsConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/ivt-thresholds/${id}/deactivate`, {
+    method: 'POST',
     credentials: 'include',
   });
   if (!res.ok) {

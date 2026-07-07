@@ -62,6 +62,9 @@ export default async function ImpressionsPage({
               <Link href="/admin/weights" className={styles.weightsBtn}>
                 Калибровка весов
               </Link>
+              <Link href="/admin/ivt" className={styles.weightsBtn}>
+                Управление IVT
+              </Link>
             </>
           )}
           <ExportButton params={params} />

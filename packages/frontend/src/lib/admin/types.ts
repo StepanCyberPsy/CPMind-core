@@ -9,6 +9,7 @@ export type {
   UserStatsListResponse,
   TagConstantsConfig,
   CreateTagConstantsPayload,
+  IvtVerdict,
 } from '@cpmind/shared';
 export type { ListParams } from './api.js';
 export type { SortParams, PaginationProps };
@@ -20,6 +21,7 @@ export interface FilterValues {
   weightsVersion?: string;
   deviceType?: 'desktop' | 'mobile' | 'tablet' | '';
   isSuspicious?: 'all' | 'true' | 'false';
+  ivtVerdict?: import('@cpmind/shared').IvtVerdict | '';
   dateFrom?: string;
   dateTo?: string;
 }

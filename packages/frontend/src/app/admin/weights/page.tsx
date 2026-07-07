@@ -11,7 +11,9 @@ export default async function WeightsPage() {
   const token = cookieStore.get('cpmind_token')?.value;
   const cookieHeader = token ? `cpmind_token=${token}` : undefined;
   const ownUuid = token ? decodeTokenUuid(token) : null;
-  const backHref = ownUuid !== null ? `/admin/impressions?userUuid=${ownUuid}` : '/admin/impressions';
+  const backHref = ownUuid !== null
+    ? `/admin/impressions?userUuid=${ownUuid}`
+    : '/admin/impressions';
 
   const configs = await fetchWeightsConfigs(cookieHeader);
 

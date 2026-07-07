@@ -10,6 +10,7 @@ import type {
   UserImpressionListResponse,
   TagUuid,
   UserUuid,
+  IvtVerdict,
 } from '@cpmind/shared';
 
 import { getLatestApprovedCalibrationForImpression } from './calibrations.js';
@@ -42,6 +43,7 @@ export interface ListFilters {
   dateTo?: Date;
   tagConstantsVersion?: string;
   weightsVersion?: string;
+  ivtVerdict?: string;
   ranges?: Partial<Record<RangeFieldKey, RangeValue>>;
 }
 
@@ -72,6 +74,7 @@ export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
     filters.dateTo !== undefined ? lte(impressions.createdAt, filters.dateTo) : undefined,
     filters.tagConstantsVersion !== undefined ? eq(impressions.tagConstantsVersion, filters.tagConstantsVersion) : undefined,
     filters.weightsVersion !== undefined ? eq(impressions.weightsVersion, filters.weightsVersion) : undefined,
+    filters.ivtVerdict !== undefined ? eq(impressions.ivtVerdict, filters.ivtVerdict) : undefined,
     ...rangeConditions,
   );
 }
@@ -87,6 +90,7 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
     }),
     ...(queryParams['tagConstantsVersion'] !== undefined && { tagConstantsVersion: queryParams['tagConstantsVersion'] }),
     ...(queryParams['weightsVersion'] !== undefined && { weightsVersion: queryParams['weightsVersion'] }),
+    ...(queryParams['ivtVerdict'] !== undefined && { ivtVerdict: queryParams['ivtVerdict'] }),
   };
 
   if (queryParams['dateFrom'] !== undefined) {
@@ -147,6 +151,10 @@ export const USER_VISIBLE_COLUMNS = {
   s7_normalized: impressions.s7Normalized,
   score_final: impressions.scoreFinal,
   is_suspicious: impressions.isSuspicious,
+  ivt_verdict: impressions.ivtVerdict,
+  ivt_category: impressions.ivtCategory,
+  ivt_confidence: impressions.ivtConfidence,
+  score_reliable: impressions.scoreReliable,
 } satisfies Record<UserVisibleImpressionField, unknown>;
 
 // Колонки сверх USER_VISIBLE_COLUMNS, доступны только администратору
@@ -188,6 +196,7 @@ export const ADMIN_DETAIL_COLUMNS = {
   ...ADMIN_LIST_COLUMNS,
   signals_raw: impressions.signalsRaw,
   signals_normalized: impressions.signalsNormalized,
+  ivt_signals: impressions.ivtSignals,
 };
 
 export interface JoinedImpressionRow {
@@ -228,11 +237,16 @@ export interface JoinedImpressionRow {
   tab_mostly_hidden: boolean;
   anomaly_duration: boolean;
   is_suspicious: boolean;
+  ivt_verdict: string;
+  ivt_category: string | null;
+  ivt_confidence: number;
+  score_reliable: boolean;
 }
 
 export interface JoinedImpressionDetailRow extends JoinedImpressionRow {
   signals_raw: unknown;
   signals_normalized: unknown;
+  ivt_signals: unknown;
 }
 
 export interface UserVisibleRow {
@@ -252,6 +266,10 @@ export interface UserVisibleRow {
   s7_normalized: number | null;
   score_final: number;
   is_suspicious: boolean;
+  ivt_verdict: string;
+  ivt_category: string | null;
+  ivt_confidence: number;
+  score_reliable: boolean;
 }
 
 // Подтверждение, что данные владельца подгружены корректно. Null означает незавершенный backfill — не должно происходить после миграции NOT NULL, явная ошибка лучше тихой отдачи неполных данных
@@ -314,6 +332,11 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     tab_mostly_hidden: row.tab_mostly_hidden,
     anomaly_duration: row.anomaly_duration,
     is_suspicious: row.is_suspicious,
+
+    ivt_verdict: row.ivt_verdict as IvtVerdict,
+    ivt_category: row.ivt_category,
+    ivt_confidence: row.ivt_confidence,
+    score_reliable: row.score_reliable,
   };
 }
 
@@ -322,11 +345,15 @@ function toAdminImpressionDetail(row: JoinedImpressionDetailRow): ImpressionDeta
     ...toAdminImpressionRow(row),
     signals_raw: row.signals_raw,
     signals_normalized: row.signals_normalized,
+    ivt_signals: row.ivt_signals,
   };
 }
 
 function toUserImpressionRow(row: UserVisibleRow): UserImpressionRow {
-  return { ...row };
+  return {
+    ...row,
+    ivt_verdict: row.ivt_verdict as IvtVerdict,
+  };
 }
 
 const SORT_COLUMN_MAP = {

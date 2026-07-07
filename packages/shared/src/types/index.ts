@@ -89,3 +89,18 @@ export type {
   EffectiveWeights,
   CreativeCategory,
 } from '../scoring/weights.js';
+
+export type {
+  IvtVerdict,
+  IvtListEntry,
+  IvtThresholds,
+  IvtListConfigRow,
+  IvtListConfigListResponse,
+  IvtThresholdsConfigRow,
+  IvtThresholdsConfigListResponse,
+} from '../schemas/ivt.js';
+
+export type {
+  IvtSignal,
+  IvtClassification,
+} from '../scoring/ivt.js';

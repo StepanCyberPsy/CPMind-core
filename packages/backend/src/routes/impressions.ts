@@ -9,6 +9,8 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
 import { getActiveWeightsConfig } from '../services/weights_config.js';
+import { getActiveIvtList } from '../services/ivt_list.js';
+import { getActiveIvtThresholds } from '../services/ivt_thresholds.js';
 import { resolveActiveTagOwner } from '../services/tags.js';
 import { resolveActiveTagConstantsVersion } from '../services/tag_constants.js';
 import {
@@ -26,7 +28,17 @@ import { impressions } from '../db/schema.js';
 const ImpressionListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
-  sortBy: z.enum(['createdAt', 'scoreFinal', 's1Normalized', 's2Normalized', 's3Normalized', 's4Normalized', 's5Normalized', 's7Normalized']).default('createdAt'),
+  sortBy: z.enum([
+    'createdAt',
+    'scoreFinal',
+    's1Normalized',
+    's2Normalized',
+    's3Normalized',
+    's4Normalized',
+    's5Normalized',
+    's6Normalized',
+    's7Normalized',
+  ]).default('createdAt'),
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   sessionGroupId: z.string().uuid().optional(),
   campaignId: z.string().min(1).optional(),
@@ -38,6 +50,7 @@ const ImpressionListQuerySchema = z.object({
   userUuid: UserUuidSchema.optional(),
   tagConstantsVersion: z.string().min(1).optional(),
   weightsVersion: z.string().min(1).optional(),
+  ivtVerdict: z.enum(['valid', 'givt', 'sivt_suspected', 'sivt_confirmed']).optional(),
   scoreMin: z.coerce.number().optional(),
   scoreMax: z.coerce.number().optional(),
   s1Min: z.coerce.number().optional(),
@@ -97,8 +110,22 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     const creativeCategory: CreativeCategory =
       parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
 
-    const config = await getActiveWeightsConfig(creativeCategory);
-    const record = processImpression(parsed.data, config, owner, constantsVersionResolution.presenceIdleThresholdMs);
+    const [config, ivtList, ivtThresholds] = await Promise.all([
+      getActiveWeightsConfig(creativeCategory),
+      getActiveIvtList(),
+      getActiveIvtThresholds(),
+    ]);
+
+    const userAgent = request.headers['user-agent'] ?? '';
+    const record = processImpression(
+      parsed.data,
+      config,
+      owner,
+      constantsVersionResolution.presenceIdleThresholdMs,
+      ivtList,
+      ivtThresholds,
+      userAgent,
+    );
 
     try {
       await db.insert(impressions)
@@ -141,6 +168,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       userUuid,
       tagConstantsVersion,
       weightsVersion,
+      ivtVerdict,
       scoreMin,
       scoreMax,
       s1Min,
@@ -184,6 +212,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ...(dateTo !== undefined && { dateTo }),
       ...(tagConstantsVersion !== undefined && { tagConstantsVersion }),
       ...(weightsVersion !== undefined && { weightsVersion }),
+      ...(ivtVerdict !== undefined && { ivtVerdict }),
       ...(Object.keys(ranges).length > 0 && { ranges }),
     };
 

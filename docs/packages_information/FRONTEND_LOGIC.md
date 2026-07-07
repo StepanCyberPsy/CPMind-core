@@ -43,8 +43,10 @@ packages/frontend/
     │   │   ├── weights/
     │   │   │   ├── page.tsx
     │   │   │   └── recalculate/page.tsx
-    │   │   └── tag_constants/
-│   │       └── page.tsx
+    │   │   ├── tag_constants/
+    │   │   │   └── page.tsx
+    │   │   └── ivt/
+    │   │       └── page.tsx     # IVT — управление GIVT-списками и SIVT-порогами
     │   └── user/
     │       ├── layout.tsx
     │       ├── panel/
@@ -70,7 +72,8 @@ packages/frontend/
     │   │   ├── RecalibrationWorkspace.tsx
     │   │   ├── RecalibrationTable.tsx
     │   │   ├── TagConstantsPanel.tsx
-    │   │   └── RecalibrationActionBar.tsx
+    │   │   ├── RecalibrationActionBar.tsx
+    │   │   └── IvtPanel.tsx
     │   └── user/
     │       ├── Filters.tsx
     │       ├── ImpressionsTable.tsx
@@ -113,7 +116,9 @@ packages/frontend/
         ├── tag-builder-modal.module.css
         ├── user_panel.module.css
         ├── tag-builder-modal.module.css
-        └── create-user-form.module.css
+        ├── create-user-form.module.css
+        ├── ivt.module.css
+        └── ivt-panel.module.css
 ```
 
 ---
@@ -132,6 +137,7 @@ packages/frontend/
 | `/admin/weights` | admin | реализовано |
 | `/admin/weights/recalculate` | admin | реализовано |
 | `/admin/tag_constants` | admin | реализовано |
+| `/admin/ivt` | admin | реализовано |
 | `/user/panel` | user | реализован |
 
 **`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`.
@@ -212,7 +218,19 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `approveCalibrationBatch(batchId, itemIds?)`, `discardCalibrationBatch(batchId)`
 - `buildCsvUrl(params)` — строит URL для CSV-экспорта (без fetch, ссылка для `<a download>`)
 
-**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`. Функция `createWeightsConfig` расширена: добавлены `configType: 'banner' | 'video'` и `s6: number` в объект весов.
+**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`, `ivtVerdict?: IvtVerdict`.
+
+**IVT API-функции (client-side):**
+- `fetchIvtListConfigs(cookie?)` — список версий GIVT-списков (server-side с cookie forwarding)
+- `createIvtListConfig(body)` — загрузка CSV-списка; возвращает `{ id, version, entriesCount, parseErrors? }`; частичный успех возможен — невалидные строки пропускаются с описанием в `parseErrors`
+- `activateIvtListConfig(id)` — активировать версию списка
+- `deactivateIvtListConfig(id)` — деактивировать (частичная реализация, логика уточняется)
+- `deleteIvtListConfig(id)` — удалить неактивную версию
+- `fetchIvtThresholdsConfigs(cookie?)` — список версий порогов (server-side)
+- `createIvtThresholdsConfig(body)` — создать конфигурацию порогов (`version`, `thresholds: IvtThresholds`, `description?`)
+- `activateIvtThresholdsConfig(id)` — активировать
+- `deactivateIvtThresholdsConfig(id)` — деактивировать (частичная реализация, логика уточняется)
+- `deleteIvtThresholdsConfig(id)` — удалить неактивную версию Функция `createWeightsConfig` расширена: добавлены `configType: 'banner' | 'video'` и `s6: number` в объект весов.
 
 **`buildQuery(params)`** — собирает `URLSearchParams` из `ListParams`. Числовые параметры диапазонов проверяются на `undefined` через явный guard, не `if (params.scoreMin)` — потому что `0` является валидным значением.
 
@@ -221,6 +239,8 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 **`parseListSearchParams(searchParams, forceUserUuid?)`** — единственная точка разбора URL query-параметров в `ListParams`. Используется в двух местах: `/admin/impressions/page.tsx` и `/admin/weights/recalculate/page.tsx`.
 
 `forceUserUuid` — для страницы рекалибровки, где скоуп всегда = собственный UUID администратора из токена, независимо от URL.
+
+`ivtVerdict` — парсится из `searchParams.ivtVerdict`, приводится к `IvtVerdict` через явный cast. Передаётся в `ListParams` условным spread.
 
 `numericParam(v)` — внутренняя функция, конвертирует строку в `number | undefined` с `NaN`-защитой. Все 14 диапазонных параметров вычисляются через неё в отдельные константы **до** построения объекта `ListParams` — это обязательно для `exactOptionalPropertyTypes`: TypeScript сужает тип `number | undefined` через `!== undefined` для переменной, но не для повторного вызова функции.
 
@@ -258,13 +278,17 @@ Server Component. 4 параллельных фетча:
 3. `fetchTagConstantsConfigs()` — для дропдауна версий тега
 4. `fetchImpressions(dropdownScopeParams)` — для опций Campaign ID / Creative ID (отдельный запрос с `limit:200` без активных фильтров, чтобы список не схлопывался при активной фильтрации)
 
-**`isOwnScopeView`** — флаг видимости кнопок калибровки. `true` только когда `searchParams.userUuid === ownUuid`. Кнопки "Калибровка тега" и "Калибровка весов" не отображаются в глобальном виде ("Все импрешены") и при просмотре чужого пользователя.
+**`isOwnScopeView`** — флаг видимости кнопок калибровки. `true` только когда `searchParams.userUuid === ownUuid`. Кнопки "Калибровка тега", "Калибровка весов" и "Управление IVT" не отображаются в глобальном виде ("Все импрешены") и при просмотре чужого пользователя.
 
 ### `/admin/impressions/[id]` — `page.tsx`
 
 Server Component. `fetchImpressionById` + `fetchImpressions({ sessionGroupId })` для сегментов. Получает `searchParams.userUuid` для корректной обратной ссылки. `backUuid = searchParams.userUuid ?? ownUuid` — фоллбэк на собственный UUID только если пришли без параметра.
 
 **Известное ограничение:** `onRowClick` в `ImpressionsTable` не передаёт `userUuid` при навигации на `/:id`, поэтому `searchParams.userUuid` на детальной странице всегда `undefined` — фоллбэк на `ownUuid` срабатывает постоянно. Технический долг.
+
+### `/admin/ivt` — `page.tsx`
+
+Server Component. Параллельный фетч: `fetchIvtListConfigs()` + `fetchIvtThresholdsConfigs()` через `Promise.all` с cookie forwarding. Обратная ссылка: `/admin/impressions?userUuid=<ownUuid>` (вычисляется через `decodeTokenUuid`). Передаёт `listConfigs` и `thresholdsConfigs` в `IvtPanel`.
 
 ### `/admin/weights` — `page.tsx`
 
@@ -296,6 +320,8 @@ Client Component. TanStack Table v8, `manualSorting: true`, `getCoreRowModel()`.
 
 **Сортировка:** только колонка "Дата" (`created_at`) имеет нативный TanStack-сорт (`enableSorting: true`). Score и S1–S7 (включая S6) — `enableSorting: false`, сортировка через `SignalFilterModal`. S6 добавлен в нормализованные колонки; в raw-панели добавлен `s6_raw_completion_rate` (% досмотра, null для баннеров). User-таблица отображает только нормализованные значения, S6 включён.
 
+**Колонка "Валидность" (`ivt_verdict`):** badge-компонент, расположена перед "Аномалии". Три состояния: `valid` → зелёный badge "Валиден" (`.ivtValid`), `givt` → красный "GIVT-Нарушение" (`.ivtViolation`), `sivt_suspected`/`sivt_confirmed` → красный "SIVT-Нарушение" (`.ivtViolation`). Стили в `table.module.css`: `.ivtBadge`, `.ivtValid`, `.ivtViolation`.
+
 **Цвет сегментов:** `buildSegmentColorMap(initialData)` в `useMemo`. Инлайн-стиль `{ borderColor, color, backgroundColor }` из палитры при наличии цвета; без стиля (нейтральный серый) при одиночном сегменте.
 
 **Текущие параметры** (`currentParams: ListParams`) передаются в каждый `SignalFilterModal` — для корректного отображения активных фильтров и сброса через "Применить".
@@ -306,7 +332,9 @@ Client Component. Модальное окно воронки для диапаз
 
 Два раздела: "Значение" (режим `gte` / `lte` / `range` + числовые инпуты) и "Сортировка" (выпадающий список "Не сортировать" / "Возрастание" / "Убывание").
 
-**URL-интеграция:** при "Применить" пишет `{urlParam}Min`, `{urlParam}Max`, `sortBy`, `sortDir` в URL. При "Сбросить" — удаляет. `navigateTo` получается от родительского компонента (`ImpressionsTable` / `RecalibrationTable`).
+**URL-интеграция:** при "Применить" пишет `{urlParam}Min`, `{urlParam}Max`, `sortBy`, `sortDir` в URL.
+
+`getCurrentMin`/`getCurrentMax` — switch по `SignalField`, включает `s6_normalized` → `params.s6Min`/`params.s6Max`. S5 переведён в `allowSort: true` (был `false` — ошибка). При "Сбросить" — удаляет. `navigateTo` получается от родительского компонента (`ImpressionsTable` / `RecalibrationTable`).
 
 `stopPropagation()` на кнопке-триггере — предотвращает всплытие клика до `<th>` (который мог бы переключить сортировку колонки при совмещении с TanStack-сортом).
 
@@ -320,6 +348,7 @@ Client Component. Полный детальный вид импрешена. В�
 - Score block — всегда видим (не сворачивается)
 - Баннер пересчёта — всегда видим
 - Метаданные — скрыта по умолчанию
+- IVT-вердикт — открыта по умолчанию; поля: `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`
 - Таймлайн сегментов — всегда видим (не сворачивается, условный)
 - Нормализованные сигналы (0–100) — открыта по умолчанию; включает S6 (`null` → "null (не видео)")
 - F_Presence (raw) — открыта по умолчанию
@@ -499,6 +528,7 @@ Backend автоматически ограничивает данные scope �
 * Campaign ID;
 * Creative ID;
 * Device;
+* Валидность (ivt_verdict badge);
 * Аномалии;
 * CPMind Score;
 * S1–S7.
@@ -528,6 +558,7 @@ Campaign ID переносится в заголовок страницы.
 * Date From;
 * Date To;
 * Suspicious;
+* IVT Verdict (ivtVerdict фильтр);
 * диапазоны Score;
 * диапазоны S1–S7.
 
@@ -565,6 +596,25 @@ Backend возвращает ограниченный CSV согласно ро�
 **`video_creative`:** для всех форматов в контейнер добавляется опциональный комментарий с примером `data-cpmind-skip` на кнопке пропуска. Текст `instructionCard` адаптируется под тип.
 
 **TD-01** (задокументированный долг): tag builder всегда генерирует ссылку на `v0` тега. Смена захардкоженного значения — отдельная задача после стабилизации константного профиля.
+
+---
+
+### `IvtPanel.tsx`
+
+Client Component. Единый компонент управления IVT-конфигурацией. Паттерн WeightsConfigPanel: два таба (`GIVT-списки` / `SIVT-пороги`), переключение через `activeTab: 'lists' | 'thresholds'`.
+
+**Таб GIVT-списки:**
+- Таблица версий: версия (с бейджем "активна"), количество записей, описание, дата создания, действия
+- Действия: Активировать (ghostBtn) / Деактивировать (ghostBtn) / Удалить (dangerBtn, disabled при активной)
+- Форма загрузки: версия, описание, CSV-textarea. Формат CSV: `type,pattern,match_type,category,reason,source`. Подсказка формата над полем.
+- `parseErrors` из ответа backend отображаются в предупреждающем блоке (`--moderate`) ниже таблицы — частичный успех, невалидные строки пропущены
+
+**Таб SIVT-пороги:**
+- Таблица версий: 7 колонок (версия + 6 полей порогов + дата + действия)
+- Поле `click_without_hover` — boolean, отображается как "Включено" / "Отключено" / "—" (null)
+- Форма создания: 6 полей с типами (`number` / boolean toggle). Пустое числовое поле = null = правило отключено. Boolean toggle: кнопка `toggleBtn` / `toggleActive`
+
+**Общее:** `actionId: string | null` — спиннер только в нажатой кнопке. `router.refresh()` после любой успешной мутации. Кнопка "+ Загрузить список" / "+ Новая версия" в header меняется по активному табу.
 
 ---
 
@@ -642,6 +692,7 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 | `onRowClick` без `userUuid` | При клике на строку импрешена `userUuid` не передаётся в URL детальной страницы — кнопка "Назад" всегда возвращает в собственный контекст, не в контекст просматриваемого чужого юзера |
 | Опции Campaign/Creative | Строятся из отдельного запроса с `limit:200`. При >200 уникальных значений список будет неполным |
 | `WeightsConfigPanel` ошибки | `alert()` вместо inline-ошибок |
+| IVT деактивация | `deactivateIvtListConfig` / `deactivateIvtThresholdsConfig` реализованы в frontend и backend, но логика поведения после деактивации (fallback на `DEFAULT_IVT_THRESHOLDS`, поведение при отсутствии активного списка) требует уточнения и тестирования |
 | Ручной выбор импрешенов на `/recalculate` | Сбрасывается при смене страницы пагинации |
 | `ComboboxDatePicker` + CalibrationFilterSchema | Дата в формате `YYYY-MM-DD`, схема ожидает ISO datetime — не тестировалось для фильтрации в калибровке |
 | Поплинг `processing`-батчей | Батчи, зависшие в `processing` (crash backend), не подхватываются cleanup job — только `ready` статус |

@@ -40,6 +40,7 @@ const ADMIN_CSV_HEADER = [
   's1_normalized', 's2_normalized', 's3_normalized', 's4_normalized', 's5_normalized', 's6_normalized', 's7_normalized',
   'f_presence', 'score_final',
   'no_events', 'tab_mostly_hidden', 'anomaly_duration', 'is_suspicious',
+  'ivt_verdict', 'ivt_category', 'ivt_confidence', 'score_reliable',
 ].join(',');
 
 const USER_CSV_HEADER = USER_VISIBLE_IMPRESSION_FIELDS.join(',');
@@ -84,6 +85,7 @@ function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
     row.s1_normalized, row.s2_normalized, row.s3_normalized, row.s4_normalized, row.s5_normalized, row.s6_normalized, row.s7_normalized,
     row.f_presence, row.score_final,
     row.no_events, row.tab_mostly_hidden, row.anomaly_duration, row.is_suspicious,
+    row.ivt_verdict, row.ivt_category, row.ivt_confidence, row.score_reliable,
   ];
 
   return fields.map(csvField).join(',');

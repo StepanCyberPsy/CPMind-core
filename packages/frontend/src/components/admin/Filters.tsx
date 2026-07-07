@@ -18,6 +18,12 @@ const ANOMALY_OPTIONS = [
   { value: 'true', label: 'Только аномальные' },
 ];
 
+const IVT_OPTIONS = [
+  { value: 'valid', label: 'Только валидные' },
+  { value: 'givt', label: 'GIVT-Нарушения' },
+  { value: 'sivt_confirmed', label: 'SIVT-Нарушения' },
+];
+
 export function Filters({
   current,
   tagConstantsVersions,
@@ -35,6 +41,7 @@ export function Filters({
     current.isSuspicious === true ? 'true' :
       current.isSuspicious === false ? 'false' : '',
   );
+  const [ivtVerdict, setIvtVerdict] = useState(current.ivtVerdict ?? '');
   const [dateFrom, setDateFrom] = useState(current.dateFrom ?? '');
   const [dateTo, setDateTo] = useState(current.dateTo ?? '');
 
@@ -47,10 +54,22 @@ export function Filters({
     weightsVersion ? url.searchParams.set('weightsVersion', weightsVersion) : url.searchParams.delete('weightsVersion');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
     isSuspicious ? url.searchParams.set('isSuspicious', isSuspicious) : url.searchParams.delete('isSuspicious');
+    ivtVerdict ? url.searchParams.set('ivtVerdict', ivtVerdict) : url.searchParams.delete('ivtVerdict');
     dateFrom ? url.searchParams.set('dateFrom', dateFrom) : url.searchParams.delete('dateFrom');
     dateTo ? url.searchParams.set('dateTo', dateTo) : url.searchParams.delete('dateTo');
     router.push(url.pathname + url.search);
-  }, [router, campaignId, creativeId, tagConstantsVersion, weightsVersion, deviceType, isSuspicious, dateFrom, dateTo]);
+  }, [
+    router,
+    campaignId,
+    creativeId,
+    tagConstantsVersion,
+    weightsVersion,
+    deviceType,
+    isSuspicious,
+    ivtVerdict,
+    dateFrom,
+    dateTo,
+  ]);
 
   const exitSegmentView = useCallback(() => {
     const url = new URL(window.location.href);
@@ -66,10 +85,21 @@ export function Filters({
     setWeightsVersion('');
     setDeviceType('');
     setIsSuspicious('');
+    setIvtVerdict('');
     setDateFrom('');
     setDateTo('');
     const url = new URL(window.location.href);
-    ['campaignId', 'creativeId', 'tagConstantsVersion', 'weightsVersion', 'deviceType', 'isSuspicious', 'dateFrom', 'dateTo'].forEach((k) =>
+    [
+      'campaignId',
+      'creativeId',
+      'tagConstantsVersion',
+      'weightsVersion',
+      'deviceType',
+      'isSuspicious',
+      'ivtVerdict',
+      'dateFrom',
+      'dateTo',
+    ].forEach((k) =>
       url.searchParams.delete(k),
     );
     url.searchParams.set('page', '1');
@@ -149,6 +179,16 @@ export function Filters({
             options={ANOMALY_OPTIONS}
             value={isSuspicious}
             onChange={setIsSuspicious}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>IVT-статус</label>
+          <Combobox
+            options={IVT_OPTIONS}
+            value={ivtVerdict}
+            onChange={setIvtVerdict}
             placeholder="Все"
           />
         </div>

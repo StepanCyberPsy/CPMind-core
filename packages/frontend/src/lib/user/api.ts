@@ -2,6 +2,7 @@ import type {
   Tag,
   UserCampaignStatsListResponse,
   UserImpressionListResponse,
+  IvtVerdict,
 } from '@cpmind/shared';
 import { getBackendUrl, getPublicBackendUrl } from '@/lib/shared/env';
 import type { SortField } from '@/lib/shared/types';
@@ -33,6 +34,7 @@ export interface UserListParams {
   s6Max?: number;
   s7Min?: number;
   s7Max?: number;
+  ivtVerdict?: IvtVerdict;
   sortBy?: SortField;
   sortDir?: 'asc' | 'desc';
 }
@@ -79,6 +81,7 @@ function buildQuery(params: UserListParams): string {
   if (params.s7Max !== undefined) q.set('s7Max', String(params.s7Max));
   if (params.deviceType) q.set('deviceType', params.deviceType);
   if (params.isSuspicious !== undefined) q.set('isSuspicious', String(params.isSuspicious));
+  if (params.ivtVerdict !== undefined) q.set('ivtVerdict', params.ivtVerdict);
   if (params.dateFrom) q.set('dateFrom', toBackendDateTime(params.dateFrom, 'from'));
   if (params.dateTo) q.set('dateTo', toBackendDateTime(params.dateTo, 'to'));
   if (params.sortBy) q.set('sortBy', params.sortBy);

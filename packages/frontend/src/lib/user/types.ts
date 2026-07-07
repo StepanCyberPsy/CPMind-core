@@ -6,6 +6,7 @@ export type {
   UserCampaignStatsListResponse,
   UserImpressionRow,
   UserImpressionListResponse,
+  IvtVerdict,
 } from '@cpmind/shared';
 export type { UserListParams } from './api.js';
 export type { SortParams, PaginationProps };

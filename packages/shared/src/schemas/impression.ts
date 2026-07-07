@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TagUuidSchema } from './tag.js';
 
 const SAFE_ID_REGEX = /^[A-Za-zА-Яа-яЁё0-9_-]+$/u;
+const FP_HASH_REGEX = /^[0-9a-f]+$/;
 
 // S1 Time-in-View
 export const SignalsS1Schema = z.object({
@@ -102,6 +103,7 @@ export const PresenceSchema = z.object({
   last_user_event_timestamp: z.number().positive().nullable(),
   time_since_last_event_ms: z.number().min(0),
   events_count_during_impression: z.number().min(0),
+  event_intervals_ms: z.array(z.number().int().min(0)).max(50).optional(),
 });
 
 export const ImpressionPayloadSchema = z
@@ -132,6 +134,7 @@ export const ImpressionPayloadSchema = z
       s7: SignalsS7Schema,
     }),
     presence: PresenceSchema,
+    fp_hash: z.string().length(32).regex(FP_HASH_REGEX).optional(),
   })
   .refine(
     (data) => data.timestamp_end >= data.timestamp_start,

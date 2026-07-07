@@ -92,6 +92,22 @@ export {
     computeScore,
     recomputeScoreFromNormalized,
 } from './scoring/score.js';
+export {
+    classifyIvtSync,
+} from './scoring/ivt.js';
+
+// Типы
+// Схемы IVT
+export {
+    IvtVerdictSchema,
+    IvtListEntrySchema,
+    IvtThresholdsSchema,
+    IvtListConfigRowSchema,
+    IvtListConfigListResponseSchema,
+    IvtThresholdsConfigRowSchema,
+    IvtThresholdsConfigListResponseSchema,
+    DEFAULT_IVT_THRESHOLDS,
+} from './schemas/ivt.js';
 
 // Типы
 export type * from './types/index.js';

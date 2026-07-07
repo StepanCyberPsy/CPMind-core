@@ -113,6 +113,14 @@ export const impressions = pgTable('impressions', {
   anomalyDuration: boolean('anomaly_duration').notNull().default(false),
   isSuspicious: boolean('is_suspicious').notNull().default(false),
 
+  // IVT
+  ivtVerdict: text('ivt_verdict').notNull().default('valid'),
+  ivtCategory: text('ivt_category'),
+  ivtConfidence: real('ivt_confidence').notNull().default(0),
+  scoreReliable: boolean('score_reliable').notNull().default(true),
+  fpHash: text('fp_hash'),
+  ivtSignals: jsonb('ivt_signals'),
+
   // Системное
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 },
@@ -130,6 +138,8 @@ export const impressions = pgTable('impressions', {
     userIdIdx: index('idx_impressions_user_id').on(t.userId),
     userIdCreatedAtIdx: index('idx_impressions_user_id_created_at').on(t.userId, t.createdAt),
     tagConstantsVersionIdx: index('idx_impressions_tag_constants_version').on(t.tagConstantsVersion),
+    ivtVerdictIdx: index('idx_impressions_ivt_verdict').on(t.ivtVerdict),
+    fpHashIdx: index('idx_impressions_fp_hash').on(t.fpHash),
   }));
 
 // Версии констант тега неизменяемы после создания. isActive управляет распространением
@@ -209,6 +219,33 @@ export const calibrationItems = pgTable('calibration_items', {
   impressionIdIdx: index('idx_calibration_items_impression_id').on(t.impressionId),
 }));
 
+export const ivtListConfigs = pgTable('ivt_list_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  version: text('version').notNull().unique(),
+  entries: jsonb('entries').notNull(),
+  description: text('description'),
+  isActive: boolean('is_active').notNull().default(false),
+  entriesCount: integer('entries_count').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  isActiveIdx: uniqueIndex('uidx_ivt_list_active')
+    .on(t.isActive)
+    .where(sql`${t.isActive} = true`),
+}));
+
+export const ivtThresholdsConfigs = pgTable('ivt_thresholds_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  version: text('version').notNull().unique(),
+  thresholds: jsonb('thresholds').notNull(),
+  description: text('description'),
+  isActive: boolean('is_active').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  isActiveIdx: uniqueIndex('uidx_ivt_thresholds_active')
+    .on(t.isActive)
+    .where(sql`${t.isActive} = true`),
+}));
+
 export type ImpressionInsert = typeof impressions.$inferInsert;
 export type ImpressionSelect = typeof impressions.$inferSelect;
 export type WeightConfigInsert = typeof weightConfigs.$inferInsert;
@@ -223,3 +260,7 @@ export type CalibrationItemInsert = typeof calibrationItems.$inferInsert;
 export type CalibrationItemSelect = typeof calibrationItems.$inferSelect;
 export type TagConstantsConfigInsert = typeof tagConstantsConfigs.$inferInsert;
 export type TagConstantsConfigSelect = typeof tagConstantsConfigs.$inferSelect;
+export type IvtListConfigInsert = typeof ivtListConfigs.$inferInsert;
+export type IvtListConfigSelect = typeof ivtListConfigs.$inferSelect;
+export type IvtThresholdsConfigInsert = typeof ivtThresholdsConfigs.$inferInsert;
+export type IvtThresholdsConfigSelect = typeof ivtThresholdsConfigs.$inferSelect;

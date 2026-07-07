@@ -138,8 +138,11 @@ export interface Session {
 
   // F_Presence
   lastUserEventTimestamp: number | null;
+  lastThrottledEventTimestamp: number | null;
   eventsDuringImpression: number;
+  eventIntervals: number[];
 
   // Служебное
   sent: boolean;
+  fpHash: string | null;
 }

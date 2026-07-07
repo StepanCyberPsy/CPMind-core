@@ -16,7 +16,8 @@ Production-зависимость только одна — Zod. Всё оста
 6. [Сигналы S1–S7 и F_Presence](#сигналы-s1s7-и-fpresence)
 7. [Формулы нормализации](#формулы-нормализации)
 8. [Формула CPMind Score](#формула-cpmind-score)
-9. [Изменения, внесённые в эту сессию](#изменения-внесённые-в-эту-сессию)
+9. [IVT-классификация (scoring/ivt.ts)](#ivt-классификация-scoringіvtts)
+10. [Изменения, внесённые в эту сессию](#изменения-внесённые-в-эту-сессию)
 
 ---
 
@@ -42,15 +43,19 @@ packages/shared/
     │   ├── calibration.ts        # CalibrationSelectionSchema (discriminated union),
     │   │                         # CalibrationBatchSchema, CalibrationItemSchema,
     │   │                         # ApproveCalibrationResultSchema и сопутствующие
-    │   └── tag-constants.ts      # TagConstantsValuesSchema (19 полей),
-    │                             # TagConstantsConfigSchema, DEFAULT_TAG_CONSTANTS,
-    │                             # TAG_BUILD_TARGETS
+    │   ├── tag-constants.ts      # TagConstantsValuesSchema (19 полей),
+    │   │                         # TagConstantsConfigSchema, DEFAULT_TAG_CONSTANTS,
+    │   │                         # TAG_BUILD_TARGETS
+    │   └── ivt.ts                # IvtVerdictSchema, IvtListEntrySchema,
+    │                             # IvtThresholdsSchema, DEFAULT_IVT_THRESHOLDS,
+    │                             # IvtListConfigRowSchema, 
     ├── scoring/
     │   ├── capping.ts            # applyAnomalyCapping()
     │   ├── normalize.ts          # normalizeS1–S7(), normalizeAll(), getS5TopEventLabel()
     │   ├── weights.ts            # DEFAULT_WEIGHTS, WeightsValues, computeEffectiveWeights(),
     │   │                         # detectNullSignals()
-    │   └── score.ts              # computeScore(), recomputeScoreFromNormalized()
+    │   ├── score.ts              # computeScore(), recomputeScoreFromNormalized()
+    │   └── ivt.ts                # classifyIvtSync() — GIVT/SIVT pure function
     ├── access/
     │   └── impression-fields.ts  # USER_VISIBLE_IMPRESSION_FIELDS, UserImpressionRowSchema
     └── types/
@@ -87,6 +92,8 @@ packages/shared/
 - `s3` nullable (`null` при cross-domain iframe) — специальный случай, обрабатывается перераспределением весов.
 - `s6: SignalsS6Schema.nullable().optional()` — null для баннеров, отсутствие поля для старых бандлов тега; backend трактует оба случая одинаково
 - `creative_type` расширен значением `'video_creative'`
+- `fp_hash: z.string().length(32).regex(FP_HASH_REGEX).optional()` — необратимый хэш устройства для IVT-детекции. Nullable и optional: отсутствие поля = тег не смог вычислить хэш (блокировка браузером, HTTP-окружение без `crypto.subtle`)
+- `presence.event_intervals_ms: z.array(z.number().int().min(0)).max(50).optional()` — массив интервалов между последовательными throttled-событиями присутствия. Cap 50 записей. Используется `classifyIvtSync()` для детекции роботизированного тайминга
 
 ### `schemas/user.ts`
 
@@ -118,13 +125,14 @@ packages/shared/
 
 Контракты ответов API для frontend и клиентов API.
 
-**`ImpressionRowSchema`** — строка в таблице импрешенов. Содержит все поля для отображения в таблице, включая денормализованные `tag_uuid`, `user_uuid`, `tag_label`, `user_login`, `tag_constants_version`, `tag_constants_version`, `weights_version`,`tag_constants_version`, `weights_version`, `s1_normalized`...`s7_normalized`
+**`ImpressionRowSchema`** — строка в таблице импрешенов. Содержит все поля для отображения в таблице, включая денормализованные `tag_uuid`, `user_uuid`, `tag_label`, `user_login`, `tag_constants_version`, `tag_constants_version`, `weights_version`,`tag_constants_version`, `weights_version`, `s1_normalized`...`s7_normalized`, `ivt_verdict: IvtVerdictSchema`, `ivt_category: z.string().nullable()`, `ivt_confidence: z.number().min(0).max(1)`, `score_reliable: z.boolean()`.
 
 **`ImpressionDetailSchema`** — расширяет `ImpressionRowSchema`. Добавляет:
 - `signals_raw: z.unknown()` — полный JSONB payload от тега
 - `signals_normalized: z.unknown()` — нормализованные значения в JSONB
-- `lastRecalibratedAt?: z.string()` — дата последнего подтверждённого пересчёта (опциональная, добавлена в эту сессию)
-- `lastRecalibratedWeightsVersion?: z.string()` — версия весов при последнем пересчёте (опциональная, добавлена в эту сессию)
+- `ivt_signals: z.unknown()` — сработавшие IVT-правила (admin-only, не в USER_VISIBLE_IMPRESSION_FIELDS)
+- `lastRecalibratedAt?: z.string()` — дата последнего подтверждённого пересчёта
+- `lastRecalibratedWeightsVersion?: z.string()` — версия весов при последнем пересчёте
 
 **`WeightConfigRowSchema`** — версия конфигурации весов: `id`, `version`, `weights` (объект `{s1, s2, s3, s4, s5, s7}`), `description`, `isActive`, `createdAt`.
 
@@ -286,7 +294,7 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 
 **`UserImpressionRowSchema`** — производный через `ImpressionRowSchema.pick(USER_VISIBLE_IMPRESSION_FIELDS)`. Не отдельно поддерживаемая копия — изменение whitelist автоматически меняет схему.
 
-`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`) — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`.
+`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`), `fp_hash`, `ivt_signals` — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`, `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`.
 
 ---
 
@@ -427,6 +435,83 @@ Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
 
 ---
 
+## IVT-классификация (scoring/ivt.ts)
+
+### `classifyIvtSync(payload, activeEntries, thresholds, userAgent)`
+
+Pure function без side effects. Не обращается к БД. Детерминирована при одинаковых аргументах. Вызывается backend-ом в pipeline шаге 8.5.
+
+**Аргументы:**
+- `payload: ImpressionPayload` — валидированный payload от тега
+- `activeEntries: IvtListEntry[] | null` — in-memory записи активной версии `ivt_list_configs`. `null` = список не загружен → GIVT-матчинг пропускается
+- `thresholds: IvtThresholds | null` — активные пороги. `null` → все SIVT-правила пропускаются
+- `userAgent: string` — из заголовка запроса
+
+**Возвращает `IvtClassification`:**
+- `ivt_verdict: IvtVerdict`
+- `ivt_category: string | null`
+- `ivt_confidence: number` [0..1]
+- `score_reliable: boolean`
+- `ivt_signals: IvtSignal[]`
+
+### Логика выполнения
+
+**GIVT early return.** UA-матчинг по списку — три режима (`exact | substring | regex`). При совпадении — немедленный возврат `givt`, SIVT-правила не проверяются. `confidence: 1`, `score_reliable: false`.
+
+**SIVT-правила** (только при `thresholds !== null`):
+
+| Правило | Функция | Порог | Категория | Confidence |
+|---|---|---|---|---|
+| Тайминговая регулярность | `checkRoboticTiming()` | `timing_variance_min_ms` | `robotic_timing` | 0.7 |
+| Энтропия курсора | `checkSyntheticCursor()` | `cursor_entropy_min` | `synthetic_cursor` | 0.65 |
+| Невозможные события | `checkImpossibleEvents()` | `click_without_hover` | `impossible_event_sequence` | 0.9 |
+
+`TIMING_MIN_SAMPLES = 10` — минимальный размер выборки `event_intervals_ms` для статистически значимого вывода. Алгоритмическая константа, не калибруемый порог.
+
+**Confidence-агрегация** (вероятностное объединение):
+```
+P(A∪B) = 1 − (1−P(A)) × (1−P(B))
+```
+Исключает выход за [0,1] при нескольких сработавших правилах.
+
+**Апгрейд до `sivt_confirmed`:** `confidence >= thresholds.confidence_confirm` (default 0.85 при null).
+
+**`valid`-путь:** ни одно правило не сработало → `confidence: 0`, `score_reliable: true`, пустой `ivt_signals`.
+
+### Схемы (`schemas/ivt.ts`)
+
+**`IvtVerdictSchema`** — `z.enum(['valid', 'givt', 'sivt_suspected', 'sivt_confirmed'])`.
+
+**`IvtListEntrySchema`** — одна запись списка паттернов:
+```typescript
+{
+  type: 'ua' | 'ip',
+  pattern: string,
+  match_type: 'exact' | 'substring' | 'regex' | 'cidr',
+  category: string,
+  reason?: string,
+  source?: 'iab' | 'arir' | 'own'
+}
+```
+Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
+
+**`IvtThresholdsSchema`** — 6 полей, все `nullable()`:
+```typescript
+{
+  timing_variance_min_ms: number | null,
+  cursor_entropy_min: number | null,
+  click_without_hover: boolean | null,
+  repeat_fp_window_min: number | null,
+  repeat_fp_max_creatives: number | null,
+  confidence_confirm: number | null
+}
+```
+`DEFAULT_IVT_THRESHOLDS` — все поля `null`. Используется как fallback когда `ivt_thresholds_configs` пуст.
+
+**`IvtListConfigRowSchema`** / **`IvtThresholdsConfigRowSchema`** — контракты ответов API для frontend (без поля `entries` в списке — только метаданные версии).
+
+---
+
 ## Изменения, внесённые в эту сессию (S6 + per-creative-type routing)
 
 | Файл | Изменение |
@@ -440,6 +525,18 @@ Score = (S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S7×w7) × F_Presence
 | `access/impression-fields.ts` | `s6_normalized` в `USER_VISIBLE_IMPRESSION_FIELDS` |
 | `types/index.ts` | Реэкспорт `SignalsS6`, `CreativeCategory` |
 | `index.ts` | `SignalsS6Schema`, `normalizeS6`, `DEFAULT_BANNER_WEIGHTS`, `DEFAULT_VIDEO_WEIGHTS`, `detectNullSignals`; `DEFAULT_WEIGHTS` удалён из экспорта |
+
+## Изменения, внесённые в сессию GIVT/SIVT
+
+| Файл | Изменение |
+|---|---|
+| `schemas/ivt.ts` | **NEW** — `IvtVerdictSchema`, `IvtListEntrySchema`, `IvtThresholdsSchema`, `DEFAULT_IVT_THRESHOLDS`, `IvtListConfigRowSchema`, `IvtThresholdsConfigRowSchema` |
+| `schemas/impression.ts` | `FP_HASH_REGEX`; `fp_hash` optional в `ImpressionPayloadSchema`; `event_intervals_ms: z.array().max(50).optional()` в `PresenceSchema` |
+| `schemas/api.ts` | `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable` в `ImpressionRowSchema`; `ivt_signals: z.unknown()` в `ImpressionDetailSchema` |
+| `scoring/ivt.ts` | **NEW** — `classifyIvtSync()`, `checkRoboticTiming()`, `checkSyntheticCursor()`, `checkImpossibleEvents()`, `aggregateConfidence()`. Типы: `IvtSignal`, `IvtClassification` |
+| `access/impression-fields.ts` | `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable` в `USER_VISIBLE_IMPRESSION_FIELDS` |
+| `types/index.ts` | Реэкспорт `IvtVerdict`, `IvtListEntry`, `IvtThresholds`, `IvtListConfigRow`, `IvtListConfigListResponse`, `IvtThresholdsConfigRow`, `IvtThresholdsConfigListResponse`, `IvtSignal`, `IvtClassification` |
+| `index.ts` | `IvtVerdictSchema`, `IvtListEntrySchema`, `IvtThresholdsSchema`, `IvtListConfigRowSchema`, `IvtListConfigListResponseSchema`, `IvtThresholdsConfigRowSchema`, `IvtThresholdsConfigListResponseSchema`, `DEFAULT_IVT_THRESHOLDS`, `classifyIvtSync` |
 
 ## Изменения, внесённые в предыдущую сессию
 

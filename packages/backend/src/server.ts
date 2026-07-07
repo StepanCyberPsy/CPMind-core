@@ -13,6 +13,9 @@ import { calibrationsRoute } from './routes/calibrations.js';
 import { tagConstantsRoute } from './routes/tag_constants.js';
 import { startRetentionJob } from './jobs/retention.js';
 import { startCalibrationCleanupJob } from './jobs/calibration_cleanup.js';
+import { startIvtFrequencyJob } from './jobs/ivt_frequency.js';
+import { ivtListsRoute } from './routes/ivt_lists.js';
+import { ivtThresholdsRoute } from './routes/ivt_thresholds.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -73,6 +76,8 @@ export function buildServer(): FastifyInstance {
   app.register(tagsRoute, { prefix: '/api' });
   app.register(calibrationsRoute, { prefix: '/api' });
   app.register(tagConstantsRoute, { prefix: '/api' });
+  app.register(ivtListsRoute, { prefix: '/api' });
+  app.register(ivtThresholdsRoute, { prefix: '/api' });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Unhandled error');
@@ -85,6 +90,7 @@ export function buildServer(): FastifyInstance {
   app.ready().then(() => {
     startRetentionJob();
     startCalibrationCleanupJob();
+    startIvtFrequencyJob();
   });
 
   return app;

@@ -19,6 +19,10 @@ export const USER_VISIBLE_IMPRESSION_FIELDS = [
   's7_normalized',
   'score_final',
   'is_suspicious',
+  'ivt_verdict',
+  'ivt_category',
+  'ivt_confidence',
+  'score_reliable',
 ] as const satisfies readonly (keyof z.infer<typeof ImpressionRowSchema>)[];
 
 export type UserVisibleImpressionField = typeof USER_VISIBLE_IMPRESSION_FIELDS[number];

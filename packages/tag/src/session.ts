@@ -99,10 +99,13 @@ export function createSession(cfg: TagConfig): Session {
 
     // F_Presence
     lastUserEventTimestamp: null,
+    lastThrottledEventTimestamp: null,
     eventsDuringImpression: 0,
+    eventIntervals: [],
 
     // Служебное
     sent: false,
+    fpHash: null,
   };
 }
 
@@ -117,6 +120,8 @@ export function resetSessionForNewSegment(session: Session): void {
   session.segmentIndex++;
   session.timestampEnd = 0;
   session.sent = false;
+  session.lastThrottledEventTimestamp = null;
+  session.eventIntervals = [];
 }
 
 export function buildPayload(session: Session, cfg: TagConfig): object {
@@ -222,6 +227,11 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
       last_user_event_timestamp: session.lastUserEventTimestamp,
       time_since_last_event_ms: Math.round(timeSinceLastEventMs),
       events_count_during_impression: session.eventsDuringImpression,
+      event_intervals_ms: session.eventIntervals.length > 0
+        ? session.eventIntervals
+        : undefined,
     },
+
+    fp_hash: session.fpHash ?? undefined,
   };
 }

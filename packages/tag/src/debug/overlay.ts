@@ -152,6 +152,8 @@ export class DebugOverlay {
           this.row('S6 replays', String(s.s6.replay_count))
         : '') +
       this.row('Presence events', String(s.eventsDuringImpression), s.eventsDuringImpression === 0) +
+      this.row('FP hash', s.fpHash !== null ? s.fpHash.slice(0, 8) + '...' : 'null', s.fpHash === null) +
+      this.row('Intervals n', String(s.eventIntervals.length)) +
       `<div style="color:${LABEL_COLOR};margin-top:6px;border-top:1px solid ${BORDER_COLOR};padding-top:4px;font-size:10px">` +
       `id: ${s.impressionId.slice(0, 8)}... · ${s.deviceType}` +
       `</div>`;

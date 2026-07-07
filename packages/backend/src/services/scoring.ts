@@ -1,7 +1,8 @@
-import { computeScore, getS5TopEventLabel } from '@cpmind/shared';
+import { computeScore, getS5TopEventLabel, classifyIvtSync } from '@cpmind/shared';
 import type { ImpressionPayload, WeightsValues } from '@cpmind/shared';
 import type { ImpressionInsert } from '../db/schema.js';
 import type { ActiveTagOwner } from './tags.js';
+import type { IvtListEntry, IvtThresholds } from '@cpmind/shared';
 
 /**
  * Запускает полный pipeline расчета CPMind Score для одного импрессена.
@@ -15,8 +16,12 @@ export function processImpression(
   config: WeightsValues,
   owner: ActiveTagOwner,
   presenceIdleThresholdMs: number,
+  ivtList: IvtListEntry[] | null,
+  ivtThresholds: IvtThresholds,
+  userAgent: string,
 ): ImpressionInsert {
   const result = computeScore(payload, config, presenceIdleThresholdMs);
+  const ivt = classifyIvtSync(payload, ivtList, ivtThresholds, userAgent);
 
   return {
     impressionId: payload.impression_id,
@@ -64,5 +69,14 @@ export function processImpression(
     tabMostlyHidden: result.tab_mostly_hidden,
     anomalyDuration: result.anomaly_duration,
     isSuspicious: result.is_suspicious,
+
+    ivtVerdict: ivt.ivt_verdict,
+    ivtCategory: ivt.ivt_category,
+    ivtConfidence: ivt.ivt_confidence,
+    scoreReliable: ivt.score_reliable,
+    fpHash: payload.fp_hash ?? null,
+    ivtSignals: ivt.ivt_signals.length > 0
+      ? ivt.ivt_signals as unknown as Record<string, unknown>[]
+      : null,
   };
 }

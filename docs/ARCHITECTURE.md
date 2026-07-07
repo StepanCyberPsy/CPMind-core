@@ -15,7 +15,11 @@
 7. [Формула CPMind Score](#формула-cpmind-score)
 8. [Калибровка: пересчёт исторических импрешенов](#калибровка-пересчёт-исторических-импрешенов)
 9. [Версионирование констант тега](#версионирование-констант-тега)
-10. [База данных](#база-данных)
+10. [IVT — детекция невалидного трафика](#ivt--детекция-невалидного-трафика)
+11. [База данных](#база-данных)
+12. [Инфраструктура](#инфраструктура)
+13. [Безопасность](#безопасность)
+14. [Ограничения MVP](#ограничения-mvp)
 11. [Инфраструктура](#инфраструктура)
 12. [Безопасность](#безопасность)
 13. [Ограничения MVP](#ограничения-mvp)
@@ -50,7 +54,9 @@ CPMind — система измерения качества рекламных
 │  [PostgreSQL] ← users/tags (владение),            │
 │     │           impressions, weight_configs,      │
 │     │           tag_constants_configs,            │
-│     │           calibration_batches/items         │
+│     │           calibration_batches/items,        │
+│     │           ivt_list_configs,                 │
+│     │           ivt_thresholds_configs            │
 │  [Frontend] ← панель аналитика (admin/user роли)  │
 └───────────────────────────────────────────────────┘
 ```
@@ -63,7 +69,7 @@ CPMind — система измерения качества рекламных
 
 ### JS-тег (`packages/tag`)
 
-~28 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie.
+~29 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie. Вычисляет необратимый SHA-256 хэш отпечатка устройства (`fp_hash`, 16 байт) для IVT-детекции частотных аномалий — PII не передаётся и не хранится. Дополнительно накапливает интервалы между событиями присутствия (`event_intervals_ms`, cap 50) для детекции роботизированного тайминга.
 
 `tag_uuid` и `tag_constants_version` зашиты в конкретный собранный файл через esbuild `define` — не запрашиваются с сервера в runtime. Сборка происходит не при `docker build`, а в runtime backend-контейнера по запросу администратора. Несколько версий существуют на сервере одновременно.
 
@@ -83,7 +89,7 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 ### Shared (`packages/shared`)
 
-Единственный источник истины для математики и контрактов. Используется в backend, frontend и теге (тег — только типизация, не runtime). Содержит: Zod-схемы валидации, формулы нормализации S1–S7, расчёт Score, калибровку весов, схемы пользователей/тегов/калибровки/констант тега.
+Единственный источник истины для математики и контрактов. Используется в backend, frontend и теге (тег — только типизация, не runtime). Содержит: Zod-схемы валидации, формулы нормализации S1–S7, расчёт Score, калибровку весов, схемы пользователей/тегов/калибровки/констант тега, IVT-классификацию (`classifyIvtSync` — pure function, GIVT/SIVT детекция).
 
 Подробности реализации: `docs/packages_information/SHARED_LOGIC.md`
 
@@ -103,7 +109,7 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 ### PostgreSQL
 
-Реляционная база данных. Таблицы: `impressions` (один рекламный показ, включая привязку к владельцу и версии констант тега), `users`/`tags` (многопользовательская модель), `weight_configs` (версии конфигурации весов), `calibration_batches`/`calibration_items` (черновики пересчета Score), `tag_constants_configs` (версии калибруемых констант тега). Данные `impressions` хранятся 90 дней (автоматическое удаление старых записей в 03:00 UTC) — связанные `calibration_items` удаляются вместе с импрешеном (`ON DELETE CASCADE`).
+Реляционная база данных. Таблицы: `impressions` (один рекламный показ, включая привязку к владельцу и версии констант тега), `users`/`tags` (многопользовательская модель), `weight_configs` (версии конфигурации весов), `calibration_batches`/`calibration_items` (черновики пересчета Score), `tag_constants_configs` (версии калибруемых констант тега), `ivt_list_configs` (версионированные GIVT-списки паттернов), `ivt_thresholds_configs` (версионированные пороги SIVT-детекции). Данные `impressions` хранятся 90 дней (автоматическое удаление старых записей в 03:00 UTC) — связанные `calibration_items` удаляются вместе с импрешеном (`ON DELETE CASCADE`).
 
 ---
 
@@ -209,7 +215,7 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 **`admin`:** видит все импрешены всех пользователей, управляет учётными записями/тегами, калибрует веса и константы тега, видит полный набор полей включая `signals_raw`.
 
-**`user`:** только свои импрешены через единый whitelist `USER_VISIBLE_IMPRESSION_FIELDS` (определён в `@cpmind/shared`, применяется и к JSON, и к CSV). Нет доступа к калибровке, управлению пользователями, детальному просмотру.
+**`user`:** только свои импрешены через единый whitelist `USER_VISIBLE_IMPRESSION_FIELDS` (определён в `@cpmind/shared`, применяется и к JSON, и к CSV). Видит `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`. Не видит `fp_hash`, `ivt_signals` (admin-only). Нет доступа к калибровке, управлению пользователями, детальному просмотру, управлению IVT-конфигурацией.
 
 **IDOR-защита:** владелец данных всегда из подписанного JWT (`request.authUser`), не из URL/query. Запрос к чужому показу → 404, не 403. Детальный вид (`GET /api/impressions/:id`) — admin-only.
 
@@ -225,7 +231,7 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 ### Шаг 2 — Сбор сигналов
 
-Параллельный сбор S1–S7 и F_Presence пока пользователь на странице.
+Параллельный сбор S1–S7 и F_Presence пока пользователь на странице. Параллельно — асинхронное вычисление `fp_hash` (canvas + UA + screen + timezone + language → SHA-256 → 16 байт, fire-and-forget, nullable).
 
 ### Шаг 3 — Отправка
 
@@ -244,8 +250,9 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 7. F_Presence по presence-порогу
 8. CPMind Score
 9. Флаги подозрительности
-10. INSERT в `impressions`, ON CONFLICT DO NOTHING
-11. Ответ 202 Accepted
+10. IVT-классификация (classifyIvtSync — GIVT/SIVT, шаг 8.5)
+11. INSERT в `impressions`, ON CONFLICT DO NOTHING
+12. Ответ 202 Accepted
 
 ### Шаг 5 — Просмотр в панели
 
@@ -324,8 +331,20 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
          │
          ▼
 ┌─────────────────────┐
+│  IVT-классификация  │  classifyIvtSync() — pure function из @cpmind/shared.
+│  (scoring.ts шаг    │  GIVT: UA-матчинг по активному ivt_list_configs.
+│   8.5)              │  SIVT: robotic_timing, synthetic_cursor,
+│                     │  impossible_event_sequence.
+│                     │  Результат: ivt_verdict, ivt_category,
+│                     │  ivt_confidence, score_reliable, ivt_signals.
+│                     │  Список и пороги — Promise.all с весами.
+└────────┬────────────┘
+         │
+         ▼
+┌─────────────────────┐
 │  INSERT в БД        │  ON CONFLICT DO NOTHING по impression_id.
-│                     │  Включает tag_id, user_id, tag_constants_version
+│                     │  Включает tag_id, user_id, tag_constants_version,
+│                     │  IVT-поля, fp_hash.
 └─────────────────────┘
 ```
 
@@ -463,6 +482,63 @@ S6=null для баннерных креативов — вес перерасп
 
 ---
 
+## IVT — детекция невалидного трафика
+
+Модуль классифицирует каждый входящий показ как валидный или невалидный трафик по двум классам: GIVT и SIVT. Вердикт записывается в `impressions` вместе с показом — отдельного pipeline нет, классификация синхронна и не добавляет латентность сверх одного `Promise.all` с загрузкой весов.
+
+### Классы трафика
+
+**GIVT (General Invalid Traffic)** — заведомо невалидный трафик: известные боты, краулеры, датацентровые IP. Детектируется по спискам UA-паттернов (`ivt_list_configs`). При совпадении — немедленный early return, SIVT-правила не проверяются.
+
+**SIVT (Sophisticated Invalid Traffic)** — изощрённый невалидный трафик, имитирующий поведение человека. Детектируется по поведенческим аномалиям в собранных сигналах.
+
+### Вердикты
+
+| Вердикт | Значение |
+|---|---|
+| `valid` | Трафик прошёл все проверки |
+| `givt` | Совпадение с UA-списком |
+| `sivt_suspected` | Одно или несколько SIVT-правил сработали, уверенность < порога |
+| `sivt_confirmed` | Агрегированная уверенность ≥ `confidence_confirm` |
+
+### SIVT-правила (pure functions, `@cpmind/shared`)
+
+| Правило | Сигнал | Категория |
+|---|---|---|
+| Тайминговая регулярность | std_dev `event_intervals_ms` < `timing_variance_min_ms` | `robotic_timing` |
+| Энтропия курсора | `cursor_trajectory_entropy` < `cursor_entropy_min` при движениях | `synthetic_cursor` |
+| Невозможные события | клик без hover/move (desktop), time_in_view > 0 при tab_active = 0 | `impossible_event_sequence` |
+
+Все пороги nullable — правило отключено при null. До Фазы 0 (накопление baseline) пороги не задаются.
+
+### Confidence-агрегация
+
+Вероятностное объединение (не сумма): `P(A∪B) = 1 − (1−P(A)) × (1−P(B))`. Исключает выход за [0,1] при нескольких сигналах. Апгрейд до `sivt_confirmed` при `confidence >= confidence_confirm` (default 0.85).
+
+### Batch-job частотного анализа
+
+`jobs/ivt_frequency.ts` — cron каждые 30 минут. Группирует показы по `fp_hash` в окне `repeat_fp_window_min`. При превышении `repeat_fp_max_creatives` уникальных креативов от одного `fp_hash` — обновляет `ivt_verdict` до `sivt_suspected`/`sivt_confirmed`, категория `botnet_frequency`. Не блокирует приём показов — асинхронный анализ.
+
+### Device fingerprint (`fp_hash`)
+
+16 байт (128 бит), SHA-256 от canvas + UA + screen + timezone + language. Вычисляется в теге асинхронно (fire-and-forget), nullable. Юридически чист по 152-ФЗ/GDPR — необратимый хэш, не PII. Используется исключительно для частотного анализа, не для таргетинга.
+
+### Конфигурация (версионированные конфиги, паттерн `tag_constants_configs`)
+
+**`ivt_list_configs`** — GIVT-списки паттернов. CSV-формат: `type,pattern,match_type,category,reason,source`. IP — только CIDR. UA — `exact`/`substring`/`regex` (с валидацией regex при загрузке). Одна активная версия (partial unique index). Обновление без передеплоя — горячая замена через активацию новой версии.
+
+**`ivt_thresholds_configs`** — пороги SIVT-правил. 6 полей: `timing_variance_min_ms`, `cursor_entropy_min`, `click_without_hover`, `repeat_fp_window_min`, `repeat_fp_max_creatives`, `confidence_confirm`. Все nullable. Одна активная версия.
+
+### `score_reliable`
+
+`false` при любом `ivt_verdict != 'valid'`. Отображается в панели и CSV для рекламодателя как явный индикатор недостоверности Score — не обнуляет Score, но помечает его.
+
+### Стратегическая развилка §7
+
+Текущая реализация — Path A: поведенческая детекция + fp_hash, без серверного IP-слоя. IP-записи в `ivt_list_configs` заведены в схему, но не активируются. Path B (серверный `X-Real-IP` → CIDR-матчинг, UA vs device_type mismatch) — деферред до накопления baseline данных Фазы 0.
+
+---
+
 ## База данных
 
 ### Таблица `impressions`
@@ -483,6 +559,7 @@ S6=null для баннерных креативов — вес перерасп
 | S6 raw | `s6_raw_completion_rate` (real, nullable) | Отображение в панели; NULL для баннеров |
 | Score | `f_presence`, `score_final`, `weights_version` | |
 | Флаги | `no_events`, `tab_mostly_hidden`, `anomaly_duration`, `is_suspicious` | |
+| IVT | `ivt_verdict` (DEFAULT 'valid'), `ivt_category`, `ivt_confidence`, `score_reliable`, `fp_hash`, `ivt_signals` (JSONB, admin-only) | CHECK constraint на ivt_verdict |
 | Системное | `created_at` | Retention |
 
 ### Таблица `weight_configs`
@@ -530,7 +607,7 @@ S6=null для баннерных креативов — вес перерасп
 
 ### Индексы
 
-`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`.
+`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`, `ivt_verdict`, `fp_hash`.
 
 `calibration_batches`: составной `(status, created_at)`, `created_by`. `calibration_items`: уникальный составной `(batch_id, impression_id)`, составной `(batch_id, status)`, `impression_id`.
 
@@ -592,7 +669,7 @@ Let's Encrypt для `app.cpmind.tech`. Автообновление: systemd ti
 
 **Изоляция сети:** backend и frontend не доступны напрямую снаружи. Весь внешний трафик через NGINX.
 
-**Данные пользователей:** тег не собирает персональных данных, не использует cookie, не хранит IP, не идентифицирует пользователей.
+**Данные пользователей:** тег не собирает персональных данных, не использует cookie, не хранит IP, не идентифицирует пользователей. `fp_hash` — необратимый хэш (SHA-256, 16 байт), компоненты не передаются и не хранятся, используется исключительно для fraud detection. Не является персональными данными по 152-ФЗ/GDPR.
 
 **IDOR:** владелец данных из JWT. Чужой ресурс → 404.
 
