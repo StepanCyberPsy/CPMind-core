@@ -2,7 +2,16 @@ import { eq } from 'drizzle-orm';
 import { buildServer } from './server.js';
 import { db } from './db/index.js';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { bootstrapAdmin, bootstrapTagConstants } from './services/bootstrap.js';
+import {
+  bootstrapAdmin,
+  bootstrapTagConstants,
+  bootstrapS1WeibullDefault,
+  bootstrapS3LogisticDefault,
+  bootstrapS4Default,
+  bootstrapS5Default,
+  bootstrapS6Default,
+  bootstrapS7Default,
+} from './services/bootstrap.js';
 import { calibrationBatches } from './db/schema.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -41,6 +50,48 @@ async function main(): Promise<void> {
     await bootstrapTagConstants();
   } catch (err) {
     console.error('[CPMind] Tag constants bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS1WeibullDefault();
+  } catch (err) {
+    console.error('[CPMind] S1 Weibull bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS3LogisticDefault();
+  } catch (err) {
+    console.error('[CPMind] S3 Logistic bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS4Default();
+  } catch (err) {
+    console.error('[CPMind] S4 bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS5Default();
+  } catch (err) {
+    console.error('[CPMind] S5 bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS6Default();
+  } catch (err) {
+    console.error('[CPMind] S6 bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS7Default();
+  } catch (err) {
+    console.error('[CPMind] S7 bootstrap failed — server will not start:', err);
     process.exit(1);
   }
 

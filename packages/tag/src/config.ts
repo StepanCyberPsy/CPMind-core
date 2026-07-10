@@ -23,12 +23,17 @@ export function parseConfig(container: HTMLElement): TagConfig | null {
 
   const debug = new URLSearchParams(location.search).has('cpmind_debug') || container.dataset['debug'] === 'true';
 
+  const skippable = container.dataset['skippable'] === 'true';
+  const rawPublisherDomain = container.dataset['publisherDomain']?.trim();
+
   return {
     tagUuid,
     tagConstantsVersion: TAG_CONSTANTS_VERSION,
     campaignId,
     creativeId,
     creativeType: creativeType as CreativeType,
+    skippable,
+    ...(rawPublisherDomain ? { publisherDomain: rawPublisherDomain } : {}),
     endpoint,
     debug,
   };

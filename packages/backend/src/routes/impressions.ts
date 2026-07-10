@@ -9,6 +9,12 @@ import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
 import { getActiveWeightsConfig } from '../services/weights_config.js';
+import { getActiveWeibullParams } from '../services/weibull_config.js';
+import { getActiveS3LogisticParams } from '../services/logistic_config.js';
+import { getActiveS4Config } from '../services/s4_config.js';
+import { getActiveS5LogisticParams } from '../services/s5_logistic_config.js';
+import { getActiveS6LogisticParams } from '../services/s6_logistic_config.js';
+import { getActiveS7Thresholds } from '../services/s7_quantile_config.js';
 import { getActiveIvtList } from '../services/ivt_list.js';
 import { getActiveIvtThresholds } from '../services/ivt_thresholds.js';
 import { resolveActiveTagOwner } from '../services/tags.js';
@@ -110,8 +116,41 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     const creativeCategory: CreativeCategory =
       parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
 
-    const [config, ivtList, ivtThresholds] = await Promise.all([
+    const creativeGroup =
+      parsed.data.creative_type === 'banner_gif' || parsed.data.creative_type === 'banner_html5'
+        ? 'animated'
+        : parsed.data.creative_type === 'video_creative'
+          ? 'video'
+          : 'static';
+
+    const segmentKey = `${parsed.data.device_type}|${creativeGroup}`;
+
+    const s4Device = parsed.data.device_type === 'tablet' ? 'mobile' : parsed.data.device_type;
+    const s4Creative = parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
+    const s4Segment = `${s4Device}_${s4Creative}`;
+    const s5Segment = parsed.data.device_type === 'desktop' ? 'desktop' : 'mobile_tablet';
+    const s6Segment = parsed.data.creative_type === 'video_creative'
+      ? `${parsed.data.device_type}|${parsed.data.skippable ? 'skippable' : 'non_skippable'}`
+      : null;
+
+    const [
+      config,
+      weibullResolution,
+      logisticResolution,
+      s4Resolution,
+      s5Resolution,
+      s6Resolution,
+      s7Resolution,
+      ivtList,
+      ivtThresholds,
+    ] = await Promise.all([
       getActiveWeightsConfig(creativeCategory),
+      getActiveWeibullParams(segmentKey),
+      getActiveS3LogisticParams(segmentKey),
+      getActiveS4Config(s4Segment),
+      getActiveS5LogisticParams(s5Segment),
+      getActiveS6LogisticParams(s6Segment),
+      getActiveS7Thresholds(parsed.data.device_type),
       getActiveIvtList(),
       getActiveIvtThresholds(),
     ]);
@@ -120,6 +159,18 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     const record = processImpression(
       parsed.data,
       config,
+      weibullResolution.params,
+      weibullResolution.modelVersion,
+      logisticResolution.params,
+      logisticResolution.modelVersion,
+      s4Resolution.config,
+      s4Resolution.modelVersion,
+      s5Resolution.params,
+      s5Resolution.modelVersion,
+      s6Resolution.params,
+      s6Resolution.modelVersion,
+      s7Resolution.thresholds,
+      s7Resolution.modelVersion,
       owner,
       constantsVersionResolution.presenceIdleThresholdMs,
       ivtList,

@@ -107,8 +107,8 @@ export class DebugOverlay {
     const timeInView = this.getCurrentTimeInView();
 
     const viewportStatus = inView
-      ? `<span style="color:${VALUE_COLOR}">✓ viewport ≥50%</span>`
-      : `<span style="color:${WARN_COLOR}">✗ viewport &lt;50%</span>`;
+      ? `<span style="color:${VALUE_COLOR}">✓ viewport ≥75%</span>`
+      : `<span style="color:${WARN_COLOR}">✗ viewport &lt;75%</span>`;
 
     let s5Event = 'none';
     if (s.clicked) s5Event = 'clicked';
@@ -133,7 +133,7 @@ export class DebugOverlay {
       `${timeInView.toFixed(1)}s в зоне видимости` +
       `</div>` +
       this.row('S1 time_in_view', timeInView.toFixed(2) + 's') +
-      this.row('S1 mrc_compliant', timeInView >= 1 ? 'true' : 'false', timeInView < 1) +
+      this.row('S1 mrc_compliant', String(s.mrcCompliant), !s.mrcCompliant) +
       this.row('S1 max_continuous', s.maxContinuousViewSec.toFixed(2) + 's') +
       this.row('S1 visible_pct', s.visiblePixelsPct + '%') +
       this.row('S2 share_avg', this.getShareOfScreenAvg()) +
@@ -155,7 +155,7 @@ export class DebugOverlay {
       this.row('FP hash', s.fpHash !== null ? s.fpHash.slice(0, 8) + '...' : 'null', s.fpHash === null) +
       this.row('Intervals n', String(s.eventIntervals.length)) +
       `<div style="color:${LABEL_COLOR};margin-top:6px;border-top:1px solid ${BORDER_COLOR};padding-top:4px;font-size:10px">` +
-      `id: ${s.impressionId.slice(0, 8)}... · ${s.deviceType}` +
+      `id: ${s.impressionId.slice(0, 8)}... · ${s.deviceType} · ${s.publisherDomain}` +
       `</div>`;
   }
 

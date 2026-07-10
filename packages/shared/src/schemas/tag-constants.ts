@@ -77,7 +77,7 @@ export type TagConstantsConfigIdParam = z.infer<typeof TagConstantsConfigIdParam
 // единственный источник истины, чтобы не дублировать 19 значений в нескольких местах
 export const DEFAULT_TAG_CONSTANTS: TagConstantsValues = {
   PRESENCE_IDLE_TIMEOUT_MS: 60_000,
-  S1_VIEWPORT_THRESHOLDS: [0, 0.5, 1.0],
+  S1_VIEWPORT_THRESHOLDS: [0, 0.75, 1.0],
   S2_SAMPLE_INTERVAL_MS: 500,
   SCROLL_ZONE_PX: 300,
   PAUSE_THRESHOLD_MS: 500,

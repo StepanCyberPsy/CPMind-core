@@ -53,7 +53,11 @@ CPMind — система измерения качества рекламных
 │     │           tag_constants_configs,            │
 │     │           calibration_batches/items,        │
 │     │           ivt_list_configs,                 │
-│     │           ivt_thresholds_configs            │
+│     │           ivt_thresholds_configs,           │
+│     │           s1_weibull_configs,               │
+│     │           s3/s5/s6_logistic_configs,        │
+│     │           s4_configs,                       │
+│     │           s7_quantile_configs               │
 │  [Frontend] ← панель аналитика (admin/user роли)  │
 └───────────────────────────────────────────────────┘
 ```
@@ -66,7 +70,7 @@ CPMind — система измерения качества рекламных
 
 ### JS-тег (`packages/tag`)
 
-~29 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie. Вычисляет необратимый SHA-256 хэш отпечатка устройства (`fp_hash`, 16 байт) для IVT-детекции частотных аномалий — PII не передаётся и не хранится. Дополнительно накапливает интервалы между событиями присутствия (`event_intervals_ms`, cap 50) для детекции роботизированного тайминга.
+~31 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie. Вычисляет необратимый SHA-256 хэш отпечатка устройства (`fp_hash`, 16 байт) для IVT-детекции частотных аномалий — PII не передаётся и не хранится. Дополнительно накапливает интервалы между событиями присутствия (`event_intervals_ms`, cap 50) для детекции роботизированного тайминга. Передаёт домен площадки размещения (`publisher_domain`) — явный или автоматически определённый из `document.referrer`/`window.location.hostname`, с детерминированным `unknown_{hash}` как fallback.
 
 `tag_uuid` и `tag_constants_version` зашиты в конкретный собранный файл через esbuild `define` — не запрашиваются с сервера в runtime. Сборка происходит не при `docker build`, а в runtime backend-контейнера по запросу администратора. Несколько версий существуют на сервере одновременно.
 
@@ -106,7 +110,7 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 ### PostgreSQL
 
-Реляционная база данных. Таблицы: `impressions` (один рекламный показ, включая привязку к владельцу и версии констант тега), `users`/`tags` (многопользовательская модель), `weight_configs` (версии конфигурации весов), `calibration_batches`/`calibration_items` (черновики пересчета Score), `tag_constants_configs` (версии калибруемых констант тега), `ivt_list_configs` (версионированные GIVT-списки паттернов), `ivt_thresholds_configs` (версионированные пороги SIVT-детекции). Данные `impressions` хранятся 90 дней (автоматическое удаление старых записей в 03:00 UTC) — связанные `calibration_items` удаляются вместе с импрешеном (`ON DELETE CASCADE`).
+Реляционная база данных. Таблицы: `impressions` (один рекламный показ, включая привязку к владельцу и версии констант тега), `users`/`tags` (многопользовательская модель), `weight_configs` (версии конфигурации весов), `calibration_batches`/`calibration_items` (черновики пересчета Score), `tag_constants_configs` (версии калибруемых констант тега), `ivt_list_configs` (версионированные GIVT-списки паттернов), `ivt_thresholds_configs` (версионированные пороги SIVT-детекции), `s1_weibull_configs` (Weibull-параметры по сегментам), `s3_logistic_configs` / `s5_logistic_configs` / `s6_logistic_configs` (логистические параметры по сегментам), `s4_configs` (λ/T_ref по сегментам), `s7_quantile_configs` (квантильные пороги по device_type). Данные `impressions` хранятся 90 дней (автоматическое удаление старых записей в 03:00 UTC) — связанные `calibration_items` удаляются вместе с импрешеном (`ON DELETE CASCADE`).
 
 ---
 
@@ -289,9 +293,21 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
          │
          ▼
 ┌─────────────────────┐
-│  Нормализация       │  Каждый сигнал → число [0, 100] по своей формуле
-│  S1–S7              │  Pure-функции без side effects
-│  (normalize.ts)     │
+│  Резолв параметров  │  Promise.all: активные параметры всех моделей
+│  моделей            │  из in-memory кэшей сервисов (с fallback на
+│  (routes/           │  DEFAULT_*). S1: WeibullParams по сегменту
+│   impressions.ts)   │  device×creative. S3: LogisticParams по сегменту.
+│                     │  S4: S4Config (λ/T_ref) по сегменту. S5: S5LogisticParams
+│                     │  по device_type. S6: S6LogisticParams по device×skippable
+│                     │  (null для баннеров). S7: S7Thresholds по device_type.
+│                     │  Каждый резолв возвращает {params, modelVersion}.
+└────────┬────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│  Нормализация       │  Каждый сигнал → число [0, 100] по калиброванной
+│  S1–S7              │  модели с переданными параметрами.
+│  (normalize.ts)     │  Pure-функции без side effects.
 └────────┬────────────┘
          │
          ▼
@@ -349,9 +365,11 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 ### S1 — Time-in-View (вес 0.30)
 
-Суммарное время, в течение которого не менее 50% пикселей баннера находилось в видимой области экрана браузера. Стандарт MRC: показ засчитывается при ≥1 секунды и ≥50% пикселей в viewport.
+Суммарное время, в течение которого не менее 75% пикселей баннера находилось в видимой области экрана браузера. Порог видимости: ≥75% пикселей / ≥2 секунды непрерывно (на основе Zhang & Chen 2015, Uhl et al. 2020, n=350k+, показывающих что MRC-порог 50%/1s занижает планку реального восприятия).
 
-Реализация: `IntersectionObserver` с порогами 0, 0.5 и 1.0.
+**Модель нормализации:** Weibull CDF `F(t) = 1 − exp(−(t/λ)^k)`, параметры `{k, λ}` получены через MLE (Newton-Raphson). `S1 = min(100, F(t) × 100)`. 9 сегментов: `{desktop|mobile|tablet} × {static|animated|video}`. Параметры хранятся в `s1_weibull_configs`, пересчитываются еженедельно (cron `0 4 * * 0`). Fallback: `DEFAULT_WEIBULL_PARAMS {k:1.0, λ:5.0}`.
+
+Реализация: `IntersectionObserver` с порогами 0, 0.75 и 1.0.
 
 ### S2 — Share of Screen (вес 0.20)
 
@@ -363,45 +381,58 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 
 Паттерн скролла в зоне ±300 пикселей от баннера. Высокая скорость без пауз — признак механического пролистывания. Медленный скролл с паузами и возвратами — признак чтения.
 
-Накапливает: среднюю скорость, максимальную скорость, стандартное отклонение, количество пауз, возвратов, серий быстрого скролла, факт чтения.
+Накапливает: среднюю скорость, максимальную скорость, стандартное отклонение, количество пауз, возвратов, серий быстрого скролла, флаг чтения, флаг momentum-скролла.
 
 Если баннер в cross-domain iframe — S3=null, вес перераспределяется.
+
+**Модель нормализации:** логистическая регрессия `S3 = min(100, sigmoid(β·x) × 100)`, 8 коэффициентов β0..β7, z-score нормализация признаков. 9 сегментов: `{device} × {creative_group}`. Параметры хранятся в `s3_logistic_configs`, пересчитываются еженедельно (cron `0 5 * * 0`). Fallback: нулевые коэффициенты → S3=50.
 
 Реализация: rAF-throttled обработчик, алгоритм Велфорда для бегущего среднего.
 
 ### S4 — Tab Activity (вес 0.15)
 
-Доля времени, когда вкладка с баннером была активна (не скрыта). Если пользователь переключился на другую вкладку — это снижает качество показа.
+Доля времени, когда вкладка с баннером была активна (не скрыта), с учётом штрафа за частые переключения и длительность активных сессий.
 
 Флаг `tab_mostly_hidden`: если вкладка была активна менее 20% времени показа.
 
-Реализация: `document.visibilitychange`.
+**Модель нормализации:** нелинейная функция `S4 = clamp(activeRatio × 100 × exp(−λ×n) × min(1, avgSession/T_ref), 0, 100)`, где `n` — число переключений, `λ` — штраф за частоту, `T_ref` — эталонная длина сессии. 5 сегментов: `desktop_banner`, `mobile_banner`, `desktop_video`, `mobile_video`, `default`. Параметры хранятся в `s4_configs`, пересчитываются ежемесячно (cron `0 6 1 * *`). Fallback: `{λ:0.08, T_ref:5000ms}`.
+
+Реализация: `document.visibilitychange`, `computeActiveTimeMsInRange` пересчитывает активное время строго в границах `[timestampStart, now]` из `visibilityStateHistory`.
 
 ### S5 — Interaction Events (вес 0.15)
 
-Наивысший уровень взаимодействия пользователя с баннером. Иерархия: клик > зум (mobile) > свайп > тап > длительное наведение > наведение > близость курсора > нет.
+Прямое поведенческое доказательство заинтересованности пользователя в баннере.
 
-Desktop: клик, mouseenter/leave/move, расстояние курсора до баннера, энтропия траектории движения.
+Desktop: клик, hover-длительность, число hover-событий, близость курсора.  
+Mobile/tablet: клик, zoom, tap-count, swipe-count.
 
-Mobile: тап, свайп, зум жестами (gesturechange + pinch).
+**Модель нормализации:** логистическая регрессия, сегментирована по device_type. 2 сегмента: `desktop`, `mobile_tablet`. Desktop: `z = β0 + β1·clicked + β2·hoverDurationNorm + β3·hoverCountNorm + β4·proximityNorm`. Mobile: `z = β0 + β1·clicked + β2·zoom + β3·tapCountNorm + β4·swipeCountNorm`. `S5 = min(100, round(sigmoid(z) × 100))`. Параметры хранятся в `s5_logistic_configs`, пересчитываются еженедельно (cron `0 6 * * 0`). Fallback: экспертные prior-коэффициенты.
+
+Прокси-метка обучения: `y=1` если clicked=true ИЛИ hoverDurationMaxMs ≥ p75 по сегменту.
 
 ### S6 — Video Engagement + Audibility (вес 0.40 для video, 0.00 для banner)
 
-Измеряет вовлечённость пользователя в видео-креатив: глубину просмотра и условия прослушивания.
+Измеряет вовлечённость пользователя в видео-креатив: глубину просмотра и условия прослушивания (IAB/MRC Attention Measurement Guidelines, Nov 2025).
 
-**Video Engagement (9 полей):** `play_initiated`, `quartile_25/50/75`, `completion`, `completion_rate_pct`, `pause_initiated`, `skipped`, `replay_count`.
+**Video Engagement (9 полей):** `play_initiated`, `quartile_25/50/75`, `completion`, `completion_rate_pct` (числовой % досмотра), `pause_initiated`, `skipped`, `replay_count`.
 
-**Audibility (10 полей, IAB/MRC Nov 2025):** `muted_status` (muted/unmuted/mixed), `volume_level` (0–100), `audio_connection` (speaker/headphones/bluetooth/unknown), `audible_time_sec`, `audible_quartile_25/50/75/100`, `muted_throughout`, `unmuted_by_user`.
+**Audibility (10 полей):** `muted_status` (muted/unmuted/mixed), `volume_level` (0–100), `audio_connection` (speaker/headphones/bluetooth/unknown), `audible_time_sec`, `duration_sec`, `audible_quartile_25/50/75/100`, `muted_throughout`, `unmuted_by_user`.
 
-Формула: `base_score` (иерархия quartile) + `audibility_modifier` (unmuted_by_user +10, muted_throughout −15, audible_quartile_50 +5) + `replay_bonus` (min(10, replay_count×5)) → clamp [0,100].
+Сегментация по `skippable` (из `TagConfig`): skippable и non-skippable видео — принципиально разные пользовательские сценарии.
 
-Для баннерных креативов: все поля S6 = NULL, S6 не участвует в формуле, вес перераспределяется.
+**Модель нормализации:** логистическая регрессия с 9 коэффициентами β0..β8, включая терм взаимодействия `completionZ × audibleZ`. 6 сегментов: `{desktop|mobile|tablet} × {skippable|non_skippable}`. Z-score нормализация по сегменту для `completionRate`, `quartileOrdinal`, `audibleRatio = audible_time_sec/duration_sec`, `replayLog`. `S6 = min(100, sigmoid(z) × 100)`. Параметры хранятся в `s6_logistic_configs`, пересчитываются еженедельно (cron `0 7 * * 0`). Fallback: нулевые коэффициенты → S6=50.
+
+Прокси-метка обучения: `y=1` если `completion=true` И `(unmuted_by_user ИЛИ NOT muted_throughout)`.
+
+Для баннерных креативов: S6=null, S6 не участвует в формуле, вес перераспределяется. Инвариант: при активации banner-конфига весов `weights.s6` обязан быть 0 (enforced в `activateWeightsConfig`).
 
 Реализация: event listeners на `<video>` элементе внутри `[data-cpmind-creative]`. Skip-кнопка: `[data-cpmind-skip]`. Audio connection: `navigator.mediaDevices.enumerateDevices()` при наличии разрешения, fallback `'unknown'`.
 
 ### S7 — Page Context (вес 0.05)
 
 Контекст размещения баннера на странице: позиция (выше/ниже fold), высота страницы, количество конкурирующих баннеров в viewport, persistence видимости.
+
+**Модель нормализации:** квантильная калибровка (не MLE — вес сигнала 0.05 не оправдывает ML-инфраструктуру). Формула: `positionScore` (ATF: relativeY < relativeYLow → 55, иначе 45; BTF: relativeY < relativeYMid → 30, иначе 15) + `clutterPenalty` (≤clutterMid→0, ≤clutterHigh→-12, иначе-25) + `persistenceBonus` (>80%→+5, <20%→-5, иначе 0), clamp [0,100]. Пороги `relativeYLow` (p33 ATF), `relativeYMid` (p67 BTF), `clutterMid` (p50), `clutterHigh` (p80) — квантили реального трафика. 3 сегмента: `desktop`, `mobile`, `tablet`. Параметры хранятся в `s7_quantile_configs`, пересчитываются ежемесячно (cron `0 8 1 * *`). Fallback: `DEFAULT_S7_THRESHOLDS` per device_type.
 
 Реализация: статические поля при инициализации + динамический сэмплинг каждые 1000 мс.
 
@@ -467,7 +498,7 @@ S6=null для баннерных креативов — вес перерасп
 
 ## Версионирование констант тега
 
-19 пороговых констант (`SCROLL_ZONE_PX`, `SWIPE_MIN_DISTANCE_PX`, `PRESENCE_IDLE_TIMEOUT_MS` и др.) вынесены из захардкоженного кода в `tag_constants_configs`. `EVENT_TYPES` и `AD_SELECTORS` — не калибруются.
+19 пороговых констант (`SCROLL_ZONE_PX`, `SWIPE_MIN_DISTANCE_PX`, `PRESENCE_IDLE_TIMEOUT_MS` и др.) вынесены из захардкоженного кода в `tag_constants_configs`. Включает `S1_VIEWPORT_THRESHOLDS: [0, 0.75, 1.0]` — порог видимости для S1. `EVENT_TYPES` и `AD_SELECTORS` — не калибруются.
 
 **Отличие от модели весов.** `weight_configs` — ровно одна активная версия. `tag_constants_configs` — множество активных версий одновременно (разные клиенты используют разные параллельно).
 
@@ -504,7 +535,7 @@ S6=null для баннерных креативов — вес перерасп
 |---|---|---|
 | Тайминговая регулярность | std_dev `event_intervals_ms` < `timing_variance_min_ms` | `robotic_timing` |
 | Энтропия курсора | `cursor_trajectory_entropy` < `cursor_entropy_min` при движениях | `synthetic_cursor` |
-| Невозможные события | клик без hover/move (desktop), time_in_view > 0 при tab_active = 0 | `impossible_event_sequence` |
+| Невозможные события | клик без hover/move (desktop), time_in_view > 3s при tab_active = 0 (порог 3s исключает ложные срабатывания на первый рендер IntersectionObserver при document.hidden=true) | `impossible_event_sequence` |
 
 Все пороги nullable — правило отключено при null. До Фазы 0 (накопление baseline) пороги не задаются.
 
@@ -548,12 +579,13 @@ S6=null для баннерных креативов — вес перерасп
 | Владение | `tag_id`, `user_id` (NOT NULL, FK) | Денормализовано при приёме по `tag_uuid` |
 | Версия констант | `tag_constants_version` (nullable) | Nullable навсегда для данных до версионирования |
 | Сегментация | `session_group_id`, `segment_index` | Связывает сегменты разорванного показа |
-| Метаданные | `campaign_id`, `creative_id`, `creative_type`, `device_type`, `timestamp_start`, `timestamp_end` | |
+| Метаданные | `campaign_id`, `creative_id`, `creative_type`, `device_type`, `skippable`, `publisher_domain`, `timestamp_start`, `timestamp_end` | `skippable` — атрибут размещения видео; `publisher_domain` — домен площадки для аналитики по сайтам |
 | Сырые сигналы | `signals_raw` (JSONB) | Полный payload включая presence |
 | Нормализованные | `signals_normalized` (JSONB) | S1–S7 нормализованные |
 | Raw для таблицы | `s1_raw_time_in_view`, `s2_raw_share_of_screen`, `s3_raw_scroll_speed`, `s4_raw_active_time_pct`, `s5_raw_top_event`, `s7_raw_persistence` | Отображение в панели |
 | Нормализованные (колонки) | `s1_normalized`...`s7_normalized` (real) | Сортировка и диапазонная фильтрация |
-| S6 raw | `s6_raw_completion_rate` (real, nullable) | Отображение в панели; NULL для баннеров |
+| S6 raw | `s6_raw_completion_rate`, `s6_audible_time_sec`, `s6_duration_sec`, `s6_skippable` (nullable) | Отображение в панели; NULL для баннеров |
+| Model versions | `s1_model_version`, `s3_model_version`, `s4_model_version`, `s5_model_version`, `s6_model_version`, `s7_model_version` (nullable text) | UUID активной конфигурации модели на момент показа; `'default'` при fallback на DEFAULT_* |
 | Score | `f_presence`, `score_final`, `weights_version` | |
 | Флаги | `no_events`, `tab_mostly_hidden`, `anomaly_duration`, `is_suspicious` | |
 | IVT | `ivt_verdict` (DEFAULT 'valid'), `ivt_category`, `ivt_confidence`, `score_reliable`, `fp_hash`, `ivt_signals` (JSONB, admin-only) | CHECK constraint на ivt_verdict |
@@ -602,21 +634,34 @@ S6=null для баннерных креативов — вес перерасп
 | `is_active` | boolean | не "одна активная" — множество одновременно |
 | `script_path`, `file_size_bytes` | text, integer (nullable) | путь к файлу, null без артефакта |
 
+### Таблицы конфигураций сигнальных моделей
+
+Все таблицы следуют единому паттерну: `id` (uuid PK), `segment_key`/`device_type`, параметры модели, `sample_size`, `fitted_at`/`computed_at`, `is_active` (partial unique index по сегменту WHERE is_active=true), `deletion_scheduled_at` (TTL 60 мин через `scheduled_deletion.ts`).
+
+| Таблица | Сегментация | Параметры | Cron |
+|---|---|---|---|
+| `s1_weibull_configs` | 9 сегментов `device×creative_group` | `k`, `lambda` | `0 4 * * 0` (weekly) |
+| `s3_logistic_configs` | 9 сегментов `device×creative_group` | `coefficients` (β0..β7), `feature_means`, `feature_stds` | `0 5 * * 0` (weekly) |
+| `s4_configs` | 5 сегментов `device_creative` | `lambda`, `t_ref_ms` | `0 6 1 * *` (monthly) |
+| `s5_logistic_configs` | 2 сегмента `desktop`, `mobile_tablet` | `coefficients` (β0..β4) | `0 6 * * 0` (weekly) |
+| `s6_logistic_configs` | 6 сегментов `device×skippable` | `coefficients` (β0..β8), `feature_means`, `feature_stds` | `0 7 * * 0` (weekly) |
+| `s7_quantile_configs` | 3 сегмента `desktop`, `mobile`, `tablet` | `relative_y_low`, `relative_y_mid`, `clutter_mid`, `clutter_high` | `0 8 1 * *` (monthly) |
+
 ### Индексы
 
-`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`, `ivt_verdict`, `fp_hash`.
+`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `s6_normalized`, `publisher_domain`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`, `ivt_verdict`, `fp_hash`.
 
 `calibration_batches`: составной `(status, created_at)`, `created_by`. `calibration_items`: уникальный составной `(batch_id, impression_id)`, составной `(batch_id, status)`, `impression_id`.
 
-`weight_configs`: `is_active`, partial unique `(config_type) WHERE is_active = true`.
-`impressions`: добавлен `s6_normalized`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`.
+`weight_configs`: `is_active`, partial unique `(config_type) WHERE is_active = true`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`. Каждая таблица сигнальных конфигураций имеет partial unique index `(segment_key/device_type) WHERE is_active = true` и индекс по `deletion_scheduled_at`.
 
 ### Retention
 
 - `impressions`: 90 дней, job 03:00 UTC. Связанные `calibration_items` — ON DELETE CASCADE.
 - `calibration_items (pending)`: TTL-cleanup каждые 15 минут (`CALIBRATION_DRAFT_TTL_MINUTES`).
+- `s1/s3/s4/s5/s6/s7_*_configs` (неактивные): мягкое удаление через `deletion_scheduled_at` — 60 минут после планирования. Job `scheduled_deletion.ts` каждые 15 минут. Активные конфиги не удаляются.
 - `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически.
-- pg_dump бэкапы: 04:00 UTC, ротация 30 дней.
+- pg_dump бэкапы: 02:00 UTC, ротация 30 дней.
 
 ---
 

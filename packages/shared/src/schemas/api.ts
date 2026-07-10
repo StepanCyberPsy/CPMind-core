@@ -18,6 +18,8 @@ export const ImpressionRowSchema = z.object({
   creative_id: z.string(),
   creative_type: z.string(),
   device_type: z.string(),
+  skippable: z.boolean(),
+  publisher_domain: z.string(),
   timestamp_start: z.number(),
   timestamp_end: z.number(),
   created_at: z.string(),
@@ -28,7 +30,10 @@ export const ImpressionRowSchema = z.object({
   s4_raw_active_time_pct: z.number().nullable(), // tab_active/tab_total * 100
   s5_raw_top_event: z.string(), // label: "clicked" | "zoom/swipe" | ...
   s6_raw_completion_rate: z.number().nullable(), // completion_rate_pct (null для баннеров)
-  s7_raw_persistence: z.number().nullable(), // viewability_persistence_pct
+  s6_audible_time_sec: z.number().nullable(), // viewability_persistence_pct
+  s6_duration_sec: z.number().nullable(),
+  s6_skippable: z.boolean().nullable(),
+  s7_raw_persistence: z.number().nullable(),
 
   s1_normalized: z.number().nullable(),
   s2_normalized: z.number().nullable(),
@@ -40,6 +45,12 @@ export const ImpressionRowSchema = z.object({
   f_presence: z.number().int(),
   score_final: z.number(),
   weights_version: z.string(),
+  s1_model_version: z.string().nullable(),
+  s3_model_version: z.string().nullable(),
+  s4_model_version: z.string().nullable(),
+  s5_model_version: z.string().nullable(),
+  s6_model_version: z.string().nullable(),
+  s7_model_version: z.string().nullable(),
 
   no_events: z.boolean(),
   tab_mostly_hidden: z.boolean(),

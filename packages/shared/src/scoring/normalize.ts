@@ -8,20 +8,31 @@ import type {
   SignalsS7,
   ImpressionPayload,
 } from '../schemas/impression.js';
+import type {
+  WeibullParams,
+  LogisticParams,
+  S4Config,
+  S5LogisticParams,
+  S6LogisticParams,
+  S7Thresholds,
+} from './signal_defaults.js';
 
 /**
- * S1 = min(100, ln(t + 1)/ln(11) × 100)
+ * S1 = min(100, CDF(t) × 100)
+ * CDF(t) = 1 − exp(−(t / λ)^k)
  *
- * Контрольные значения (из ТЗ):
- *   0 сек -> 0
- *   1 сек -> ~30.1
- *   3 сек -> ~57.9
- *   5 сек -> ~74.9
- *   10 сек -> 100
+ * t — time_in_view_sec, прошедший фильтр порога видимости в теге.
+ * k, λ — параметры активной Weibull-конфигурации сегмента device_type × creative_group.
+ * Источник: Liu, C.; White, R. W.; Dumais, S. (2010). SIGIR'10. DOI: 10.1145/1835449.1835513.
  */
-
-export function normalizeS1(s1: SignalsS1): number {
-  return Math.min(100, (Math.log(s1.time_in_view_sec + 1) / Math.log(11)) * 100);
+export function normalizeS1(
+  s1: SignalsS1,
+  weibullParams: WeibullParams,
+): number {
+  const t = s1.time_in_view_sec;
+  const { k, lambda } = weibullParams;
+  const cdf = 1 - Math.exp(-Math.pow(t / lambda, k));
+  return Math.min(100, cdf * 100);
 }
 
 /**
@@ -41,92 +52,147 @@ export function normalizeS2(s2: SignalsS2): number {
 
 /**
  * Возвращает null если s3 === null (cross-domain iframe -> backend перераспределяет веса §6.2).
- *
- * Специальный случай из ТЗ §4.3:
- *   scroll_speed_avg_px_s === 0 (нет скролла в зоне) -> base_speed_score = 55, НЕ 0.
- *
- * Формула:
- *   base_speed_score:
- *     null или 0 -> 55  (нет скролла / не измерили)
- *     < 300 px/s -> 55
- *     300–800 px/s -> 30
- *     > 800 px/s -> 0
- *
- *   pause_bonus = min(25, pause_count × 10)
- *   return_bonus = min(20, direction_changes × 15)
- *   streak_penalty = min(20, scroll_streaks × 8)
- *   reading_bonus = 10 если reading_pattern_detected = true, иначе 0
- *
- *   S3 = max(0, min(100, base + pause + return + reading − streak))
+ * S3 = min(100, P(engaged) × 100), где P(engaged) = sigmoid(β·x_z).
+ * Признаки нормируются z-score по featureMeans/featureStds активного сегмента.
  */
 
-export function normalizeS3(s3: SignalsS3): number | null {
+function zScore(
+  value: number,
+  mean: number,
+  std: number,
+): number {
+  if (std === 0) return 0;
+  return (value - mean) / std;
+}
+
+export function normalizeS3(
+  s3: SignalsS3,
+  params: LogisticParams,
+): number | null {
   if (s3 === null) return null;
 
-  const speed = s3.scroll_speed_avg_px_s;
+  const fm = params.featureMeans;
+  const fs = params.featureStds;
 
-  const baseSpeedScore: number =
-    speed === null || speed === 0 ? 55 :
-      speed < 300 ? 55 :
-        speed <= 800 ? 30 :
-          0;
+  const speedZ = zScore(s3.scroll_speed_avg_px_s ?? 0, fm.speed ?? 0, fs.speed ?? 1);
+  const stddevZ = zScore(s3.scroll_speed_std_dev ?? 0, fm.stddev ?? 0, fs.stddev ?? 1);
+  const pauseZ = zScore(s3.pause_count ?? 0, fm.pause ?? 0, fs.pause ?? 1);
+  const directionZ = zScore(s3.direction_changes ?? 0, fm.direction ?? 0, fs.direction ?? 1);
+  const streakZ = zScore(s3.scroll_streaks ?? 0, fm.streak ?? 0, fs.streak ?? 1);
+  const reading = s3.reading_pattern_detected === true ? 1 : 0;
+  const momentum = s3.is_momentum_scroll === true ? 1 : 0;
 
-  const pauseBonus = Math.min(25, (s3.pause_count ?? 0) * 10);
-  const returnBonus = Math.min(20, (s3.direction_changes ?? 0) * 15);
-  const streakPenalty = Math.min(20, (s3.scroll_streaks ?? 0) * 8);
-  const readingBonus = s3.reading_pattern_detected === true ? 10 : 0;
+  const z =
+    params.beta0 +
+    params.beta1 * speedZ +
+    params.beta2 * stddevZ +
+    params.beta3 * pauseZ +
+    params.beta4 * directionZ +
+    params.beta5 * streakZ +
+    params.beta6 * reading +
+    params.beta7 * momentum;
 
-  return Math.max(0, Math.min(100,
-    baseSpeedScore + pauseBonus + returnBonus + readingBonus - streakPenalty,
-  ));
+  const pEngaged = 1 / (1 + Math.exp(-z));
+  return Math.min(100, pEngaged * 100);
 }
 
 /**
- * S4 = (tab_active_time_ms / tab_total_time_ms) × 100
+ * S4 = clamp(activeRatio × 100 × freqPenalty × durationFactor, 0, 100)
  *
- * Guard: tab_total_time_ms === 0 -> 0 (защита от деления на ноль).
- * Результат ограничен [0, 100].
+ * freqPenalty    = exp(-λ × tabSwitchesCount)         ∈ (0, 1]
+ * durationFactor = min(1, avgSessionMs / tRefMs)       ∈ [0, 1]
+ * avgSessionMs   = tabActiveTimeMs / (tabSwitchesCount + 1)
+ *
+ * Guard: tabTotalTimeMs ≤ 0 → 0.
+ * Guard: tRefMs ≤ 0 → durationFactor = 1 (штраф по длительности не применяется).
+ * Источник: Grusky et al. (2017), Liu & Dumais (2010), Bruns et al. (2025).
  */
 
-export function normalizeS4(s4: SignalsS4): number {
-  if (s4.tab_total_time_ms === 0) return 0;
+export function normalizeS4(
+  s4: SignalsS4,
+  config: S4Config,
+): number {
+  if (s4.tab_total_time_ms <= 0) return 0;
+
+  const activeRatio = Math.min(1, Math.max(0,
+    s4.tab_active_time_ms / s4.tab_total_time_ms,
+  ));
+  const sessionCount = Math.max(1, s4.tab_switches_count + 1);
+  const avgSessionMs = s4.tab_active_time_ms / sessionCount;
+
+  const freqPenalty = Math.exp(-config.lambda * s4.tab_switches_count);
+  const durationFactor = config.tRefMs <= 0 ? 1 : Math.min(1, avgSessionMs / config.tRefMs);
+
   return Math.min(100, Math.max(0,
-    (s4.tab_active_time_ms / s4.tab_total_time_ms) * 100,
+    Math.round(activeRatio * 100 * freqPenalty * durationFactor * 10) / 10,
   ));
 }
 
+function normDesktopFeatures(s5: SignalsS5): {
+  hoverDurationNorm: number;
+  hoverCountNorm: number;
+  proximityNorm: number;
+} {
+  const hoverDurationNorm = Math.min(
+    1,
+    Math.log((s5.hover_duration_max_ms ?? 0) + 1) / Math.log(10001),
+  );
+  const hoverCountNorm = Math.min(s5.hover_count ?? 0, 10) / 10;
+  const proximityNorm = s5.cursor_proximity_min_px !== null
+    ? 1 - Math.min(s5.cursor_proximity_min_px, 200) / 200
+    : 0;
+  return { hoverDurationNorm, hoverCountNorm, proximityNorm };
+}
+
+function normMobileFeatures(s5: SignalsS5): {
+  tapCountNorm: number;
+  swipeCountNorm: number;
+} {
+  const tapCountNorm = Math.min(s5.tap_count ?? 0, 5) / 5;
+  const swipeCountNorm = Math.min(s5.swipe_count ?? 0, 3) / 3;
+  return { tapCountNorm, swipeCountNorm };
+}
+
 /**
- * S5 — берется наивысший достигнутый уровень (§4.5).
+ * S5 = min(100, round(P(engaged) × 100))
+ * P(engaged) = sigmoid(β·x), признаки нормализованы по сегменту device_type.
  *
- * Иерархия уровней (от высшего к низшему):
- *   clicked = true -> 100
- *   zoom = true ИЛИ swipe_count > 0 ->  90
- *   hover_duration_max_ms > 3000 ->  75
- *   hover_duration_max_ms 1000–3000 ->  50
- *   hover_duration_max_ms 500–1000 ->  30
- *   tap_count > 0 ->  25
- *   hover_count > 0 ->  15
- *   cursor_proximity_min_px < 50 ->   8
- *   ни одного события ->   0
+ * Desktop: x = [1, clicked, hoverDurationNorm, hoverCountNorm, proximityNorm]
+ * Mobile/tablet: x = [1, clicked, zoom, tapCountNorm, swipeCountNorm]
+ *
+ * hoverDurationNorm = min(1, log(hoverMax+1) / log(10001)) — clamp защищает от выхода за [0,1].
+ * proximityNorm инвертирована: меньше px → ближе курсор → выше значение.
+ * Источник: Joachims et al. (2005), Leiva & Arapakis (2020).
  */
 
-export function normalizeS5(s5: SignalsS5): number {
-  if (s5.clicked) return 100;
+export function normalizeS5(
+  s5: SignalsS5,
+  params: S5LogisticParams,
+): number {
+  const clicked = s5.clicked ? 1 : 0;
+  let z: number;
 
-  if (s5.zoom === true || (s5.swipe_count ?? 0) > 0) return 90;
+  if (params.segmentKey === 'desktop') {
+    const f = normDesktopFeatures(s5);
+    z =
+      params.beta0 +
+      params.beta1 * clicked +
+      params.beta2 * f.hoverDurationNorm +
+      params.beta3 * f.hoverCountNorm +
+      params.beta4 * f.proximityNorm;
+  } else {
+    const f = normMobileFeatures(s5);
+    const zoom = s5.zoom === true ? 1 : 0;
+    z =
+      params.beta0 +
+      params.beta1 * clicked +
+      params.beta2 * zoom +
+      params.beta3 * f.tapCountNorm +
+      params.beta4 * f.swipeCountNorm;
+  }
 
-  const hoverMax = s5.hover_duration_max_ms ?? 0;
-  if (hoverMax > 3000) return 75;
-  if (hoverMax > 1000) return 50;
-  if (hoverMax > 500) return 30;
-
-  if ((s5.tap_count ?? 0) > 0) return 25;
-
-  if ((s5.hover_count ?? 0) > 0) return 15;
-
-  if ((s5.cursor_proximity_min_px ?? Infinity) < 50) return 8;
-
-  return 0;
+  const pEngaged = 1 / (1 + Math.exp(-z));
+  return Math.min(100, Math.round(pEngaged * 100));
 }
 
 /**
@@ -150,95 +216,125 @@ export function getS5TopEventLabel(s5: SignalsS5): string {
 }
 
 /**
- * Возвращает null если s6 === null (баннерный креатив без видео -> backend перераспределяет веса §6.2).
- *
- * base_score — иерархия наивысшего достигнутого уровня просмотра:
- *   completion              -> 85
- *   quartile_75             -> 75
- *   quartile_50             -> 55
- *   quartile_25             -> 35
- *   play_initiated (< 25%)  -> 15
- *   skipped                 -> 5
- *   нет взаимодействия      -> 0
- *
- * audibility_modifier (аддитивно):
- *   unmuted_by_user         -> +10
- *   muted_throughout        -> −15
- *   audible_quartile_50     -> +5
- *
- * replay_bonus = min(10, replay_count × 5)
- *
- * S6 = max(0, min(100, base_score + audibility_modifier + replay_bonus))
+ * Возвращает ordinal-квартиль как число: 100/75/50/25/10/0.
+ * Используется как fallback для completionRate когда completion_rate_pct = null,
+ * и как самостоятельный признак quartileReached в feature-векторе.
  */
-export function normalizeS6(s6: SignalsS6 | null): number | null {
-  if (s6 === null) return null;
-
-  let baseScore: number;
-  if (s6.completion) {
-    baseScore = 85;
-  } else if (s6.quartile_75) {
-    baseScore = 75;
-  } else if (s6.quartile_50) {
-    baseScore = 55;
-  } else if (s6.quartile_25) {
-    baseScore = 35;
-  } else if (s6.play_initiated) {
-    baseScore = 15;
-  } else if (s6.skipped) {
-    baseScore = 5;
-  } else {
-    baseScore = 0;
-  }
-
-  let audibilityModifier = 0;
-  if (s6.unmuted_by_user) audibilityModifier += 10;
-  if (s6.muted_throughout) audibilityModifier -= 15;
-  if (s6.audible_quartile_50) audibilityModifier += 5;
-
-  const replayBonus = Math.min(10, s6.replay_count * 5);
-
-  return Math.max(0, Math.min(100, baseScore + audibilityModifier + replayBonus));
+function quartileOrdinal(s6: SignalsS6): number {
+  if (s6.completion) return 100;
+  if (s6.quartile_75) return 75;
+  if (s6.quartile_50) return 50;
+  if (s6.quartile_25) return 25;
+  if (s6.play_initiated) return 10;
+  return 0;
 }
 
 /**
- * S7 = max(0, min(100, base_position + position_bonus + clutter_penalty + persistence_bonus))
+ * S6 = min(100, P(engaged) × 100)
+ * P(engaged) = sigmoid(β·x), признаки нормализованы z-score по сегменту.
  *
- * base_position_score:
- *   is_above_the_fold = true -> 60
- *   is_above_the_fold = false -> 30
+ * Feature vector:
+ *   [intercept, completionZ, quartileZ, audibleZ, muted, unmuted, replayZ, skipped, completionZ×audibleZ]
  *
- * position_bonus (по относительной Y-позиции: creative_position_y_px / page_height_total_px):
- *   < 0.25 -> +20
- *   < 0.50 -> +10
- *   < 0.75 -> 0
- *   ≥ 0.75 -> −10
+ * completionRate: числовой % если доступен, иначе ordinal-квартиль (fallback).
+ * audibleRatio: audible_time_sec / duration_sec, 0 если duration недоступен.
+ * replayLog: log(1 + replay_count) перед z-score.
+ * Терм взаимодействия completionZ×audibleZ моделирует нелинейный эффект:
+ *   "completion со звуком" vs "completion без звука" (§4.1, Audion 2025).
  *
- * clutter_penalty (по competing_ads_visible):
- *   ≤ 2 -> 0
- *   3–5 -> −10
- *   > 5 -> −20
+ * Возвращает null для баннеров (s6 === null).
+ * Источник: IAB/MRC Attention Guidelines (2025), Marketing Dive (2025), Audion (2025).
+ */
+
+export function normalizeS6(
+  s6: SignalsS6 | null,
+  params: S6LogisticParams,
+): number | null {
+  if (s6 === null) return null;
+
+  const fm = params.featureMeans;
+  const fs = params.featureStds;
+
+  const completionRate = s6.completion_rate_pct ?? quartileOrdinal(s6);
+  const quartile = quartileOrdinal(s6);
+  const audibleRatio = s6.audible_time_sec !== null && s6.duration_sec !== null && s6.duration_sec > 0
+    ? s6.audible_time_sec / s6.duration_sec
+    : 0;
+  const replayLog = Math.log(1 + s6.replay_count);
+
+  const completionZ = fs['completion'] !== 0
+    ? (completionRate - (fm['completion'] ?? 0)) / (fs['completion'] ?? 1)
+    : 0;
+  const quartileZ = fs['quartile'] !== 0
+    ? (quartile - (fm['quartile'] ?? 0)) / (fs['quartile'] ?? 1)
+    : 0;
+  const audibleZ = fs['audible'] !== 0
+    ? (audibleRatio - (fm['audible'] ?? 0)) / (fs['audible'] ?? 1)
+    : 0;
+  const replayZ = fs['replay'] !== 0
+    ? (replayLog - (fm['replay'] ?? 0)) / (fs['replay'] ?? 1)
+    : 0;
+
+  const muted = s6.muted_throughout ? 1 : 0;
+  const unmuted = s6.unmuted_by_user ? 1 : 0;
+  const skipped = s6.skipped ? 1 : 0;
+
+  const z =
+    params.beta0 +
+    params.beta1 * completionZ +
+    params.beta2 * quartileZ +
+    params.beta3 * audibleZ +
+    params.beta4 * muted +
+    params.beta5 * unmuted +
+    params.beta6 * replayZ +
+    params.beta7 * skipped +
+    params.beta8 * (completionZ * audibleZ);
+
+  const pEngaged = 1 / (1 + Math.exp(-z));
+  return Math.min(100, pEngaged * 100);
+}
+
+/**
+ * S7 = clamp(positionScore + clutterPenalty + persistenceBonus, 0, 100)
  *
- * persistence_bonus (по viewability_persistence_pct):
+ * positionScore (устраняет двойной счёт ATF+relativeY из as-is формулы):
+ *   is_above_the_fold = true:
+ *     relativeY < relativeYLow -> 55
+ *     иначе                   -> 45
+ *   is_above_the_fold = false:
+ *     relativeY < relativeYMid -> 30
+ *     иначе                    -> 15
+ *
+ * clutterPenalty (по competing_ads_visible, пороги — квантили реального трафика):
+ *   ≤ clutterMid  ->   0
+ *   ≤ clutterHigh -> −12
+ *   иначе         -> −25
+ *
+ * persistenceBonus (по viewability_persistence_pct):
  *   > 80% -> +5
  *   < 20% -> −5
  *   иначе ->  0
+ *
+ * Пороги relativeYLow/Mid, clutterMid/High специфичны для device_type,
+ * резолвятся через getActiveS7Thresholds(deviceType) в routes/impressions.ts.
+ * Источник: Nielsen Norman Group (ATF/BTF), Hammer et al. (ad clutter), S7_master §4.2.
  */
-
-export function normalizeS7(s7: SignalsS7): number {
-  const base = s7.is_above_the_fold ? 60 : 30;
-
+export function normalizeS7(
+  s7: SignalsS7,
+  deviceType: 'desktop' | 'mobile' | 'tablet',
+  thresholds: S7Thresholds,
+): number {
   const relativeY = s7.creative_position_y_px / s7.page_height_total_px;
-  const positionBonus =
-    relativeY < 0.25 ? 20 :
-      relativeY < 0.50 ? 10 :
-        relativeY < 0.75 ? 0 :
-          -10;
+
+  const positionScore = s7.is_above_the_fold
+    ? (relativeY < thresholds.relativeYLow ? 55 : 45)
+    : (relativeY < thresholds.relativeYMid ? 30 : 15);
 
   const clutter = s7.competing_ads_visible;
   const clutterPenalty =
-    clutter <= 2 ? 0 :
-      clutter <= 5 ? -10 :
-        -20;
+    clutter <= thresholds.clutterMid ? 0 :
+      clutter <= thresholds.clutterHigh ? -12 :
+        -25;
 
   const persistence = s7.viewability_persistence_pct;
   const persistenceBonus =
@@ -247,7 +343,7 @@ export function normalizeS7(s7: SignalsS7): number {
         0;
 
   return Math.max(0, Math.min(100,
-    base + positionBonus + clutterPenalty + persistenceBonus,
+    positionScore + clutterPenalty + persistenceBonus,
   ));
 }
 
@@ -261,14 +357,22 @@ export interface NormalizedSignals {
   s7: number;
 }
 
-export function normalizeAll(payload: ImpressionPayload): NormalizedSignals {
+export function normalizeAll(
+  payload: ImpressionPayload,
+  weibullParams: WeibullParams,
+  s3Params: LogisticParams,
+  s4Config: S4Config,
+  s5Params: S5LogisticParams,
+  s6Params: S6LogisticParams,
+  s7Thresholds: S7Thresholds,
+): NormalizedSignals {
   return {
-    s1: normalizeS1(payload.signals.s1),
+    s1: normalizeS1(payload.signals.s1, weibullParams),
     s2: normalizeS2(payload.signals.s2),
-    s3: normalizeS3(payload.signals.s3),
-    s4: normalizeS4(payload.signals.s4),
-    s5: normalizeS5(payload.signals.s5),
-    s6: normalizeS6(payload.signals.s6 ?? null),
-    s7: normalizeS7(payload.signals.s7),
+    s3: normalizeS3(payload.signals.s3, s3Params),
+    s4: normalizeS4(payload.signals.s4, s4Config),
+    s5: normalizeS5(payload.signals.s5, s5Params),
+    s6: normalizeS6(payload.signals.s6 ?? null, s6Params),
+    s7: normalizeS7(payload.signals.s7, payload.device_type, s7Thresholds),
   };
 }

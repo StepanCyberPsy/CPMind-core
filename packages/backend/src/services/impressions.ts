@@ -162,15 +162,26 @@ const ADMIN_ONLY_COLUMNS = {
   id: impressions.id,
   session_group_id: impressions.sessionGroupId,
   segment_index: impressions.segmentIndex,
+  skippable: impressions.s6Skippable,
+  publisher_domain: impressions.publisherDomain,
   s1_raw_time_in_view: impressions.s1RawTimeInView,
   s2_raw_share_of_screen: impressions.s2RawShareOfScreen,
   s3_raw_scroll_speed: impressions.s3RawScrollSpeed,
   s4_raw_active_time_pct: impressions.s4RawActiveTimePct,
   s5_raw_top_event: impressions.s5RawTopEvent,
   s6_raw_completion_rate: impressions.s6RawCompletionRate,
+  s6_audible_time_sec: impressions.s6AudibleTimeSec,
+  s6_duration_sec: impressions.s6DurationSec,
+  s6_skippable: impressions.s6Skippable,
   s7_raw_persistence: impressions.s7RawPersistence,
   f_presence: impressions.fPresence,
   weights_version: impressions.weightsVersion,
+  s1_model_version: impressions.s1ModelVersion,
+  s3_model_version: impressions.s3ModelVersion,
+  s4_model_version: impressions.s4ModelVersion,
+  s5_model_version: impressions.s5ModelVersion,
+  s6_model_version: impressions.s6ModelVersion,
+  s7_model_version: impressions.s7ModelVersion,
   no_events: impressions.noEvents,
   tab_mostly_hidden: impressions.tabMostlyHidden,
   anomaly_duration: impressions.anomalyDuration,
@@ -213,6 +224,8 @@ export interface JoinedImpressionRow {
   creative_id: string;
   creative_type: string;
   device_type: string;
+  skippable: boolean | null;
+  publisher_domain: string | null;
   timestamp_start: number;
   timestamp_end: number;
   created_at: Date;
@@ -222,6 +235,9 @@ export interface JoinedImpressionRow {
   s4_raw_active_time_pct: number | null;
   s5_raw_top_event: string;
   s6_raw_completion_rate: number | null;
+  s6_audible_time_sec: number | null;
+  s6_duration_sec: number | null;
+  s6_skippable: boolean | null;
   s7_raw_persistence: number | null;
   s1_normalized: number | null;
   s2_normalized: number | null;
@@ -233,6 +249,12 @@ export interface JoinedImpressionRow {
   f_presence: number;
   score_final: number;
   weights_version: string;
+  s1_model_version: string | null;
+  s3_model_version: string | null;
+  s4_model_version: string | null;
+  s5_model_version: string | null;
+  s6_model_version: string | null;
+  s7_model_version: string | null;
   no_events: boolean;
   tab_mostly_hidden: boolean;
   anomaly_duration: boolean;
@@ -304,6 +326,8 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     creative_id: row.creative_id,
     creative_type: row.creative_type,
     device_type: row.device_type,
+    skippable: row.skippable ?? false,
+    publisher_domain: row.publisher_domain ?? 'unknown',
     timestamp_start: row.timestamp_start,
     timestamp_end: row.timestamp_end,
     created_at: row.created_at.toISOString(),
@@ -314,6 +338,9 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     s4_raw_active_time_pct: row.s4_raw_active_time_pct,
     s5_raw_top_event: row.s5_raw_top_event,
     s6_raw_completion_rate: row.s6_raw_completion_rate,
+    s6_audible_time_sec: row.s6_audible_time_sec,
+    s6_duration_sec: row.s6_duration_sec,
+    s6_skippable: row.s6_skippable,
     s7_raw_persistence: row.s7_raw_persistence,
 
     s1_normalized: row.s1_normalized,
@@ -327,6 +354,12 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     f_presence: row.f_presence,
     score_final: row.score_final,
     weights_version: row.weights_version,
+    s1_model_version: row.s1_model_version,
+    s3_model_version: row.s3_model_version,
+    s4_model_version: row.s4_model_version,
+    s5_model_version: row.s5_model_version,
+    s6_model_version: row.s6_model_version,
+    s7_model_version: row.s7_model_version,
 
     no_events: row.no_events,
     tab_mostly_hidden: row.tab_mostly_hidden,

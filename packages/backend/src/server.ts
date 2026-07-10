@@ -16,6 +16,19 @@ import { startCalibrationCleanupJob } from './jobs/calibration_cleanup.js';
 import { startIvtFrequencyJob } from './jobs/ivt_frequency.js';
 import { ivtListsRoute } from './routes/ivt_lists.js';
 import { ivtThresholdsRoute } from './routes/ivt_thresholds.js';
+import { s1WeibullRoute } from './routes/s1_weibull.js';
+import { s3LogisticRoute } from './routes/s3_logistic.js';
+import { s4ConfigRoute } from './routes/s4_config.js';
+import { s5LogisticRoute } from './routes/s5_logistic.js';
+import { s6LogisticRoute } from './routes/s6_logistic.js';
+import { s7QuantileRoute } from './routes/s7_quantile.js';
+import { startScheduledDeletionJob } from './jobs/scheduled_deletion.js';
+import { startS1WeibullRecalibrationJob } from './jobs/s1_weibull_recalibration.js';
+import { startS3LogisticRecalibrationJob } from './jobs/s3_logistic_recalibration.js';
+import { startS4CalibrationJob } from './jobs/s4_calibration.js';
+import { startS5LogisticRecalibrationJob } from './jobs/s5_logistic_recalibration.js';
+import { startS6LogisticRecalibrationJob } from './jobs/s6_logistic_recalibration.js';
+import { startS7QuantileRecalibrationJob } from './jobs/s7_quantile_recalibration.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -78,6 +91,12 @@ export function buildServer(): FastifyInstance {
   app.register(tagConstantsRoute, { prefix: '/api' });
   app.register(ivtListsRoute, { prefix: '/api' });
   app.register(ivtThresholdsRoute, { prefix: '/api' });
+  app.register(s1WeibullRoute, { prefix: '/api' });
+  app.register(s3LogisticRoute, { prefix: '/api' });
+  app.register(s4ConfigRoute, { prefix: '/api' });
+  app.register(s5LogisticRoute, { prefix: '/api' });
+  app.register(s6LogisticRoute, { prefix: '/api' });
+  app.register(s7QuantileRoute, { prefix: '/api' });
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Unhandled error');
@@ -91,6 +110,13 @@ export function buildServer(): FastifyInstance {
     startRetentionJob();
     startCalibrationCleanupJob();
     startIvtFrequencyJob();
+    startScheduledDeletionJob();
+    startS1WeibullRecalibrationJob();
+    startS3LogisticRecalibrationJob();
+    startS4CalibrationJob();
+    startS5LogisticRecalibrationJob();
+    startS6LogisticRecalibrationJob();
+    startS7QuantileRecalibrationJob();
   });
 
   return app;

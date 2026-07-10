@@ -7,6 +7,8 @@ export interface TagConfig {
   campaignId: string;
   creativeId: string;
   creativeType: CreativeType;
+  skippable: boolean;
+  publisherDomain?: string;
   endpoint: string;
   debug: boolean;
 }
@@ -76,6 +78,7 @@ export interface S6RawData {
   volume_level: number;
   audio_connection: 'speaker' | 'headphones' | 'bluetooth' | 'unknown';
   audible_time_sec: number;
+  duration_sec: number | null;
   audible_quartile_25: boolean;
   audible_quartile_50: boolean;
   audible_quartile_75: boolean;
@@ -96,6 +99,7 @@ export interface Session {
   timeInViewSec: number;
   maxContinuousViewSec: number;
   visiblePixelsPct: number;
+  mrcCompliant: boolean;
   viewStart: number | null;
 
   // S2
@@ -145,4 +149,5 @@ export interface Session {
   // Служебное
   sent: boolean;
   fpHash: string | null;
+  publisherDomain: string;
 }

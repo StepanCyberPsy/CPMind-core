@@ -135,7 +135,7 @@ export async function createWeightsConfig(data: {
 export async function activateWeightsConfig(id: string): Promise<void> {
   await db.transaction(async (tx) => {
     const target = await tx
-      .select({ configType: weightConfigs.configType })
+      .select({ configType: weightConfigs.configType, weights: weightConfigs.weights })
       .from(weightConfigs)
       .where(eq(weightConfigs.id, id))
       .limit(1);
@@ -148,10 +148,24 @@ export async function activateWeightsConfig(id: string): Promise<void> {
       );
     }
 
+    const row = target[0]!;
+
+    // Инвариант: для баннерных конфигураций вес S6 обязан быть 0
+    if (row.configType === 'banner') {
+      const w = row.weights as Record<string, number>;
+      if ((w['s6'] ?? 0) !== 0) {
+        throw new WeightsConfigError(
+          'Для баннерных конфигураций вес S6 должен быть равен 0',
+          422,
+          'WEIGHTS_BANNER_S6_NONZERO',
+        );
+      }
+    }
+
     await tx
       .update(weightConfigs)
       .set({ isActive: false })
-      .where(eq(weightConfigs.configType, target[0]!.configType));
+      .where(eq(weightConfigs.configType, row.configType));
 
     await tx
       .update(weightConfigs)

@@ -72,6 +72,21 @@ export {
 // Скоринг
 export { applyAnomalyCapping } from './scoring/capping.js';
 export {
+    fitWeibullMLE,
+} from './scoring/weibull_mle_fit.js';
+export {
+    fitLogisticMLE,
+} from './scoring/logistic_mle_fit.js';
+export {
+    DEFAULT_WEIBULL_PARAMS,
+    DEFAULT_LOGISTIC_PARAMS,
+    DEFAULT_S4_CONFIGS,
+    DEFAULT_S5_DESKTOP,
+    DEFAULT_S5_MOBILE_TABLET,
+    DEFAULT_S6_LOGISTIC_PARAMS,
+    DEFAULT_S7_THRESHOLDS,
+} from './scoring/signal_defaults.js';
+export {
     normalizeS1,
     normalizeS2,
     normalizeS3,

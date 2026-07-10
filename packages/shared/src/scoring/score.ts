@@ -5,6 +5,14 @@ import {
   getS5TopEventLabel,
   type NormalizedSignals,
 } from './normalize.js';
+import type {
+    WeibullParams,
+    LogisticParams,
+    S4Config,
+    S5LogisticParams,
+    S6LogisticParams,
+    S7Thresholds,
+} from './signal_defaults.js';
 import {
   computeEffectiveWeights,
   detectNullSignals,
@@ -50,14 +58,28 @@ export interface ScoreResult {
 export function computeScore(
   payload: ImpressionPayload,
   weights: WeightsConfig,
+  weibullParams: WeibullParams,
+  s3Params: LogisticParams,
+  s4Config: S4Config,
+  s5Params: S5LogisticParams,
+  s6Params: S6LogisticParams,
+  s7Thresholds: S7Thresholds,
   presenceIdleThresholdMs: number,
 ): ScoreResult {
 
   // 1. Кэппинг аномалий (time_in_view_sec > 3600 до кэппинга)
   const { payload: capped, anomaly_duration } = applyAnomalyCapping(payload);
 
-  // 2. Нормализация
-  const normalized = normalizeAll(capped);
+  // 2. Нормализация (S1 — Weibull CDF, S3 — логистика, S4 — нелинейная функция, S5 — логистика по device_type, S6 — логистика по device×skippable)
+  const normalized = normalizeAll(
+    capped,
+    weibullParams,
+    s3Params,
+    s4Config,
+    s5Params,
+    s6Params,
+    s7Thresholds,
+  );
 
   // 3. Перераспределение весов: Null-сигнал (только S3 в MVP) -> его вес пропорционально переходит к остальным
   const nullSignals = detectNullSignals(normalized);

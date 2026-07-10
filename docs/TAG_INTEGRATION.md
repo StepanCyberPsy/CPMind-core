@@ -22,14 +22,15 @@
 
 ## Что такое тег и зачем он нужен
 
-Тег CPMind — это небольшой JavaScript-файл (~22-24 КБ), который подключается к странице вашего сайта рядом с рекламным баннером. После подключения тег начинает незаметно наблюдать за тем, как пользователь взаимодействует с баннером:
+Тег CPMind — это небольшой JavaScript-файл (~31 КБ), который подключается к странице вашего сайта рядом с рекламным баннером. После подключения тег начинает незаметно наблюдать за тем, как пользователь взаимодействует с баннером:
 
-- сколько времени баннер был виден на экране
+- сколько времени баннер был виден на экране (не менее 75% площади баннера в течение 2 секунд непрерывно)
 - прокручивал ли пользователь страницу быстро или медленно
 - наводил ли курсор на баннер, кликал ли
 - была ли вкладка браузера активна или свернута
+- для видео-рекламы: насколько глубоко досмотрен ролик и слышал ли пользователь звук
 
-Когда пользователь уходит со страницы, тег отправляет собранные данные на сервер CPMind, который рассчитывает **CPMind Score** — число от 0 до 100, отражающее качество рекламного показа. Все данные доступны в панели аналитики.
+Когда пользователь уходит со страницы, тег отправляет собранные данные на сервер CPMind, который рассчитывает **CPMind Score** — число от 0 до 100, отражающее качество рекламного показа. Все данные доступны в панели аналитики с разбивкой по площадкам размещения.
 
 **Тег не влияет на:**
 - внешний вид баннера
@@ -75,6 +76,7 @@
   data-campaign-id="название_кампании"
   data-creative-id="название_баннера"
   data-creative-type="banner_static"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
@@ -88,7 +90,7 @@
 <script async src="https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js"></script>
 ```
 
-Изменилось два момента: баннер обернут в `<div>` с параметрами, включая `data-tag-uuid` (выдается командой CPMind, привязывает показы к вашему аккаунту), и адрес скрипта содержит номер версии. Сам баннер (тег `<img>` или `<a>`) — не трогается.
+Изменилось два момента: баннер обернут в `<div>` с параметрами, включая `data-tag-uuid` (выдается командой CPMind, привязывает показы к вашему аккаунту) и `data-publisher-domain` (домен вашей площадки для разбивки аналитики по сайтам), и адрес скрипта содержит номер версии. Сам баннер (тег `<img>` или `<a>`) — не трогается.
 
 ---
 
@@ -109,6 +111,7 @@
   data-campaign-id="ВАШ_ID_КАМПАНИИ"
   data-creative-id="ВАШ_ID_БАННЕРА"
   data-creative-type="banner_static"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: ШИРИНА_БАННЕРА_px; height: ВЫСОТА_БАННЕРА_px;"
 >
@@ -117,6 +120,8 @@
 ```
 
 **Важно:** `data-tag-uuid` — обязательный параметр, выдается командой CPMind вместе с доступом к панели аналитики. Без него или с неверным значением показы не будут засчитаны. Укажите в `style` точные размеры вашего баннера в пикселях.
+
+`data-publisher-domain` — домен площадки, на которой размещается баннер (например, `news.example.ru`). Используется для разбивки аналитики по сайтам в панели CPMind. Если не указан, площадка будет определена автоматически или помечена как неизвестная.
 
 ### Шаг 3 — Добавьте подключение тега
 
@@ -145,7 +150,9 @@
 | `data-tag-uuid` | да | Уникальный идентификатор вашего аккаунта, выдается командой CPMind. Без него показы не засчитываются |
 | `data-campaign-id` | да | Название рекламной кампании. Используйте латинские буквы, цифры и `_`. Например: `autumn_promo_2026` |
 | `data-creative-id` | да | Уникальное название конкретного баннера. Например: `banner_728x90_autumn_v1` |
-| `data-creative-type` | да | Тип баннера: `banner_static`, `banner_gif` или `banner_html5` |
+| `data-creative-type` | да | Тип креатива: `banner_static`, `banner_gif`, `banner_html5` или `video_creative` |
+| `data-publisher-domain` | нет | Домен площадки размещения. Например: `news.example.ru`. Используется для аналитики по площадкам. Если не указан — определяется автоматически |
+| `data-skippable` | нет | Только для `video_creative`. Укажите `data-skippable="true"` если видео можно пропустить (skippable формат), `data-skippable="false"` если нельзя. По умолчанию `false` |
 | `data-endpoint` | да | Всегда указывайте: `https://app.cpmind.tech/api/collect` |
 | `style` (width, height) | да | Точные размеры баннера в пикселях |
 | `data-debug` | нет | Только для тестирования командой CPMind: `data-debug="true"` |
@@ -171,6 +178,7 @@
   data-campaign-id="kampania_2026"
   data-creative-id="statichny_banner_728x90"
   data-creative-type="banner_static"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
@@ -191,6 +199,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="animirovannyy_banner_728x90"
   data-creative-type="banner_gif"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
@@ -211,6 +220,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="html5_banner_728x90"
   data-creative-type="banner_html5"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
@@ -227,11 +237,62 @@ GIF-анимация. Интеграция идентична статическ
 
 **Примечание для HTML5-баннеров в iframe:** если баннер загружается с другого домена (cross-domain iframe), сигнал S3 (скорость скролла) будет недоступен — это нормальное поведение, вес S3 автоматически перераспределится на другие сигналы.
 
+### video_creative — видеореклама
+
+Видеоролик с полноценным отслеживанием вовлечённости: глубина просмотра (квартили), слышимость звука, паузы, повторы. Является самым информативным форматом в CPMind — видеосигнал (S6) имеет наибольший вес в итоговом Score.
+
+Обязательно указывайте `data-skippable`: это влияет на модель оценки, поскольку пользовательское поведение в skippable и non-skippable форматах принципиально различается.
+
+```html
+<div
+  data-cpmind-creative
+  data-tag-uuid="UUID_вашего_тега"
+  data-campaign-id="kampania_2026"
+  data-creative-id="video_15sec_kampania"
+  data-creative-type="video_creative"
+  data-skippable="false"
+  data-publisher-domain="ваш-сайт.ru"
+  data-endpoint="https://app.cpmind.tech/api/collect"
+  style="width: 640px; height: 360px;"
+>
+  <video
+    src="/video/kampania_2026_15sec.mp4"
+    width="640"
+    height="360"
+    autoplay
+    muted
+    playsinline
+  ></video>
+</div>
+```
+
+Для skippable видео (пользователь может пропустить после нескольких секунд) добавьте кнопку пропуска с атрибутом `data-cpmind-skip` — тег автоматически зафиксирует момент пропуска:
+
+```html
+<div
+  data-cpmind-creative
+  data-tag-uuid="UUID_вашего_тега"
+  data-campaign-id="kampania_2026"
+  data-creative-id="video_30sec_skippable"
+  data-creative-type="video_creative"
+  data-skippable="true"
+  data-publisher-domain="ваш-сайт.ru"
+  data-endpoint="https://app.cpmind.tech/api/collect"
+  style="width: 640px; height: 360px; position: relative;"
+>
+  <video src="/video/kampania_2026_30sec.mp4" width="640" height="360" autoplay muted playsinline></video>
+  <!-- Кнопка пропуска — атрибут data-cpmind-skip обязателен -->
+  <button data-cpmind-skip style="position: absolute; bottom: 16px; right: 16px;">
+    Пропустить →
+  </button>
+</div>
+```
+
 ---
 
 ## Несколько баннеров на одной странице
 
-Если на странице несколько рекламных блоков, обоните каждый в отдельный контейнер с уникальным `data-creative-id`. Скрипт подключается **один раз**.
+Если на странице несколько рекламных блоков, оберните каждый в отдельный контейнер с уникальным `data-creative-id`. Скрипт подключается **один раз**.
 
 ```html
 <!-- Первый баннер -->
@@ -241,6 +302,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="banner_header_728x90"
   data-creative-type="banner_static"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 728px; height: 90px;"
 >
@@ -256,6 +318,7 @@ GIF-анимация. Интеграция идентична статическ
   data-campaign-id="kampania_2026"
   data-creative-id="banner_sidebar_300x250"
   data-creative-type="banner_static"
+  data-publisher-domain="ваш-сайт.ru"
   data-endpoint="https://app.cpmind.tech/api/collect"
   style="width: 300px; height: 250px;"
 >
@@ -320,9 +383,17 @@ GIF-анимация. Интеграция идентична статическ
 
 Если меняется содержимое баннера (другое изображение) — используйте новый `data-creative-id`. Сам контейнер и скрипт остаются теми же. Если меняется кампания — меняйте `data-campaign-id`.
 
-**Что такое `с` и можно ли его менять самостоятельно?**
+**Что такое `data-tag-uuid` и можно ли его менять самостоятельно?**
 
 Это идентификатор вашего аккаунта в системе CPMind — один на все ваши баннеры и кампании, выдается командой CPMind при подключении. Менять его самостоятельно не нужно и не следует: значение привязывает все ваши показы к вашим данным в панели аналитики. Если вы потеряли или не получили это значение — обратитесь к команде CPMind.
+
+**Что такое `data-publisher-domain` и зачем его указывать?**
+
+Это домен площадки (сайта), на которой размещается баннер. Он используется в панели аналитики для разбивки данных по площадкам: можно сравнить Score, глубину просмотра и поведение пользователей на разных сайтах в рамках одной кампании.
+
+Если параметр не указан, тег попытается определить домен автоматически из адреса страницы. Если автоматическое определение невозможно (например, баннер в cross-origin iframe), площадка будет помечена уникальным идентификатором вида `unknown_xxxxxx`.
+
+Рекомендуется всегда указывать `data-publisher-domain` явно — это гарантирует корректную атрибуцию показов к конкретной площадке.
 
 **Команда CPMind сообщила, что нужно обновить адрес скрипта тега — что это значит?**
 
@@ -393,7 +464,9 @@ CPMind автоматически использует:
 
 - **Campaign ID** — название рекламной кампании, которое будет отображаться в аналитике CPMind;
 - **Creative ID** — уникальное название конкретного рекламного баннера;
-- **Creative Type** — тип баннера (`banner_static`, `banner_gif` или `banner_html5`);
+- **Creative Type** — тип креатива: `banner_static`, `banner_gif`, `banner_html5` или `video_creative`;
+- **Publisher Domain** — домен площадки размещения (например, `news.example.ru`). Используется для разбивки аналитики по сайтам. Рекомендуется заполнять всегда;
+- **Skippable** — только для `video_creative`: можно ли пропустить видео. Влияет на модель оценки вовлечённости;
 - **Ширину** и **высоту** баннера.
 
 ### Шаг 3. Выберите платформу

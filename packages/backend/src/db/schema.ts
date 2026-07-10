@@ -77,6 +77,7 @@ export const impressions = pgTable('impressions', {
   creativeId: text('creative_id').notNull(),
   creativeType: text('creative_type').notNull(),
   deviceType: text('device_type').notNull(),
+  publisherDomain: text('publisher_domain'),
   timestampStart: bigint('timestamp_start', { mode: 'number' }).notNull(),
   timestampEnd: bigint('timestamp_end', { mode: 'number' }).notNull(),
 
@@ -106,6 +107,16 @@ export const impressions = pgTable('impressions', {
   fPresence: smallint('f_presence').notNull(),
   scoreFinal: real('score_final').notNull(),
   weightsVersion: text('weights_version').notNull().default('v1.0_uncalibrated'),
+  s1ModelVersion: text('s1_model_version'),
+  s3ModelVersion: text('s3_model_version'),
+  s4ModelVersion: text('s4_model_version'),
+  s5ModelVersion: text('s5_model_version'),
+  s6ModelVersion: text('s6_model_version'),
+  s6CompletionRatePct: real('s6_completion_rate_pct'),
+  s6AudibleTimeSec: real('s6_audible_time_sec'),
+  s6DurationSec: real('s6_duration_sec'),
+  s6Skippable: boolean('s6_skippable'),
+  s7ModelVersion: text('s7_model_version'),
 
   // Флаги подозрительности
   noEvents: boolean('no_events').notNull().default(false),
@@ -140,6 +151,7 @@ export const impressions = pgTable('impressions', {
     tagConstantsVersionIdx: index('idx_impressions_tag_constants_version').on(t.tagConstantsVersion),
     ivtVerdictIdx: index('idx_impressions_ivt_verdict').on(t.ivtVerdict),
     fpHashIdx: index('idx_impressions_fp_hash').on(t.fpHash),
+    publisherDomainIdx: index('idx_impressions_publisher_domain').on(t.publisherDomain),
   }));
 
 // Версии констант тега неизменяемы после создания. isActive управляет распространением
@@ -246,6 +258,113 @@ export const ivtThresholdsConfigs = pgTable('ivt_thresholds_configs', {
     .where(sql`${t.isActive} = true`),
 }));
 
+export const s1WeibullConfigs = pgTable('s1_weibull_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+  k: real('k').notNull(),
+  lambda: real('lambda').notNull(),
+  sampleSize: integer('sample_size').notNull(),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s1_weibull_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s1_weibull_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
+export const s3LogisticConfigs = pgTable('s3_logistic_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+  tagConstantsVersion: text('tag_constants_version').notNull(),
+  coefficients: jsonb('coefficients').notNull(),
+  featureMeans: jsonb('feature_means').notNull(),
+  featureStds: jsonb('feature_stds').notNull(),
+  sampleSize: integer('sample_size').notNull(),
+  accuracy: real('accuracy'),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s3_logistic_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s3_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
+export const s4Configs = pgTable('s4_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+  version: text('version').notNull(),
+  lambda: real('lambda').notNull(),
+  tRefMs: integer('t_ref_ms').notNull(),
+  sampleSize: integer('sample_size'),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s4_configs_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s4_configs_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
+export const s5LogisticConfigs = pgTable('s5_logistic_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+  tagConstantsVersion: text('tag_constants_version').notNull(),
+  coefficients: jsonb('coefficients').notNull(),
+  sampleSize: integer('sample_size').notNull(),
+  accuracy: real('accuracy'),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s5_logistic_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s5_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
+export const s6LogisticConfigs = pgTable('s6_logistic_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+  tagConstantsVersion: text('tag_constants_version').notNull(),
+  coefficients: jsonb('coefficients').notNull(),
+  featureMeans: jsonb('feature_means').notNull(),
+  featureStds: jsonb('feature_stds').notNull(),
+  sampleSize: integer('sample_size').notNull(),
+  accuracy: real('accuracy'),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s6_logistic_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s6_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
+export const s7QuantileConfigs = pgTable('s7_quantile_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  deviceType: text('device_type').notNull(),
+  relativeYLow: real('relative_y_low').notNull(),
+  relativeYMid: real('relative_y_mid').notNull(),
+  clutterMid: real('clutter_mid').notNull(),
+  clutterHigh: real('clutter_high').notNull(),
+  sampleSize: integer('sample_size').notNull(),
+  computedAt: timestamp('computed_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeDeviceIdx: uniqueIndex('uidx_s7_quantile_active_device')
+    .on(t.deviceType)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s7_quantile_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
 export type ImpressionInsert = typeof impressions.$inferInsert;
 export type ImpressionSelect = typeof impressions.$inferSelect;
 export type WeightConfigInsert = typeof weightConfigs.$inferInsert;
@@ -264,3 +383,15 @@ export type IvtListConfigInsert = typeof ivtListConfigs.$inferInsert;
 export type IvtListConfigSelect = typeof ivtListConfigs.$inferSelect;
 export type IvtThresholdsConfigInsert = typeof ivtThresholdsConfigs.$inferInsert;
 export type IvtThresholdsConfigSelect = typeof ivtThresholdsConfigs.$inferSelect;
+export type S1WeibullConfigInsert = typeof s1WeibullConfigs.$inferInsert;
+export type S1WeibullConfigSelect = typeof s1WeibullConfigs.$inferSelect;
+export type S3LogisticConfigInsert = typeof s3LogisticConfigs.$inferInsert;
+export type S3LogisticConfigSelect = typeof s3LogisticConfigs.$inferSelect;
+export type S4ConfigInsert = typeof s4Configs.$inferInsert;
+export type S4ConfigSelect = typeof s4Configs.$inferSelect;
+export type S5LogisticConfigInsert = typeof s5LogisticConfigs.$inferInsert;
+export type S5LogisticConfigSelect = typeof s5LogisticConfigs.$inferSelect;
+export type S6LogisticConfigInsert = typeof s6LogisticConfigs.$inferInsert;
+export type S6LogisticConfigSelect = typeof s6LogisticConfigs.$inferSelect;
+export type S7QuantileConfigInsert = typeof s7QuantileConfigs.$inferInsert;
+export type S7QuantileConfigSelect = typeof s7QuantileConfigs.$inferSelect;

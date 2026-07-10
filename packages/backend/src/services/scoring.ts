@@ -1,5 +1,18 @@
-import { computeScore, getS5TopEventLabel, classifyIvtSync } from '@cpmind/shared';
-import type { ImpressionPayload, WeightsValues } from '@cpmind/shared';
+import {
+  computeScore,
+  getS5TopEventLabel,
+  classifyIvtSync
+} from '@cpmind/shared';
+import type {
+  ImpressionPayload,
+  WeightsValues,
+  WeibullParams,
+  LogisticParams,
+  S4Config,
+  S5LogisticParams,
+  S6LogisticParams,
+  S7Thresholds,
+} from '@cpmind/shared';
 import type { ImpressionInsert } from '../db/schema.js';
 import type { ActiveTagOwner } from './tags.js';
 import type { IvtListEntry, IvtThresholds } from '@cpmind/shared';
@@ -14,14 +27,41 @@ import type { IvtListEntry, IvtThresholds } from '@cpmind/shared';
 export function processImpression(
   payload: ImpressionPayload,
   config: WeightsValues,
+  weibullParams: WeibullParams,
+  s1ModelVersion: string,
+  logisticParams: LogisticParams,
+  s3ModelVersion: string,
+  s4Config: S4Config,
+  s4ModelVersion: string,
+  s5Params: S5LogisticParams,
+  s5ModelVersion: string,
+  s6Params: S6LogisticParams,
+  s6ModelVersion: string,
+  s7Thresholds: S7Thresholds,
+  s7ModelVersion: string,
   owner: ActiveTagOwner,
   presenceIdleThresholdMs: number,
   ivtList: IvtListEntry[] | null,
   ivtThresholds: IvtThresholds,
   userAgent: string,
 ): ImpressionInsert {
-  const result = computeScore(payload, config, presenceIdleThresholdMs);
-  const ivt = classifyIvtSync(payload, ivtList, ivtThresholds, userAgent);
+  const result = computeScore(
+    payload,
+    config,
+    weibullParams,
+    logisticParams,
+    s4Config,
+    s5Params,
+    s6Params,
+    s7Thresholds,
+    presenceIdleThresholdMs,
+  );
+  const ivt = classifyIvtSync(
+    payload,
+    ivtList,
+    ivtThresholds,
+    userAgent
+  );
 
   return {
     impressionId: payload.impression_id,
@@ -64,6 +104,17 @@ export function processImpression(
     fPresence: result.f_presence,
     scoreFinal: result.score_final,
     weightsVersion: result.weights_version,
+    s1ModelVersion: s1ModelVersion,
+    s3ModelVersion: s3ModelVersion,
+    s4ModelVersion: s4ModelVersion,
+    s5ModelVersion: s5ModelVersion,
+    s6ModelVersion: s6ModelVersion,
+    s6CompletionRatePct: payload.signals.s6?.completion_rate_pct ?? null,
+    s6AudibleTimeSec: payload.signals.s6?.audible_time_sec ?? null,
+    s6DurationSec: payload.signals.s6?.duration_sec ?? null,
+    s6Skippable: payload.skippable ?? null,
+    s7ModelVersion: s7ModelVersion,
+    publisherDomain: payload.publisher_domain,
 
     noEvents: result.no_events,
     tabMostlyHidden: result.tab_mostly_hidden,

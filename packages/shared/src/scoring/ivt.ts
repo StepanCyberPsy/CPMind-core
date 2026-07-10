@@ -135,9 +135,12 @@ function checkImpossibleEvents(
     (s5.hover_count === null || s5.hover_count === 0) &&
     (s5.cursor_proximity_min_px === null || s5.cursor_proximity_min_px > 200);
 
-  // time_in_view > 0 при полностью неактивной вкладке
+  // time_in_view > 3s при полностью неактивной вкладке.
+  // Порог 3s исключает ложные срабатывания на первый рендер:
+  // IntersectionObserver в некоторых движках фиксирует пересечение
+  // при первом рендере даже при document.hidden=true (аудит §3.3).
   const viewWithoutActiveTab =
-    s1.time_in_view_sec > 0 &&
+    s1.time_in_view_sec > 3 &&
     s4.tab_active_time_ms === 0 &&
     s4.tab_total_time_ms > 1000;
 

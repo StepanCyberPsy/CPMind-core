@@ -2,6 +2,7 @@ import type { Session, TagConfig, VisibilityEntry } from './types.js';
 import { generateUUID } from './utils/uuid.js';
 import { detectDeviceType } from './utils/device.js';
 import { getS6Data } from './signals/s6.js';
+import { getPublisherDomain } from './utils/publisher_domain.js';
 
 /**
  * Считает суммарное "активное" (visible) время вкладки строго в диапазоне [rangeStart, rangeEnd].
@@ -47,6 +48,7 @@ export function createSession(cfg: TagConfig): Session {
     timeInViewSec: 0,
     maxContinuousViewSec: 0,
     visiblePixelsPct: 0,
+    mrcCompliant: false,
     viewStart: null,
 
     // S2
@@ -106,6 +108,7 @@ export function createSession(cfg: TagConfig): Session {
     // Служебное
     sent: false,
     fpHash: null,
+    publisherDomain: getPublisherDomain(cfg.publisherDomain),
   };
 }
 
@@ -127,7 +130,7 @@ export function resetSessionForNewSegment(session: Session): void {
 export function buildPayload(session: Session, cfg: TagConfig): object {
   const now = session.timestampEnd || Date.now();
 
-  // S1: финализация времени видимости 
+  // S1: финализация времени видимости и mrc_compliant
   let timeInViewSec = session.timeInViewSec;
   let maxContinuousViewSec = session.maxContinuousViewSec;
 
@@ -136,6 +139,10 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     timeInViewSec += lastSegment;
     maxContinuousViewSec = Math.max(maxContinuousViewSec, lastSegment);
   }
+
+  // Учитывает текущий активный сегмент видимости, если баннер виден в момент финализации
+  const mrcCompliant = session.mrcCompliant ||
+    (maxContinuousViewSec >= 2.0 && session.visiblePixelsPct >= 75);
 
   // S2: среднее share of screen
   const samples = session.shareOfScreenSamples;
@@ -176,14 +183,16 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     campaign_id: cfg.campaignId,
     creative_id: cfg.creativeId,
     creative_type: cfg.creativeType,
+    skippable: cfg.skippable,
     device_type: session.deviceType,
+    publisher_domain: session.publisherDomain,
     timestamp_start: session.timestampStart || now,
     timestamp_end: now,
 
     signals: {
       s1: {
         time_in_view_sec: Math.round(timeInViewSec * 1000) / 1000,
-        mrc_compliant: timeInViewSec >= 1,
+        mrc_compliant: mrcCompliant,
         visible_pixels_pct: session.visiblePixelsPct,
         max_continuous_view_sec: Math.round(maxContinuousViewSec * 1000) / 1000,
       },

@@ -41,7 +41,7 @@ export const SignalsS4Schema = z.object({
   tab_active_time_ms: z.number().min(0),
   tab_total_time_ms: z.number().min(0),
   tab_switches_count: z.number().min(0),
-  visibility_state_history: z.array(VisibilityStateEntrySchema),
+  visibility_state_history: z.array(VisibilityStateEntrySchema).max(2000),
 });
 
 // S5 Interaction Events
@@ -80,7 +80,7 @@ export const SignalsS6Schema = z.object({
   quartile_50: z.boolean(),
   quartile_75: z.boolean(),
   completion: z.boolean(),
-  completion_rate_pct: z.number().min(0).max(100),
+  completion_rate_pct: z.number().min(0).max(100).nullable(),
   pause_initiated: z.boolean(),
   skipped: z.boolean(),
   replay_count: z.number().int().min(0),
@@ -90,6 +90,7 @@ export const SignalsS6Schema = z.object({
   volume_level: z.number().int().min(0).max(100),
   audio_connection: z.enum(['speaker', 'headphones', 'bluetooth', 'unknown']),
   audible_time_sec: z.number().min(0),
+  duration_sec: z.number().min(0).nullable(),
   audible_quartile_25: z.boolean(),
   audible_quartile_50: z.boolean(),
   audible_quartile_75: z.boolean(),
@@ -121,7 +122,9 @@ export const ImpressionPayloadSchema = z
       'banner_html5',
       'video_creative'
     ]),
+    skippable: z.boolean().default(false),
     device_type: z.enum(['desktop', 'mobile', 'tablet']),
+    publisher_domain: z.string().min(1).max(253),
     timestamp_start: z.number().positive(),
     timestamp_end: z.number().positive(),
     signals: z.object({

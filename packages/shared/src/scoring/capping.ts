@@ -74,6 +74,15 @@ export function applyAnomalyCapping(payload: ImpressionPayload): CappingResult {
   p.signals.s5.touch_start_end_delta_ms = floor0N(p.signals.s5.touch_start_end_delta_ms);
   p.signals.s5.swipe_count = floor0N(p.signals.s5.swipe_count);
 
+  // S6 Video Engagement & Audibility
+  if (p.signals.s6 !== null && p.signals.s6 !== undefined) {
+    p.signals.s6.completion_rate_pct = capN(p.signals.s6.completion_rate_pct, 0, 100);
+    p.signals.s6.audible_time_sec = cap(p.signals.s6.audible_time_sec, 0, 3600);
+    p.signals.s6.duration_sec = capN(p.signals.s6.duration_sec, 0, 3600);
+    p.signals.s6.replay_count = floor0(p.signals.s6.replay_count);
+    p.signals.s6.volume_level = cap(p.signals.s6.volume_level, 0, 100);
+  }
+
   // S7 Page Context
   p.signals.s7.creative_position_y_px = floor0(p.signals.s7.creative_position_y_px);
   p.signals.s7.page_height_total_px = Math.max(1, p.signals.s7.page_height_total_px);

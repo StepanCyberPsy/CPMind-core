@@ -84,6 +84,23 @@ export type {
 } from '../scoring/normalize.js';
 
 export type {
+  WeibullParams,
+  LogisticParams,
+  S4Config,
+  S5LogisticParams,
+  S6LogisticParams,
+  S7Thresholds,
+} from '../scoring/signal_defaults.js';
+
+export type {
+  WeibullFitResult,
+} from '../scoring/weibull_mle_fit.js';
+
+export type {
+  LogisticFitResult,
+} from '../scoring/logistic_mle_fit.js';
+
+export type {
   WeightsConfig,
   WeightsValues,
   EffectiveWeights,

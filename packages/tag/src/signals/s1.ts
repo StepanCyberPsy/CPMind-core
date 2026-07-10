@@ -27,12 +27,11 @@ function createObserver(
       if (!entry) return;
 
       const now = Date.now();
-      const inView = entry.intersectionRatio >= 0.5;
+      const inView = entry.intersectionRatio >= 0.75;
       const pixelsPct = Math.round(entry.intersectionRatio * 100);
 
-      session.visiblePixelsPct = pixelsPct;
-
       if (inView) {
+        session.visiblePixelsPct = pixelsPct;
         if (session.timestampStart === 0) {
           session.timestampStart = now;
 
@@ -55,6 +54,11 @@ function createObserver(
 
           if (segmentSec > session.maxContinuousViewSec) {
             session.maxContinuousViewSec = segmentSec;
+          }
+
+          // mrc_compliant: ≥50% пикселей непрерывно ≥1 сек (стандарт MRC). Устанавливается один раз, не сбрасывается до конца сегмента
+          if (!session.mrcCompliant && segmentSec >= 2.0 && session.visiblePixelsPct >= 75) {
+            session.mrcCompliant = true;
           }
 
           session.viewStart = null;
@@ -110,6 +114,8 @@ export function resetSegmentS1(
 ): void {
   session.timeInViewSec = 0;
   session.maxContinuousViewSec = 0;
+  session.visiblePixelsPct = 0;
+  session.mrcCompliant = false;
   session.viewStart = null;
   session.timestampStart = 0;
 

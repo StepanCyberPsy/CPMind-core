@@ -298,6 +298,7 @@ export function getS6Data(state: SignalsS6State): S6RawData {
     volume_level: state.volume_level,
     audio_connection: state.audio_connection,
     audible_time_sec: finalAudibleTimeSec,
+    duration_sec: state.duration > 0 ? state.duration : null,
     audible_quartile_25: state.audible_quartile_25,
     audible_quartile_50: state.audible_quartile_50,
     audible_quartile_75: state.audible_quartile_75,

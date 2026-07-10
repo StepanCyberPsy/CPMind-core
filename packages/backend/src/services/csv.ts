@@ -18,13 +18,16 @@ import type {
   JoinedImpressionDetailRow,
 } from './impressions.js';
 
-const CSV_BATCH_SIZE = 500;
+const CSV_BATCH_SIZE = 10_000;
 
 const ADMIN_CSV_HEADER = [
   'impression_id', 'session_group_id', 'segment_index',
   'tag_uuid', 'tag_label', 'user_uuid', 'user_login',
   'campaign_id', 'creative_id', 'creative_type', 'device_type',
+  'skippable', 'publisher_domain',
   'timestamp_start', 'timestamp_end', 'weights_version',
+  's1_model_version', 's3_model_version', 's4_model_version',
+  's5_model_version', 's6_model_version', 's7_model_version',
   'time_in_view_sec', 'mrc_compliant', 'visible_pixels_pct', 'max_continuous_view_sec',
   'share_of_screen_avg_pct', 'share_of_screen_max_pct',
   'scroll_speed_avg_px_s', 'scroll_speed_max_px_s', 'scroll_speed_std_dev',
@@ -37,6 +40,7 @@ const ADMIN_CSV_HEADER = [
   'creative_position_y_px', 'page_height_total_px', 'is_above_the_fold',
   'competing_ads_visible', 'viewability_persistence_pct',
   'last_user_event_timestamp', 'time_since_last_event_ms', 'events_count_during_impression',
+  's6_raw_completion_rate', 's6_audible_time_sec', 's6_duration_sec', 's6_skippable',
   's1_normalized', 's2_normalized', 's3_normalized', 's4_normalized', 's5_normalized', 's6_normalized', 's7_normalized',
   'f_presence', 'score_final',
   'no_events', 'tab_mostly_hidden', 'anomaly_duration', 'is_suspicious',
@@ -69,7 +73,10 @@ function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
     row.impression_id, row.session_group_id, row.segment_index,
     owner.tagUuid, row.tag_label, owner.userUuid, owner.userLogin,
     row.campaign_id, row.creative_id, row.creative_type, row.device_type,
+    row.skippable, row.publisher_domain,
     row.timestamp_start, row.timestamp_end, row.weights_version,
+    row.s1_model_version, row.s3_model_version, row.s4_model_version,
+    row.s5_model_version, row.s6_model_version, row.s7_model_version,
     s1['time_in_view_sec'], s1['mrc_compliant'], s1['visible_pixels_pct'], s1['max_continuous_view_sec'],
     s2['share_of_screen_avg_pct'], s2['share_of_screen_max_pct'],
     s3['scroll_speed_avg_px_s'], s3['scroll_speed_max_px_s'], s3['scroll_speed_std_dev'],
@@ -82,6 +89,7 @@ function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
     s7['creative_position_y_px'], s7['page_height_total_px'], s7['is_above_the_fold'],
     s7['competing_ads_visible'], s7['viewability_persistence_pct'],
     pr['last_user_event_timestamp'], pr['time_since_last_event_ms'], pr['events_count_during_impression'],
+    row.s6_raw_completion_rate, row.s6_audible_time_sec, row.s6_duration_sec, row.s6_skippable,
     row.s1_normalized, row.s2_normalized, row.s3_normalized, row.s4_normalized, row.s5_normalized, row.s6_normalized, row.s7_normalized,
     row.f_presence, row.score_final,
     row.no_events, row.tab_mostly_hidden, row.anomaly_duration, row.is_suspicious,
