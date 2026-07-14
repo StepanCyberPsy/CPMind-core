@@ -83,6 +83,22 @@ export type ImpressionRow = z.infer<typeof ImpressionRowSchema>;
 export type ImpressionDetail = z.infer<typeof ImpressionDetailSchema>;
 export type ImpressionListResponse = z.infer<typeof ImpressionListResponseSchema>;
 
+// Агрегат по publisher_domain для сводной строки режима площадки
+export const PublisherDomainAggregateSchema = z.object({
+  impressions_count: z.number().int(),
+  campaigns_count: z.number().int(),
+  avg_score: z.number().nullable(),
+  avg_s1: z.number().nullable(),
+  avg_s2: z.number().nullable(),
+  avg_s3: z.number().nullable(),
+  avg_s4: z.number().nullable(),
+  avg_s5: z.number().nullable(),
+  avg_s6: z.number().nullable(),
+  avg_s7: z.number().nullable(),
+});
+
+export type PublisherDomainAggregate = z.infer<typeof PublisherDomainAggregateSchema>;
+
 // Конфигурация весов
 export const WeightConfigRowSchema = z.object({
   id: z.string().uuid(),

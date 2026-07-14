@@ -199,6 +199,7 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
           <Field label="Campaign ID" value={imp.campaign_id} mono />
           <Field label="Creative ID" value={imp.creative_id} mono />
           <Field label="Creative Type" value={imp.creative_type} />
+          <Field label="Площадка размещения" value={imp.publisher_domain ?? 'Не определено'} mono />
           <Field label="Device Type" value={imp.device_type} />
           <Field label="Timestamp Start" value={safeToIso(imp.timestamp_start)} mono />
           <Field label="Timestamp End" value={safeToIso(imp.timestamp_end)} mono />

@@ -25,7 +25,7 @@ export default async function IvtPage() {
         <Link href={backHref} className={styles.backBtn}>
           ← Назад
         </Link>
-        <div className={styles.headerTitle}>IVT — Управление трафиком</div>
+        <div className={styles.headerTitle}>Калибровка порогов бот-трафика</div>
         <div className={styles.headerSpacer} />
       </header>
 

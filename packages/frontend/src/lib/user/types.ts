@@ -6,6 +6,7 @@ export type {
   UserCampaignStatsListResponse,
   UserImpressionRow,
   UserImpressionListResponse,
+  PublisherDomainAggregate,
   IvtVerdict,
 } from '@cpmind/shared';
 export type { UserListParams } from './api.js';
@@ -30,6 +31,7 @@ export interface TagBuilderFormState {
   campaignId: string;
   creativeId: string;
   creativeType: TagBuilderCreativeType;
+  publisherDomain: string;
   width: string;
   height: string;
 }
@@ -47,6 +49,8 @@ export interface UserImpressionsTableProps {
   currentSort: SortParams;
   currentParams: import('./api.js').UserListParams;
   campaignId?: string;
+  isDomainView?: boolean;
+  aggregate?: import('@cpmind/shared').PublisherDomainAggregate;
 }
 
 export interface UserFiltersProps {
@@ -54,6 +58,8 @@ export interface UserFiltersProps {
   campaignOptions: string[];
   creativeOptions: string[];
   lockCampaignId?: boolean;
+  domainView?: boolean;
+  domainOptions?: string[];
 }
 
 export interface UserExportButtonProps {

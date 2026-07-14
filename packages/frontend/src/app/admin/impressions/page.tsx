@@ -1,6 +1,11 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { fetchImpressions, fetchWeightsConfigs, fetchTagConstantsConfigs } from '@/lib/admin/api';
+import {
+  fetchImpressions,
+  fetchWeightsConfigs,
+  fetchTagConstantsConfigs,
+  fetchPublisherDomainAggregate,
+} from '@/lib/admin/api';
 import { decodeTokenUuid } from '@/lib/shared/auth';
 import { parseListSearchParams, type ImpressionsSearchParams } from '@/lib/admin/search-params';
 import { Filters } from '@/components/admin/Filters';
@@ -29,12 +34,38 @@ export default async function ImpressionsPage({
     ...(params.userUuid !== undefined && { userUuid: params.userUuid }),
   };
 
-  const [data, weightsConfigs, tagConstantsConfigs, dropdownData] = await Promise.all([
+  const domainViewParam = searchParams.domainView;
+  const creativeIdFilter = searchParams.creativeId;
+  const isDomainView = domainViewParam === '1' && creativeIdFilter !== undefined;
+
+  const domainOptionsScopeParams: ListParams = {
+    page: 1,
+    limit: 200,
+    ...(creativeIdFilter !== undefined && { creativeId: creativeIdFilter }),
+    ...(params.userUuid !== undefined && { userUuid: params.userUuid }),
+  };
+
+  const [data, weightsConfigs, tagConstantsConfigs, dropdownData, domainOptionsData, aggregate] = await Promise.all([
     fetchImpressions(params, cookieHeader),
     fetchWeightsConfigs(cookieHeader),
     fetchTagConstantsConfigs(cookieHeader),
     fetchImpressions(dropdownScopeParams, cookieHeader),
+    isDomainView
+      ? fetchImpressions(domainOptionsScopeParams, cookieHeader)
+      : Promise.resolve(null),
+    isDomainView && creativeIdFilter !== undefined
+      ? fetchPublisherDomainAggregate(
+          creativeIdFilter,
+          searchParams.publisherDomain,
+          params.userUuid,
+          cookieHeader,
+        )
+      : Promise.resolve(undefined),
   ]);
+
+  const domainOptions = domainOptionsData !== null
+    ? Array.from(new Set(domainOptionsData.items.map((r) => r.publisher_domain))).sort()
+    : [];
 
   const weightsVersions = weightsConfigs.map((c) => c.version);
   const tagConstantsVersions = tagConstantsConfigs.map((c) => c.version);
@@ -62,6 +93,9 @@ export default async function ImpressionsPage({
               <Link href="/admin/weights" className={styles.weightsBtn}>
                 Калибровка весов
               </Link>
+              <Link href="/admin/signals" className={styles.weightsBtn}>
+                Калибровка сигналов
+              </Link>
               <Link href="/admin/ivt" className={styles.weightsBtn}>
                 Управление IVT
               </Link>
@@ -78,6 +112,8 @@ export default async function ImpressionsPage({
           weightsVersions={weightsVersions}
           campaignOptions={campaignOptions}
           creativeOptions={creativeOptions}
+          domainView={isDomainView}
+          domainOptions={domainOptions}
         />
         <ImpressionsTableClient
           initialData={data.items}
@@ -85,6 +121,8 @@ export default async function ImpressionsPage({
           currentPage={data.page}
           currentSort={{ sortBy, sortDir }}
           currentParams={params}
+          isDomainView={isDomainView}
+          {...(isDomainView && aggregate !== undefined && { aggregate })}
         />
       </div>
     </div>

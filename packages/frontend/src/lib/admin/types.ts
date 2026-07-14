@@ -10,8 +10,17 @@ export type {
   TagConstantsConfig,
   CreateTagConstantsPayload,
   IvtVerdict,
+  PublisherDomainAggregate,
 } from '@cpmind/shared';
-export type { ListParams } from './api.js';
+export type {
+  ListParams,
+  S1WeibullConfigRow,
+  S3LogisticConfigRow,
+  S4ConfigRow,
+  S5LogisticConfigRow,
+  S6LogisticConfigRow,
+  S7QuantileConfigRow,
+} from './api.js';
 export type { SortParams, PaginationProps };
 
 export interface FilterValues {
@@ -32,6 +41,8 @@ export interface ImpressionsTableProps {
   currentPage: number;
   currentSort: SortParams;
   currentParams: import('./api.js').ListParams;
+  aggregate?: import('@cpmind/shared').PublisherDomainAggregate;
+  isDomainView?: boolean;
 }
 
 export interface FiltersProps {
@@ -40,6 +51,8 @@ export interface FiltersProps {
   weightsVersions: string[];
   campaignOptions: string[];
   creativeOptions: string[];
+  domainView?: boolean;
+  domainOptions?: string[];
 }
 
 export interface ExportButtonProps {
@@ -71,4 +84,13 @@ export type {
 
 export interface TagConstantsPanelProps {
   initialConfigs: import('@cpmind/shared').TagConstantsConfig[];
+}
+
+export interface SignalModelsPanelProps {
+  initialS1: import('./api.js').S1WeibullConfigRow[];
+  initialS3: import('./api.js').S3LogisticConfigRow[];
+  initialS4: import('./api.js').S4ConfigRow[];
+  initialS5: import('./api.js').S5LogisticConfigRow[];
+  initialS6: import('./api.js').S6LogisticConfigRow[];
+  initialS7: import('./api.js').S7QuantileConfigRow[];
 }

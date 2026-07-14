@@ -32,19 +32,23 @@ packages/frontend/
     ├── middleware.ts            # edge middleware: ролевые редиректы
     ├── app/
     │   ├── layout.tsx           # root layout
-    │   ├── page.tsx             # redirect по роли
+    │   ├── page.tsx             # redirect по роли; export const dynamic = 'force-dynamic'
+    │   │                        # предотвращает кэширование redirect-ответа при повторном
+    │   │                        # открытии домена после закрытия вкладки
     │   ├── login/page.tsx       # страница логина
     │   ├── admin/
     │   │   ├── layout.tsx       # guard роли admin
     │   │   ├── users_panel/page.tsx
     │   │   ├── impressions/
-    │   │   │   ├── page.tsx
-    │   │   │   └── [id]/page.tsx
+    │   │   │   ├── page.tsx     # обновлён: domainView-режим площадки, агрегат
+    │   │   │   └── [id]/page.tsx # обновлён: searchParams.back для возврата
     │   │   ├── weights/
     │   │   │   ├── page.tsx
     │   │   │   └── recalculate/page.tsx
     │   │   ├── tag_constants/
     │   │   │   └── page.tsx
+    │   │   ├── signals/
+    │   │   │   └── page.tsx     # NEW: управление сигнальными моделями S1–S7
     │   │   └── ivt/
     │   │       └── page.tsx     # IVT — управление GIVT-списками и SIVT-порогами
     │   └── user/
@@ -52,19 +56,26 @@ packages/frontend/
     │       ├── panel/
     │       │   ├── page.tsx
     │       └── impressions/
-    │       │   └── page.tsx
+    │       │   └── page.tsx     # обновлён: domainView-режим площадки, агрегат
     ├── components/
     │   ├── shared/
     │   │   ├── LoginForm.tsx
     │   │   ├── Combobox.tsx
     │   │   └── ComboboxDatePicker.tsx
     │   ├── admin/
-    │   │   ├── Filters.tsx
-    │   │   ├── ImpressionsTable.tsx
+    │   │   ├── Filters.tsx      # обновлён: domainView-баннер с Combobox площадок,
+    │   │   │                    # exitDomainView(), onDomainChange()
+    │   │   ├── ImpressionsTable.tsx  # обновлён: колонка Actions с меню ⋮,
+    │   │   │                         # ImpressionActionsMenu, PublisherDomainAggregateRow,
+    │   │   │                         # isDomainView, back-параметр навигации
     │   │   ├── SignalFilterModal.tsx
-    │   │   ├── ImpressionDetail.tsx
+    │   │   ├── ImpressionDetail.tsx  # обновлён: поле "Площадка размещения"
+    │   │   │                         # в секции Метаданные
     │   │   ├── ExportButton.tsx
     │   │   ├── WeightsConfigPanel.tsx
+    │   │   ├── SignalModelsPanel.tsx # NEW: управление жизненным циклом конфигов
+    │   │   │                        # S1/S3/S4/S5/S6/S7 (6 табов, таблицы по сегментам,
+    │   │   │                        # accordion параметров, TTL-таймер, меню ⋮)
     │   │   ├── UsersPanelTable.tsx
     │   │   ├── UserActionsMenu.tsx
     │   │   ├── CreateUserForm.tsx
@@ -76,9 +87,14 @@ packages/frontend/
     │   │   ├── IvtListEntriesModal.tsx
     │   │   └── IvtPanel.tsx
     │   └── user/
-    │       ├── Filters.tsx
-    │       ├── ImpressionsTable.tsx
-    │       ├── TagBuilderModal.tsx
+    │       ├── Filters.tsx      # обновлён: domainView-баннер с Combobox площадок,
+    │       │                    # exitDomainView(), onDomainChange(), useEffect-sync creativeId
+    │       ├── ImpressionsTable.tsx  # обновлён: колонка "Площадка" с badge
+    │       │                         # "Отфильтровать", PublisherDomainAggregateRow,
+    │       │                         # isDomainView
+    │       ├── TagBuilderModal.tsx   # обновлён: поле publisherDomain (необязательное),
+    │       │                         # WordPress-fix (esc_attr вместо htmlspecialcharsbx),
+    │       │                         # data-publisher-domain во всех форматах
     │       ├── SignalFilterModal.tsx
     │       ├── UserCampaignsTable.tsx
     │       └── ExportButton.tsx
@@ -91,32 +107,45 @@ packages/frontend/
     │   │   ├── tag-builder.ts   # единый контракт генератора тега
     │   │   └── use-popover.ts   # единый хук позиционирования поповеров
     │   ├── admin/
-    │   │   ├── api.ts           # все функции обращения к backend API
-    │   │   ├── types.ts         # интерфейсы пропсов компонентов
+    │   │   ├── api.ts           # обновлён: publisherDomain в ListParams и buildQuery,
+    │   │   │                    # fetchPublisherDomainAggregate(),
+    │   │   │                    # интерфейсы и функции S1–S7 (30 функций, 6 интерфейсов)
+    │   │   ├── types.ts         # обновлён: ImpressionsTableProps +aggregate/+isDomainView,
+    │   │   │                    # FiltersProps +domainView/+domainOptions,
+    │   │   │                    # SignalModelsPanelProps, PublisherDomainAggregate
     │   │   ├── signals-meta.ts  # SIGNALS_META, getSignalMeta()
     │   │   ├── segment-color.ts # buildSegmentColorMap()
-    │   │   └── searchParams.ts  # parseListSearchParams()
+    │   │   └── searchParams.ts  # обновлён: publisherDomain, domainView в
+    │   │                        # ImpressionsSearchParams и parseListSearchParams
     │   └── user/
-    │   │   ├── api.ts
-    │   │   ├── types.ts
+    │   │   ├── api.ts           # обновлён: publisherDomain в UserListParams и buildQuery,
+    │   │   │                    # fetchUserPublisherDomainAggregate()
+    │   │   ├── types.ts         # обновлён: UserImpressionsTableProps +isDomainView/+aggregate,
+    │   │   │                    # UserFiltersProps +domainView/+domainOptions,
+    │   │   │                    # PublisherDomainAggregate, TagBuilderFormState +publisherDomain
     │   │   ├── signals-meta.ts
-    │   │   └── searchParams.ts
+    │   │   └── searchParams.ts  # обновлён: publisherDomain, domainView в
+    │   │                        # UserImpressionsSearchParams и parseUserListSearchParams
     └── styles/
         ├── globals.css
         ├── impressions.module.css
         ├── detail.module.css
         ├── detail-page.module.css
-        ├── filters.module.css
-        ├── table.module.css
+        ├── filters.module.css   # обновлён: .sessionContextCombobox, .sessionContextClearEnd
+        ├── table.module.css     # обновлён: меню действий (.menuWrapper, .menuTrigger,
+        │                        # .menuPanel, .menuItem), .thActions/.tdActions,
+        │                        # агрегатная строка (.aggregateRow и вложенные классы),
+        │                        # .domainCell, .domainFilterBadge
         ├── weights.module.css
         ├── weights-panel.module.css
+        ├── signals.module.css   # NEW: стили страницы /admin/signals
+        ├── signal-models.module.css # NEW: стили компонента SignalModelsPanel
         ├── users_panel.module.css
         ├── combobox.module.css
         ├── signal-filter-modal.module.css
         ├── recalibration.module.css
         ├── tag-builder-modal.module.css
         ├── user_panel.module.css
-        ├── tag-builder-modal.module.css
         ├── create-user-form.module.css
         ├── ivt-list-entries-modal.module.css
         ├── ivt.module.css
@@ -139,10 +168,12 @@ packages/frontend/
 | `/admin/weights` | admin | реализовано |
 | `/admin/weights/recalculate` | admin | реализовано |
 | `/admin/tag_constants` | admin | реализовано |
+| `/admin/signals` | admin | реализовано |
 | `/admin/ivt` | admin | реализовано |
 | `/user/panel` | user | реализован |
+| `/user/impressions` | user | реализован |
 
-**`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`.
+**`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`. Содержит `export const dynamic = 'force-dynamic'` — принудительный динамический рендер на каждый запрос. Без этого флага Next.js Full Route Cache может закэшировать redirect-ответ до авторизации, и повторное открытие домена в новой вкладке возвращает кэшированный `/login` даже при валидной сессии.
 
 **`src/app/admin/layout.tsx`** — серверный guard: проверяет наличие токена и роль `admin` (через `decodeTokenRole()`). При несоответствии — `redirect('/login')`.
 
@@ -220,7 +251,11 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `approveCalibrationBatch(batchId, itemIds?)`, `discardCalibrationBatch(batchId)`
 - `buildCsvUrl(params)` — строит URL для CSV-экспорта (без fetch, ссылка для `<a download>`)
 
-**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`, `ivtVerdict?: IvtVerdict`.
+**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, `publisherDomain?: string` (фильтр по домену площадки), 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`, `ivtVerdict?: IvtVerdict`.
+
+**`fetchPublisherDomainAggregate(creativeId, publisherDomain?, userUuid?, cookie?)`** — вызывает `GET /api/impressions/domain_aggregate`. При `publisherDomain = undefined` — агрегация по всем площадкам для данного creativeId. При наличии cookie — server-side запрос (из Server Component); без cookie — client-side с `credentials: 'include'`. Возвращает `PublisherDomainAggregate` из `@cpmind/shared`.
+
+**Сигнальные модели S1–S7** — 6 интерфейсов (`S1WeibullConfigRow`, `S3LogisticConfigRow`, `S4ConfigRow`, `S5LogisticConfigRow`, `S6LogisticConfigRow`, `S7QuantileConfigRow`) и 30 функций (5 на каждый сигнал: `fetchS*Configs`, `activateS*Config`, `deactivateS*Config`, `scheduleS*Delete`, `cancelS*Delete`). Fetch-функции — server-side с cookie forwarding. Мутирующие функции — client-side с `credentials: 'include'`. Для S3/S5/S6 поля `coefficients`, `featureMeans`, `featureStds` типизированы как `Record<string, number>` (Drizzle возвращает JSONB как именованные ключи `{beta0, beta1, ...}`, не массив).
 
 **IVT API-функции (client-side):**
 - `fetchIvtListConfigs(cookie?)` — список версий GIVT-списков (server-side с cookie forwarding)
@@ -244,6 +279,10 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 `forceUserUuid` — для страницы рекалибровки, где скоуп всегда = собственный UUID администратора из токена, независимо от URL.
 
 `ivtVerdict` — парсится из `searchParams.ivtVerdict`, приводится к `IvtVerdict` через явный cast. Передаётся в `ListParams` условным spread.
+
+`publisherDomain` — парсится из `searchParams.publisherDomain` через conditional spread. Присутствует только в URL при активном domainView-режиме.
+
+`domainView` — UI-only флаг режима площадки. Не входит в `ListParams` (не передаётся в backend как фильтр). Используется только page.tsx для определения режима рендера.
 
 `numericParam(v)` — внутренняя функция, конвертирует строку в `number | undefined` с `NaN`-защитой. Все 14 диапазонных параметров вычисляются через неё в отдельные константы **до** построения объекта `ListParams` — это обязательно для `exactOptionalPropertyTypes`: TypeScript сужает тип `number | undefined` через `!== undefined` для переменной, но не для повторного вызова функции.
 
@@ -275,19 +314,29 @@ Server Component. Фетчит `fetchUsersStats()`, декодирует соб�
 
 ### `/admin/impressions` — `page.tsx`
 
-Server Component. 4 параллельных фетча:
+Server Component. До 6 параллельных фетчей:
 1. `fetchImpressions(params)` — основной список
 2. `fetchWeightsConfigs()` — для дропдауна версий весов
 3. `fetchTagConstantsConfigs()` — для дропдауна версий тега
-4. `fetchImpressions(dropdownScopeParams)` — для опций Campaign ID / Creative ID (отдельный запрос с `limit:200` без активных фильтров, чтобы список не схлопывался при активной фильтрации)
+4. `fetchImpressions(dropdownScopeParams)` — для опций Campaign ID / Creative ID (`limit:200`)
+5. `fetchImpressions(domainOptionsScopeParams)` — только в domainView-режиме: уникальные площадки для creativeId (limit:200, из поля `publisher_domain`)
+6. `fetchPublisherDomainAggregate(creativeId, publisherDomain?)` — только в domainView-режиме: агрегированная строка над таблицей
 
-**`isOwnScopeView`** — флаг видимости кнопок калибровки. `true` только когда `searchParams.userUuid === ownUuid`. Кнопки "Калибровка тега", "Калибровка весов" и "Управление IVT" не отображаются в глобальном виде ("Все импрешены") и при просмотре чужого пользователя.
+**`isOwnScopeView`** — флаг видимости кнопок калибровки. `true` только когда `searchParams.userUuid === ownUuid`. Кнопки "Калибровка тега", "Калибровка весов", "Калибровка сигналов" и "Управление IVT" не отображаются в глобальном виде ("Все импрешены") и при просмотре чужого пользователя.
+
+**`isDomainView`** — `searchParams.domainView === '1' && searchParams.creativeId !== undefined`. При активном режиме: таблица фильтруется по `creativeId`, баннер режима площадки отображается в `Filters`, агрегатная строка рендерится над таблицей через `PublisherDomainAggregateRow`, `ImpressionsTableClient` получает `isDomainView=true`.
+
+**`domainOptions`** — уникальные `publisher_domain` из `domainOptionsScopeParams`-запроса. Передаются в `Filters` для Combobox выбора площадки внутри баннера режима.
 
 ### `/admin/impressions/[id]` — `page.tsx`
 
-Server Component. `fetchImpressionById` + `fetchImpressions({ sessionGroupId })` для сегментов. Получает `searchParams.userUuid` для корректной обратной ссылки. `backUuid = searchParams.userUuid ?? ownUuid` — фоллбэк на собственный UUID только если пришли без параметра.
+Server Component. `fetchImpressionById` + `fetchImpressions({ sessionGroupId })` для сегментов.
 
-**Известное ограничение:** `onRowClick` в `ImpressionsTable` не передаёт `userUuid` при навигации на `/:id`, поэтому `searchParams.userUuid` на детальной странице всегда `undefined` — фоллбэк на `ownUuid` срабатывает постоянно. Технический долг.
+**`backHref`** — определяется из `searchParams.back` (URL-encoded строка полного пути с query-параметрами). При наличии: `decodeURIComponent(searchParams.back)` — возвращает точно туда, откуда пришли (обычный список, domainView-режим, recalibrate-страница). Fallback при отсутствии `back`: `ownUuid !== null ? /admin/impressions?userUuid=${ownUuid} : /admin/impressions`.
+
+Навигация на детальную страницу всегда через `router.push` с явным `back=encodeURIComponent(window.location.pathname + window.location.search)` — формируется в `ImpressionsTableClient` при клике по меню «Детали импрешена» или по строке в domainView-режиме.
+
+**Известное ограничение:** устранено для нового флоу (back-параметр). Прямые переходы (закладки, внешние ссылки) используют fallback на ownUuid — это ожидаемое поведение.
 
 ### `/admin/ivt` — `page.tsx`
 
@@ -309,11 +358,13 @@ Server Component. Открывается в новой вкладке. Скоу�
 
 Client Component. URL-based state: все изменения фильтров пишутся в URL через `router.push` при нажатии "Применить" / "Сбросить".
 
-Поля: Campaign ID, Creative ID (через `Combobox`), Tag Version, Weights Version (через `Combobox`), Device, Anomaly (через `Combobox`), Date From/To (через `ComboboxDatePicker`).
+Поля: Campaign ID, Creative ID (через `Combobox`), Tag Version, Weights Version (через `Combobox`), Device, Anomaly (через `Combobox`), Date From/To (через `ComboboxDatePicker`). Поле «Площадка размещения» отсутствует в обычном режиме — доступно только внутри domainView-баннера.
 
 **Версии тега/весов** — локальное состояние в `Filters`, пишутся в URL при "Применить". Backend-фильтрация (не клиентская) — решение, принятое после многочасовой диагностики зависания фронтенда при клиентской фильтрации.
 
-Баннер "режим сегментов" — отображается при активном `current.sessionGroupId`, не в форме фильтров. Кнопка "Выйти из режима сегментов" удаляет `sessionGroupId` из URL.
+Баннер "режим сегментов" — отображается при активном `current.sessionGroupId`. Кнопка "Выйти из режима сегментов" удаляет `sessionGroupId` из URL.
+
+Баннер "режим площадки" — отображается при `domainView=true` (пропс `domainView?: boolean`). Содержит: метку «Площадка размещения», `Combobox` с опциями площадок (`domainOptions?: string[]`) для выбора конкретного `publisher_domain`, кнопку «Выйти из режима площадки ×» выровненную вправо (`margin-left: auto`). `onDomainChange()` — при выборе площадки через Combobox немедленно записывает `publisherDomain` в URL без нажатия "Применить" (`router.push` напрямую). `exitDomainView()` — удаляет из URL `domainView`, `publisherDomain` и `creativeId`, возвращает к полному списку импрешенов.
 
 **path-agnostic:** пишет в `window.location`, не хардкодит `/admin/impressions`. Переиспользуется без изменений на `/admin/weights/recalculate`.
 
@@ -324,6 +375,14 @@ Client Component. TanStack Table v8, `manualSorting: true`, `getCoreRowModel()`.
 **Сортировка:** только колонка "Дата" (`created_at`) имеет нативный TanStack-сорт (`enableSorting: true`). Score и S1–S7 (включая S6) — `enableSorting: false`, сортировка через `SignalFilterModal`. S6 добавлен в нормализованные колонки; в raw-панели добавлен `s6_raw_completion_rate` (% досмотра, null для баннеров). User-таблица отображает только нормализованные значения, S6 включён.
 
 **Колонка "Валидность" (`ivt_verdict`):** badge-компонент, расположена перед "Аномалии". Три состояния: `valid` → зелёный badge "Валиден" (`.ivtValid`), `givt` → красный "GIVT-Нарушение" (`.ivtViolation`), `sivt_suspected`/`sivt_confirmed` → красный "SIVT-Нарушение" (`.ivtViolation`). Стили в `table.module.css`: `.ivtBadge`, `.ivtValid`, `.ivtViolation`.
+
+**Колонка "Действия" (`__actions__`):** `col.display` после `creative_id`. Содержит компонент `ImpressionActionsMenu` — меню `⋮` через `usePopover()`. Два пункта: «Детали импрешена» (навигация с `back`-параметром) и «Фильтр по площадке» (`navigateTo({ creativeId, domainView: '1', publisherDomain: '', page: '1' })`). Колонка скрыта в domainView-режиме (`display: none` на `th` и `td`) — используется единый `col.display` с условным рендером `null` для ячейки, что избегает нестабильности TanStack при динамическом изменении количества колонок.
+
+**`isDomainView` пропс:** при `true` — строка становится кликабельной (`.trClickable`, `cursor: pointer`), клик открывает детальную страницу с `back`-параметром. При `false` — `cursor: default`, клик по строке не выполняет навигацию. Это инверсия прежнего поведения: раньше клик по строке всегда открывал детали; теперь детали открываются только через меню (вне domainView) или клик по строке (в domainView).
+
+**`handleImpressionAction(row, action)`:** при `action === 'detail'` — `router.push(/admin/impressions/${row.id}?back=${encodeURIComponent(window.location.pathname + window.location.search)})`. При `action === 'filterByDomain'` — `navigateTo({ creativeId, domainView: '1', publisherDomain: '', page: '1' })`.
+
+**`PublisherDomainAggregateRow`:** рендерится над `<div className={styles.wrapper}>` только при `showAggregate = aggregate !== undefined`. Отображает: домен (из `currentParams.publisherDomain ?? 'Все площадки'`), количество кампаний и импрешенов, avg Score, divider, avg S1–S7. Стиль: левая акцентная граница (`border-left: 3px solid var(--accent)`), горизонтальный scroll для статистики на мобильных.
 
 **Цвет сегментов:** `buildSegmentColorMap(initialData)` в `useMemo`. Инлайн-стиль `{ borderColor, color, backgroundColor }` из палитры при наличии цвета; без стиля (нейтральный серый) при одиночном сегменте.
 
@@ -350,7 +409,7 @@ Client Component. Полный детальный вид импрешена. В�
 **Порядок секций и состояние по умолчанию:**
 - Score block — всегда видим (не сворачивается)
 - Баннер пересчёта — всегда видим
-- Метаданные — скрыта по умолчанию
+- Метаданные — скрыта по умолчанию; добавлено поле «Площадка размещения» (`imp.publisher_domain ?? 'Не определено'`, `mono=true`) после Creative Type
 - IVT-вердикт — открыта по умолчанию; поля: `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`
 - Таймлайн сегментов — всегда видим (не сворачивается, условный)
 - Нормализованные сигналы (0–100) — открыта по умолчанию; включает S6 (`null` → "null (не видео)")
@@ -465,6 +524,49 @@ Client Component. Управление версиями калибруемых �
 
 Баннер черновика: при `mode === 'ready'` — `actionBarDraft` класс (`--moderate` цвет), предупреждение с таймером.
 
+### `/admin/signals` — `page.tsx`
+
+Server Component. 6 параллельных фетчей с cookie forwarding через `Promise.all`: `fetchS1WeibullConfigs`, `fetchS3LogisticConfigs`, `fetchS4Configs`, `fetchS5LogisticConfigs`, `fetchS6LogisticConfigs`, `fetchS7QuantileConfigs`. Обратная ссылка: `/admin/impressions?userUuid=<ownUuid>`. Передаёт данные в `<SignalModelsPanel />`.
+
+Навигация на страницу: кнопка «Калибровка сигналов» в header `/admin/impressions` (рядом с «Калибровка весов», видна только при `isOwnScopeView`).
+
+### `SignalModelsPanel.tsx`
+
+Client Component. Управление жизненным циклом конфигураций параметрических моделей сигналов S1–S7.
+
+**Структура:** 6 первичных табов (`S1 Weibull | S3 Logistic | S4 Config | S5 Logistic | S6 Logistic | S7 Quantile`). S4, S5, S6, S7 дополнительно имеют вторичные device-табы:
+- S4: «Базовая | Десктоп | Мобильные» (фильтрация сегментов: `default` / `desktop_*` / `mobile_*`)
+- S5: «Десктоп | Мобильные» (`desktop` / `mobile_tablet`)
+- S6: «Десктоп | Мобильные | Планшет» (по префиксу `desktop|` / `mobile|` / `tablet|`)
+- S7: «Десктоп | Мобильные | Планшет» (по `device_type`)
+
+**Группировка по сегментам:** `groupByKey()` — утилита группировки в `Map<string, Row[]>`. Порядок сегментов: `global` и `default` всегда первыми, остальные по алфавиту (`orderSegmentKeys()`). Заголовки сегментов (`SegmentHeader`) — кликабельны, сворачивают/разворачивают группу. `collapsedSegments: Set<string>` — ключ `${tab}:${segmentKey}`. При инициализации: `global` и `default` раскрыты, остальные свёрнуты.
+
+**Сортировка внутри сегмента** (`sortConfigs()`): активная конфигурация — первой; конфиги с `deletion_scheduled_at` — вторыми (ближайшее удаление выше); остальные по дате убывания.
+
+**Колонки таблиц** — специфичны для каждого сигнала, содержат только релевантные параметры:
+- S1: Подобрана, k, λ, Выборка
+- S3/S5: Подобрана, Коэффициенты β (grouped header + subcolumns), Средние признаков, Станд. откл. (S3), Точность, Выборка, Версия констант
+- S4: Создана, Версия, λ, T_ref (мс), Выборка
+- S6: аналогично S3 с 9 коэффициентами
+- S7: Вычислена, relY low, relY mid, Clutter mid, Clutter high, Выборка
+
+Колонка «Точность» (`accuracy`) — только для S3, S5, S6 (остальные сигналы не используют логистическую регрессию и не имеют этого поля в БД).
+
+**TTL-таймер:** `deletion_scheduled_at !== null` → badge с обратным отсчётом (`formatCountdown`) в ячейке рядом с кнопкой `⋮`. `useEffect` с `setInterval(1000)` активируется только при наличии хотя бы одного конфига с `deletionScheduledAt !== null` среди всех сигналов (`hasScheduledDeletion`).
+
+**`ConfigActionsMenu`:** меню `⋮` через `usePopover()`. 4 пункта с guard-блокировками:
+- «Активировать» — `disabled` при `isActive=true` или `deletionScheduledAt !== null`
+- «Деактивировать» — `disabled` при `isActive=false`
+- «Запланировать удаление» — `disabled` при `isActive=true` или уже запланировано
+- «Отменить удаление» (danger) — `disabled` при `deletionScheduledAt === null`
+
+`actionId: string | null` в формате `${tab}:${id}:${action}` — спиннер локализован на конкретной кнопке конкретного конфига.
+
+**`SIGNAL_ACTIONS`** — константная карта `Record<SignalTab, Record<SignalAction, (id) => Promise<void>>>`. Единственная точка привязки функций из `lib/admin/api.ts` к табу и действию. `handleAction` использует её для диспетчеризации без switch/if.
+
+Формы создания отсутствуют принципиально — конфиги создаются исключительно cron-джобами (MLE/IRLS на реальных данных). Admin управляет только жизненным циклом.
+
 ---
 
 ## User-панель - дашборд
@@ -530,6 +632,7 @@ Backend автоматически ограничивает данные scope �
 * Дата;
 * Campaign ID;
 * Creative ID;
+* Площадка (publisher_domain + badge «Отфильтровать» — скрыта в domainView-режиме);
 * Device;
 * Валидность (ivt_verdict badge);
 * Аномалии;
@@ -540,12 +643,17 @@ Backend автоматически ограничивает данные scope �
 
 * Дата;
 * Creative ID;
+* Площадка (publisher_domain + badge «Отфильтровать» — скрыта в domainView-режиме);
 * Device;
 * Аномалии;
 * CPMind Score;
 * S1–S7.
 
 Campaign ID переносится в заголовок страницы.
+
+**Режим площадки (`domainView`):** аналогичен admin-реализации, с отличиями: нет детальной страницы импрешена, поэтому клик по строке в domainView — ничего не делает (нет навигации). Badge «Отфильтровать» на колонке площадки устанавливает `creativeId + domainView=1` в URL. В domainView-баннере — `Combobox` выбора площадки + кнопка выхода. Агрегатная строка над таблицей через `PublisherDomainAggregateRow` (идентична admin-версии). `fetchUserPublisherDomainAggregate` вызывает тот же `GET /api/impressions/domain_aggregate` — endpoint role-aware, автоматически ограничивает scoped по JWT.
+
+**`useEffect` sync для `creativeId`:** при выходе из domainView-режима локальный стейт `creativeId` в `UserFilters` сбрасывается через `useEffect([current.creativeId])` → `setCreativeId(current.creativeId ?? '')`. Без этого после `exitDomainView()` фильтр Campaign ID оставался в поле формы несмотря на удаление из URL.
 
 ---
 
@@ -592,11 +700,17 @@ Backend возвращает ограниченный CSV согласно ро�
 
 `components/user/TagBuilderModal.tsx` — модальное окно сборки embed-кода тега для рекламодателя. Два шага: «Параметры» и «Код».
 
-**Шаг «Параметры»:** Campaign ID, Creative ID, Тип креатива (`TAG_BUILDER_CREATIVE_TYPES`: `banner_static`, `banner_gif`, `banner_html5`, `video_creative`), ширина и высота. Валидация: `TAG_BUILDER_ID_PATTERN` (`/^[A-Za-zА-Яа-яЁё0-9_-]+$/`), целые числа 1–10000.
+**Шаг «Параметры»:** Campaign ID, Creative ID, Тип креатива (`TAG_BUILDER_CREATIVE_TYPES`: `banner_static`, `banner_gif`, `banner_html5`, `video_creative`), **Домен площадки** (необязательное поле, `placeholder="news.example.com"`), ширина и высота. Валидация: `TAG_BUILDER_ID_PATTERN` (`/^[A-Za-zА-Яа-яЁё0-9_-]+$/`), целые числа 1–10000. Домен площадки — опциональный, при непустом значении валидируется через `isValidPublisherDomain()` (RFC 1123 hostname, ≤253 символа, не localhost, не IP). При пустом значении поле не включается в код тега (тег применит автодетект из `document.referrer` / `window.location.hostname`).
+
+Текст `instructionCard` дополнен пояснением: «Домен площадки помогает понять, на каких сайтах реклама работает лучше — это нужно для аналитики по площадкам».
 
 **Шаг «Код»:** платформа (HTML / Битрикс / WordPress / Tilda / React / Python) + формат (html/php/jsx/python). Генерируются два блока: контейнер и скрипт. Кнопка копирования с анимацией (SVG `✓` на 1500 мс).
 
 **`video_creative`:** для всех форматов в контейнер добавляется опциональный комментарий с примером `data-cpmind-skip` на кнопке пропуска. Текст `instructionCard` адаптируется под тип.
+
+**`data-publisher-domain`** — добавляется в контейнерный блок всех форматов (HTML, PHP/Битрикс, JSX, Python) при непустом `form.publisherDomain`. Атрибут вставляется после `data-endpoint` через `domainAttr = form.publisherDomain.trim() !== '' ? '\n  data-publisher-domain="..."' : ''`. При пустом значении атрибут полностью отсутствует в генерируемом коде — тег применяет автодетект.
+
+**WordPress PHP fix:** `buildPhpContainer` использует раздельные escape-функции в зависимости от платформы: Битрикс (включая `bitrix_component`) — `<?=htmlspecialcharsbx('...')?>`, WordPress — `<?php echo esc_attr('...'); ?>`. `esc_attr` — нативная WordPress-функция, `htmlspecialcharsbx` — Битрикс-специфичная, в WordPress не существует.
 
 **TD-01** (задокументированный долг): tag builder всегда генерирует ссылку на `v0` тега. Смена захардкоженного значения — отдельная задача после стабилизации константного профиля.
 
@@ -692,7 +806,7 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 
 | Пункт | Описание |
 |---|---|
-| `onRowClick` без `userUuid` | При клике на строку импрешена `userUuid` не передаётся в URL детальной страницы — кнопка "Назад" всегда возвращает в собственный контекст, не в контекст просматриваемого чужого юзера |
+| `onRowClick` без `userUuid` | Устранено: навигация на детальную страницу теперь только через меню «Детали импрешена» с явным `back=<encoded>` — возврат всегда корректный |
 | Опции Campaign/Creative | Строятся из отдельного запроса с `limit:200`. При >200 уникальных значений список будет неполным |
 | `WeightsConfigPanel` ошибки | `alert()` вместо inline-ошибок |
 | IVT деактивация | `deactivateIvtListConfig` / `deactivateIvtThresholdsConfig` реализованы в frontend и backend, но логика поведения после деактивации (fallback на `DEFAULT_IVT_THRESHOLDS`, поведение при отсутствии активного списка) требует уточнения и тестирования |
@@ -700,4 +814,6 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 | `ComboboxDatePicker` + CalibrationFilterSchema | Дата в формате `YYYY-MM-DD`, схема ожидает ISO datetime — не тестировалось для фильтрации в калибровке |
 | Поплинг `processing`-батчей | Батчи, зависшие в `processing` (crash backend), не подхватываются cleanup job — только `ready` статус |
 | Accessibility | Кастомные `Combobox`/`SignalFilterModal` не имеют полной keyboard-навигации, aria-live, focus-trap |
+| Опции площадок в domainView | Строятся из отдельного запроса с `limit:200` по `creativeId`. При >200 уникальных площадок для одного creative список будет неполным |
+| `TagConstantsPanel` — отображение `S1_VIEWPORT_THRESHOLDS` | Отображается как строка `"0, 0.5, 1"` (захардкожено в компоненте), тогда как актуальный дефолт изменён на `[0, 0.75, 1.0]`. Технический долг — строка отображения не синхронизирована с `DEFAULT_TAG_CONSTANTS` |
 

@@ -2,6 +2,7 @@ import type {
   Tag,
   UserCampaignStatsListResponse,
   UserImpressionListResponse,
+  PublisherDomainAggregate,
   IvtVerdict,
 } from '@cpmind/shared';
 import { getBackendUrl, getPublicBackendUrl } from '@/lib/shared/env';
@@ -14,6 +15,7 @@ export interface UserListParams {
   limit?: number;
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
   deviceType?: string;
   isSuspicious?: boolean;
   dateFrom?: string;
@@ -63,6 +65,7 @@ function buildQuery(params: UserListParams): string {
   if (params.limit) q.set('limit', String(params.limit));
   if (params.campaignId) q.set('campaignId', params.campaignId);
   if (params.creativeId) q.set('creativeId', params.creativeId);
+  if (params.publisherDomain) q.set('publisherDomain', params.publisherDomain);
   if (params.scoreMin !== undefined) q.set('scoreMin', String(params.scoreMin));
   if (params.scoreMax !== undefined) q.set('scoreMax', String(params.scoreMax));
   if (params.s1Min !== undefined) q.set('s1Min', String(params.s1Min));
@@ -128,4 +131,22 @@ export async function fetchMyTags(): Promise<Tag[]> {
 
   const tags = await res.json() as Tag[];
   return tags.filter((tag) => tag.isActive);
+}
+
+export async function fetchUserPublisherDomainAggregate(
+  creativeId: string,
+  publisherDomain?: string,
+  cookie?: string,
+): Promise<PublisherDomainAggregate> {
+  const q = new URLSearchParams({ creativeId });
+  if (publisherDomain !== undefined) q.set('publisherDomain', publisherDomain);
+  const backend = cookie !== undefined ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/impressions/domain_aggregate?${q.toString()}`, {
+    cache: 'no-store',
+    ...(cookie !== undefined
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
 }

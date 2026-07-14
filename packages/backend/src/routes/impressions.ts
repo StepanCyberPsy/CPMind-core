@@ -23,6 +23,7 @@ import {
   listImpressionsForAdmin,
   listImpressionsForUser,
   getImpressionForAdmin,
+  getPublisherDomainAggregate,
   resolveTargetUserId,
   type RangeFieldKey,
   type RangeValue,
@@ -49,6 +50,7 @@ const ImpressionListQuerySchema = z.object({
   sessionGroupId: z.string().uuid().optional(),
   campaignId: z.string().min(1).optional(),
   creativeId: z.string().min(1).optional(),
+  publisherDomain: z.string().min(1).optional(),
   deviceType: z.enum(['desktop', 'mobile', 'tablet']).optional(),
   isSuspicious: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
   dateFrom: z.string().datetime({ offset: true }).optional().transform(v => v ? new Date(v) : undefined),
@@ -212,6 +214,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       sessionGroupId,
       campaignId,
       creativeId,
+      publisherDomain,
       deviceType,
       isSuspicious,
       dateFrom,
@@ -257,6 +260,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ...(sessionGroupId !== undefined && { sessionGroupId }),
       ...(campaignId !== undefined && { campaignId }),
       ...(creativeId !== undefined && { creativeId }),
+      ...(publisherDomain !== undefined && { publisherDomain }),
       ...(deviceType !== undefined && { deviceType }),
       ...(isSuspicious !== undefined && { isSuspicious }),
       ...(dateFrom !== undefined && { dateFrom }),
@@ -307,5 +311,49 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     }
 
     return reply.send(record);
+  });
+
+  // GET /api/impressions/domain_aggregate
+  app.get('/impressions/domain_aggregate', { preHandler: requireAuth }, async (request, reply) => {
+    if (!request.authUser) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const schema = z.object({
+      creativeId: z.string().min(1),
+      publisherDomain: z.string().min(1).optional(),
+      userUuid: UserUuidSchema.optional(),
+    });
+
+    const parsed = schema.safeParse(request.query);
+
+    if (!parsed.success) {
+      return reply.status(422).send({ errors: parsed.error.flatten() });
+    }
+
+    const { creativeId, publisherDomain, userUuid } = parsed.data;
+
+    if (request.authUser.role !== 'admin') {
+      const result = await getPublisherDomainAggregate(
+        creativeId,
+        publisherDomain,
+        request.authUser.id,
+      );
+      return reply.send(result);
+    }
+
+    if (userUuid === undefined) {
+      const result = await getPublisherDomainAggregate(creativeId, publisherDomain);
+      return reply.send(result);
+    }
+
+    const targetUserId = await resolveTargetUserId(userUuid);
+
+    if (targetUserId === null) {
+      return reply.status(404).send({ error: 'User not found' });
+    }
+
+    const result = await getPublisherDomainAggregate(creativeId, publisherDomain, targetUserId);
+    return reply.send(result);
   });
 };

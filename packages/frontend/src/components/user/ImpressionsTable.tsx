@@ -8,7 +8,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useState, useCallback, useMemo } from 'react';
-import type { UserImpressionRow } from '@cpmind/shared';
+import type { UserImpressionRow, PublisherDomainAggregate } from '@cpmind/shared';
 import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
 import { SignalFilterModal } from './SignalFilterModal';
 import type { UserImpressionsTableProps } from '@/lib/user/types';
@@ -21,6 +21,7 @@ interface BuildColumnsArgs {
   currentParams: UserListParams;
   campaignId?: string;
   navigateTo: (params: Record<string, string>) => void;
+  isDomainView: boolean;
 }
 
 function renderFilterableHeader(
@@ -86,10 +87,75 @@ function formatDeviceType(deviceType: string): string {
   return deviceType;
 }
 
+interface PublisherDomainAggregateRowProps {
+  aggregate: PublisherDomainAggregate;
+  publisherDomain: string;
+}
+
+function PublisherDomainAggregateRow({
+  aggregate,
+  publisherDomain,
+}: PublisherDomainAggregateRowProps) {
+  const fmtAvg = (v: number | null) => v !== null ? v.toFixed(1) : '—';
+
+  return (
+    <div className={styles.aggregateRow}>
+      <div className={styles.aggregateHeader}>
+        <span className={styles.aggregateLabel}>Площадка:</span>
+        <span className={styles.aggregateDomain}>{publisherDomain}</span>
+      </div>
+      <div className={styles.aggregateStats}>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Кампании</span>
+          <span className={styles.aggregateStatValue}>{aggregate.campaigns_count}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Импрешены</span>
+          <span className={styles.aggregateStatValue}>{aggregate.impressions_count.toLocaleString('ru-RU')}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Avg Score</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_score)}</span>
+        </div>
+        <div className={styles.aggregateStatDivider} />
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S1</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s1)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S2</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s2)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S3</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s3)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S4</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s4)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S5</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s5)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S6</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s6)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S7</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s7)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function buildColumns({
   currentParams,
   campaignId,
   navigateTo,
+  isDomainView,
 }: BuildColumnsArgs) {
   const dateColumn = col.accessor('timestamp_start', {
     header: 'Дата',
@@ -105,12 +171,36 @@ function buildColumns({
     cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
   });
 
+  const domainColumn = col.accessor('publisher_domain', {
+    header: 'Площадка размещения',
+    enableSorting: false,
+    cell: ({ getValue, row }) => {
+      const domain = getValue() ?? 'unknown';
+      return (
+        <div className={styles.domainCell}>
+          <span className={styles.cellMono}>{domain}</span>
+          <button
+            type="button"
+            className={styles.domainFilterBadge}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigateTo({ creativeId: row.original.creative_id, domainView: '1', publisherDomain: '', page: '1' });
+            }}
+          >
+            Отфильтровать
+          </button>
+        </div>
+      );
+    },
+  });
+
   const restColumns = [
     col.accessor('creative_id', {
       header: 'ID Креатива',
       enableSorting: false,
       cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
     }),
+    ...(!isDomainView ? [domainColumn] : []),
     col.accessor('device_type', {
       header: 'Устройство',
       enableSorting: false,
@@ -244,6 +334,8 @@ export function UserImpressionsTableClient({
   currentSort,
   currentParams,
   campaignId,
+  isDomainView = false,
+  aggregate,
 }: UserImpressionsTableProps) {
   const [sorting, setSorting] = useState<SortingState>(() => [{
     id: currentSort.sortBy === 'createdAt' ? 'timestamp_start' : '__none__',
@@ -263,10 +355,14 @@ export function UserImpressionsTableClient({
     () => buildColumns({
       currentParams,
       navigateTo,
+      isDomainView,
       ...(campaignId !== undefined && { campaignId }),
     }),
-    [currentParams, campaignId, navigateTo],
+    [currentParams, campaignId, navigateTo, isDomainView],
   );
+
+  const showAggregate = aggregate !== undefined;
+  const aggregateDomainLabel = currentParams.publisherDomain ?? 'Все площадки';
 
   function onSortingChange(
     updater: SortingState | ((prev: SortingState) => SortingState),
@@ -292,7 +388,14 @@ export function UserImpressionsTableClient({
   });
 
   return (
-    <div className={styles.wrapper}>
+    <>
+      {showAggregate && (
+        <PublisherDomainAggregateRow
+          aggregate={aggregate!}
+          publisherDomain={aggregateDomainLabel}
+        />
+      )}
+      <div className={styles.wrapper}>
       <div className={styles.scrollContainer}>
         <table className={styles.table}>
           <thead>
@@ -360,8 +463,9 @@ export function UserImpressionsTableClient({
           >
             Вперед →
           </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

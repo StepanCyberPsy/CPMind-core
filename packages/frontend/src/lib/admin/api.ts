@@ -18,6 +18,7 @@ import type {
   IvtListConfigListResponse,
   IvtThresholdsConfigListResponse,
   IvtThresholds,
+  PublisherDomainAggregate,
 } from '@cpmind/shared';
 import { getBackendUrl, getPublicBackendUrl } from '@/lib/shared/env';
 import type { SortField } from '@/lib/shared/types';
@@ -31,6 +32,7 @@ export interface ListParams {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
   tagConstantsVersion?: string;
   weightsVersion?: string;
   deviceType?: string;
@@ -56,6 +58,85 @@ export interface ListParams {
   ivtVerdict?: IvtVerdict;
   sortBy?: SortField;
   sortDir?: 'asc' | 'desc';
+}
+
+// Сигнальные модели
+
+export interface S1WeibullConfigRow {
+  id: string;
+  segmentKey: string;
+  k: number;
+  lambda: number;
+  sampleSize: number;
+  fittedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
+export interface S3LogisticConfigRow {
+  id: string;
+  segmentKey: string;
+  tagConstantsVersion: string;
+  coefficients: Record<string, number>;
+  featureMeans: Record<string, number>;
+  featureStds: Record<string, number>;
+  sampleSize: number;
+  accuracy: number | null;
+  fittedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
+export interface S4ConfigRow {
+  id: string;
+  segmentKey: string;
+  version: string;
+  lambda: number;
+  tRefMs: number;
+  sampleSize: number | null;
+  fittedAt: string;
+  createdAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
+export interface S5LogisticConfigRow {
+  id: string;
+  segmentKey: string;
+  tagConstantsVersion: string;
+  coefficients: Record<string, number>;
+  sampleSize: number;
+  accuracy: number | null;
+  fittedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
+export interface S6LogisticConfigRow {
+  id: string;
+  segmentKey: string;
+  tagConstantsVersion: string;
+  coefficients: Record<string, number>;
+  featureMeans: Record<string, number>;
+  featureStds: Record<string, number>;
+  sampleSize: number;
+  accuracy: number | null;
+  fittedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
+export interface S7QuantileConfigRow {
+  id: string;
+  deviceType: string;
+  relativeYLow: number;
+  relativeYMid: number;
+  clutterMid: number;
+  clutterHigh: number;
+  sampleSize: number;
+  computedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
 }
 
 function toBackendDateTime(
@@ -84,6 +165,7 @@ function buildQuery(params: ListParams): string {
   if (params.sessionGroupId) q.set('sessionGroupId', params.sessionGroupId);
   if (params.campaignId) q.set('campaignId', params.campaignId);
   if (params.creativeId) q.set('creativeId', params.creativeId);
+  if (params.publisherDomain) q.set('publisherDomain', params.publisherDomain);
   if (params.tagConstantsVersion) q.set('tagConstantsVersion', params.tagConstantsVersion);
   if (params.weightsVersion) q.set('weightsVersion', params.weightsVersion);
   if (params.scoreMin !== undefined) q.set('scoreMin', String(params.scoreMin));
@@ -497,6 +579,369 @@ export async function activateIvtThresholdsConfig(id: string): Promise<void> {
 
 export async function deactivateIvtThresholdsConfig(id: string): Promise<void> {
   const res = await fetch(`${CLIENT_BACKEND}/api/ivt-thresholds/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// Агрегация по площадке
+export async function fetchPublisherDomainAggregate(
+  creativeId: string,
+  publisherDomain?: string,
+  userUuid?: string,
+  cookie?: string,
+): Promise<PublisherDomainAggregate> {
+  const q = new URLSearchParams({ creativeId });
+  if (publisherDomain !== undefined) q.set('publisherDomain', publisherDomain);
+  if (userUuid !== undefined) q.set('userUuid', userUuid);
+  const backend = cookie !== undefined ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/impressions/domain_aggregate?${q.toString()}`, {
+    cache: 'no-store',
+    ...(cookie !== undefined
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+// S1 Weibull
+export async function fetchS1WeibullConfigs(
+  cookie?: string,
+): Promise<S1WeibullConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s1-weibull`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS1WeibullConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s1-weibull/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS1WeibullConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s1-weibull/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS1WeibullDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s1-weibull/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS1WeibullDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s1-weibull/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S3 Logistic
+export async function fetchS3LogisticConfigs(
+  cookie?: string,
+): Promise<S3LogisticConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s3-logistic`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS3LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s3-logistic/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS3LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s3-logistic/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS3LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s3-logistic/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS3LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s3-logistic/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S4 Config
+export async function fetchS4Configs(
+  cookie?: string,
+): Promise<S4ConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s4-config`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS4Config(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s4-config/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS4Config(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s4-config/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS4ConfigDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s4-config/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS4ConfigDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s4-config/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S5 Logistic
+export async function fetchS5LogisticConfigs(
+  cookie?: string,
+): Promise<S5LogisticConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s5-logistic`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS5LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s5-logistic/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS5LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s5-logistic/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS5LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s5-logistic/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS5LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s5-logistic/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S6 Logistic
+export async function fetchS6LogisticConfigs(
+  cookie?: string,
+): Promise<S6LogisticConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s6-logistic`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS6LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s6-logistic/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS6LogisticConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s6-logistic/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS6LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s6-logistic/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS6LogisticDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s6-logistic/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S7 Quantile
+export async function fetchS7QuantileConfigs(
+  cookie?: string,
+): Promise<S7QuantileConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s7-quantile`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS7QuantileConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s7-quantile/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS7QuantileConfig(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s7-quantile/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS7QuantileDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s7-quantile/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS7QuantileDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s7-quantile/${id}/cancel-delete`, {
     method: 'POST',
     credentials: 'include',
   });

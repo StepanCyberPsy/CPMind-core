@@ -25,6 +25,7 @@ export interface TagBuilderGeneratedCode {
 export interface TagBuilderFormErrors {
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
   width?: string;
   height?: string;
 }
@@ -41,11 +42,13 @@ export const TAG_BUILDER_CREATIVE_TYPES: TagBuilderCreativeType[] = [
 ];
 
 export const TAG_BUILDER_ID_PATTERN = /^[A-Za-z0-9_]{1,100}$/;
+export const PUBLISHER_DOMAIN_PATTERN = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*$/;
 
 export const TAG_BUILDER_DEFAULT_FORM_STATE: TagBuilderFormState = {
   campaignId: '',
   creativeId: '',
   creativeType: 'banner_static',
+  publisherDomain: '',
   width: '728',
   height: '90',
 };

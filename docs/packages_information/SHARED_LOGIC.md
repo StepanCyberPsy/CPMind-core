@@ -175,6 +175,8 @@ packages/shared/
 
 **`WeightConfigRowSchema`** — версия конфигурации весов: `id`, `version`, `configType`, `weights` (объект `{s1, s2, s3, s4, s5, s6, s7}`), `description`, `isActive`, `createdAt`.
 
+**`PublisherDomainAggregateSchema`** — контракт ответа `GET /api/impressions/domain_aggregate`. Поля: `impressions_count: z.number().int()`, `campaigns_count: z.number().int()`, `avg_score: z.number().nullable()`, `avg_s1`..`avg_s7: z.number().nullable()`. Используется frontend для отображения агрегированной сводной строки в режиме площадки (`domainView`). Экспортирован из `index.ts` как схема и из `types/index.ts` как тип `PublisherDomainAggregate`.
+
 ### `schemas/calibration.ts`
 
 Контракты механизма пересчёта Score при смене весов.
@@ -511,7 +513,7 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 
 **`UserImpressionRowSchema`** — производный через `ImpressionRowSchema.pick(USER_VISIBLE_IMPRESSION_FIELDS)`. Не отдельно поддерживаемая копия — изменение whitelist автоматически меняет схему.
 
-`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`), `fp_hash`, `ivt_signals` — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`, `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`.
+`signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`), `fp_hash`, `ivt_signals` — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`, `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`, `publisher_domain`.
 
 ---
 
@@ -824,6 +826,15 @@ Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
 | `access/impression-fields.ts` | `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable` в `USER_VISIBLE_IMPRESSION_FIELDS` |
 | `types/index.ts` | Реэкспорт `IvtVerdict`, `IvtListEntry`, `IvtThresholds`, `IvtListConfigRow`, `IvtListConfigListResponse`, `IvtThresholdsConfigRow`, `IvtThresholdsConfigListResponse`, `IvtSignal`, `IvtClassification` |
 | `index.ts` | `IvtVerdictSchema`, `IvtListEntrySchema`, `IvtThresholdsSchema`, `IvtListConfigRowSchema`, `IvtListConfigListResponseSchema`, `IvtThresholdsConfigRowSchema`, `IvtThresholdsConfigListResponseSchema`, `DEFAULT_IVT_THRESHOLDS`, `classifyIvtSync` |
+
+## Изменения, внесённые в текущую сессию (frontend + publisher domain)
+
+| Файл | Изменение |
+|---|---|
+| `schemas/api.ts` | **NEW** `PublisherDomainAggregateSchema` — контракт агрегата по площадке: `impressions_count`, `campaigns_count`, `avg_score`, `avg_s1`..`avg_s7` |
+| `access/impression-fields.ts` | `publisher_domain` добавлен в `USER_VISIBLE_IMPRESSION_FIELDS` — user-роль получает поле в JSON и CSV |
+| `types/index.ts` | Реэкспорт `PublisherDomainAggregate` |
+| `index.ts` | `PublisherDomainAggregateSchema` добавлен в экспорты схем |
 
 ## Изменения, внесённые в предыдущую сессию
 

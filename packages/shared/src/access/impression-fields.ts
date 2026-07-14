@@ -8,6 +8,7 @@ export const USER_VISIBLE_IMPRESSION_FIELDS = [
   'creative_id',
   'creative_type',
   'device_type',
+  'publisher_domain',
   'timestamp_start',
   'timestamp_end',
   's1_normalized',

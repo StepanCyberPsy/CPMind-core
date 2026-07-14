@@ -11,6 +11,7 @@ import {
     TAG_BUILDER_ENDPOINT,
     TAG_BUILDER_FORMAT_OPTIONS,
     TAG_BUILDER_ID_PATTERN,
+    PUBLISHER_DOMAIN_PATTERN,
     TAG_BUILDER_PLATFORM_OPTIONS,
     TAG_BUILDER_SCRIPT_SRC,
     getTagBuilderDefaultFormat,
@@ -54,6 +55,13 @@ function escapePythonString(value: string): string {
         .replaceAll('"', '\\"');
 }
 
+function isValidPublisherDomain(value: string): boolean {
+    if (value.length > 253) return false;
+    if (value === 'localhost') return false;
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(value)) return false;
+    return PUBLISHER_DOMAIN_PATTERN.test(value);
+}
+
 function validateForm(form: TagBuilderFormState): TagBuilderFormErrors {
     const errors: TagBuilderFormErrors = {};
     const width = Number(form.width);
@@ -65,6 +73,10 @@ function validateForm(form: TagBuilderFormState): TagBuilderFormErrors {
 
     if (!TAG_BUILDER_ID_PATTERN.test(form.creativeId)) {
         errors.creativeId = 'Только латиница, цифры и _, максимум 100 символов';
+    }
+
+    if (form.publisherDomain.trim() !== '' && !isValidPublisherDomain(form.publisherDomain.trim())) {
+        errors.publisherDomain = 'Укажите корректный домен, например example.com';
     }
 
     if (!Number.isInteger(width) || width < 1 || width > 10000) {
@@ -82,19 +94,22 @@ function buildHtmlContainer(
     form: TagBuilderFormState,
     tagUuid: string,
 ): string {
+    const domainAttr = form.publisherDomain.trim() !== ''
+        ? `\n  data-publisher-domain="${escapeHtmlAttr(form.publisherDomain.trim())}"`
+        : '';
     return `<div
   data-cpmind-creative
   data-tag-uuid="${escapeHtmlAttr(tagUuid)}"
   data-campaign-id="${escapeHtmlAttr(form.campaignId)}"
   data-creative-id="${escapeHtmlAttr(form.creativeId)}"
   data-creative-type="${form.creativeType}"
-  data-endpoint="${TAG_BUILDER_ENDPOINT}"
+  data-endpoint="${TAG_BUILDER_ENDPOINT}"${domainAttr}
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
 ${form.creativeType === 'video_creative'
-    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
-    : ''}
+            ? `  <!-- Необязательно: если в видео есть кнопка "Пропустить", добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+            : ''}
 </div>`;
 }
 
@@ -103,23 +118,31 @@ function buildPhpContainer(
     tagUuid: string,
     platform: TagBuilderPlatform,
 ): string {
+    const isWordPress = platform === 'wordpress';
+    const escape = isWordPress
+        ? (v: string) => `<?php echo esc_attr('${escapeHtmlAttr(v)}'); ?>`
+        : (v: string) => `<?=htmlspecialcharsbx('${escapeHtmlAttr(v)}')?>`;
+
     const header = platform === 'bitrix_component'
         ? '<?if(!defined("B_PROLOG_INCLUDED") || B_PROLOG_INCLUDED!==true)die();?>\n'
+        : '';
+    const domainAttr = form.publisherDomain.trim() !== ''
+        ? `\n  data-publisher-domain="${escape(form.publisherDomain.trim())}"`
         : '';
 
     return `${header}<div
   data-cpmind-creative
-  data-tag-uuid="<?=htmlspecialcharsbx('${escapeHtmlAttr(tagUuid)}')?>"
-  data-campaign-id="<?=htmlspecialcharsbx('${escapeHtmlAttr(form.campaignId)}')?>"
-  data-creative-id="<?=htmlspecialcharsbx('${escapeHtmlAttr(form.creativeId)}')?>"
+  data-tag-uuid="${escape(tagUuid)}"
+  data-campaign-id="${escape(form.campaignId)}"
+  data-creative-id="${escape(form.creativeId)}"
   data-creative-type="${form.creativeType}"
-  data-endpoint="${TAG_BUILDER_ENDPOINT}"
+  data-endpoint="${TAG_BUILDER_ENDPOINT}"${domainAttr}
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
 ${form.creativeType === 'video_creative'
-    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
-    : ''}
+            ? `  <!-- Необязательно: если в видео есть кнопка "Пропустить", добавьте атрибут data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+            : ''}
 </div>`;
 }
 
@@ -127,19 +150,22 @@ function buildJsxContainer(
     form: TagBuilderFormState,
     tagUuid: string,
 ): string {
+    const domainAttr = form.publisherDomain.trim() !== ''
+        ? `\n  data-publisher-domain="${escapeHtmlAttr(form.publisherDomain.trim())}"`
+        : '';
     return `<div
   data-cpmind-creative=""
   data-tag-uuid="${escapeHtmlAttr(tagUuid)}"
   data-campaign-id="${escapeHtmlAttr(form.campaignId)}"
   data-creative-id="${escapeHtmlAttr(form.creativeId)}"
   data-creative-type="${form.creativeType}"
-  data-endpoint="${TAG_BUILDER_ENDPOINT}"
+  data-endpoint="${TAG_BUILDER_ENDPOINT}"${domainAttr}
   style={{ width: ${form.width}, height: ${form.height} }}
 >
   {/* Вставьте сюда существующий код баннера */}
 ${form.creativeType === 'video_creative'
-    ? `  {/* Необязательно: если в видео есть кнопка «Пропустить», добавьте data-cpmind-skip */}\n  {/* Пример: <button data-cpmind-skip>Пропустить</button> */}`
-    : ''}
+            ? `  {/* Необязательно: если в видео есть кнопка "Пропустить", добавьте data-cpmind-skip */}\n  {/* Пример: <button data-cpmind-skip>Пропустить</button> */}`
+            : ''}
 </div>`;
 }
 
@@ -147,6 +173,9 @@ function buildPythonContainer(
     form: TagBuilderFormState,
     tagUuid: string,
 ): string {
+    const domainAttr = form.publisherDomain.trim() !== ''
+        ? `\n  data-publisher-domain="${escapePythonString(form.publisherDomain.trim())}"`
+        : '';
     return `tag_container_html = f"""
 <div
   data-cpmind-creative
@@ -154,13 +183,13 @@ function buildPythonContainer(
   data-campaign-id="${escapePythonString(form.campaignId)}"
   data-creative-id="${escapePythonString(form.creativeId)}"
   data-creative-type="${form.creativeType}"
-  data-endpoint="${TAG_BUILDER_ENDPOINT}"
+  data-endpoint="${TAG_BUILDER_ENDPOINT}"${domainAttr}
   style="width: ${form.width}px; height: ${form.height}px;"
 >
   <!-- Вставьте сюда существующий код баннера -->
 ${form.creativeType === 'video_creative'
-    ? `  <!-- Необязательно: если в видео есть кнопка «Пропустить», добавьте data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
-    : ''}
+            ? `  <!-- Необязательно: если в видео есть кнопка "Пропустить", добавьте data-cpmind-skip -->\n  <!-- Пример: <button data-cpmind-skip>Пропустить</button> -->`
+            : ''}
 </div>
 """`;
 }
@@ -539,6 +568,18 @@ export function TagBuilderModal({
                                 />
                             </div>
 
+                            <label className={styles.field}>
+                                <span className={styles.label}>Домен площадки</span>
+                                <input
+                                    value={form.publisherDomain}
+                                    onChange={(event) => updateForm('publisherDomain', event.target.value)}
+                                    placeholder="example.com"
+                                />
+                                {errors.publisherDomain !== undefined ? (
+                                    <span className={styles.fieldError}>{errors.publisherDomain}</span>
+                                ) : null}
+                            </label>
+
                             <div className={styles.sizeGrid}>
                                 <label className={styles.field}>
                                     <span className={styles.label}>Width, px</span>
@@ -566,8 +607,9 @@ export function TagBuilderModal({
                             </div>
                             <div className={styles.instructionCard}>
                                 {form.creativeType === 'video_creative'
-                                    ? 'На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить код видеобаннера. Если в видео есть кнопка «Пропустить», добавьте на неё атрибут data-cpmind-skip — это позволит системе зафиксировать факт пропуска.'
+                                    ? 'На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить код видеобаннера. Если в видео есть кнопка "Пропустить", добавьте на неё атрибут data-cpmind-skip — это позволит системе зафиксировать факт пропуска.'
                                     : 'На следующем шаге CPMind сформирует контейнер тега. Внутрь контейнера нужно будет вставить существующий код вашего баннера.'}
+                                {' '}Домен площадки помогает понять, на каких сайтах реклама работает лучше — это нужно для аналитики по площадкам.
                             </div>
                         </section>
                     ) : (

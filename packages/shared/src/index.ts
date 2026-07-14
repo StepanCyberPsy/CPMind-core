@@ -12,6 +12,7 @@ export {
     ImpressionDetailSchema,
     ImpressionListResponseSchema,
     WeightConfigRowSchema,
+    PublisherDomainAggregateSchema,
 } from './schemas/api.js';
 export {
     UserRoleSchema,
@@ -111,7 +112,6 @@ export {
     classifyIvtSync,
 } from './scoring/ivt.js';
 
-// Типы
 // Схемы IVT
 export {
     IvtVerdictSchema,

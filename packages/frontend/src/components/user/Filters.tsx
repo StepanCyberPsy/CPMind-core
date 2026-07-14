@@ -1,6 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import {
+  useState,
+  useCallback,
+  useEffect,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import { Combobox } from '@/components/shared/Combobox';
 import { ComboboxDatePicker } from '@/components/shared/ComboboxDatePicker';
@@ -30,11 +34,17 @@ export function UserFilters({
   campaignOptions,
   creativeOptions,
   lockCampaignId,
+  domainView = false,
+  domainOptions = [],
 }: UserFiltersProps) {
   const router = useRouter();
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
   const [creativeId, setCreativeId] = useState(current.creativeId ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
+
+  useEffect(() => {
+    setCreativeId(current.creativeId ?? '');
+  }, [current.creativeId]);
   const [isSuspicious, setIsSuspicious] = useState<string>(
     current.isSuspicious === true ? 'true' :
       current.isSuspicious === false ? 'false' : '',
@@ -97,11 +107,51 @@ export function UserFilters({
     router.push(url.pathname + url.search);
   }, [router, lockCampaignId]);
 
+  const exitDomainView = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('domainView');
+    url.searchParams.delete('publisherDomain');
+    url.searchParams.delete('creativeId');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const onDomainChange = useCallback((value: string) => {
+    const url = new URL(window.location.href);
+    value !== ''
+      ? url.searchParams.set('publisherDomain', value)
+      : url.searchParams.delete('publisherDomain');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
+
   const campaignComboOptions = campaignOptions.map((value) => ({ value, label: value }));
   const creativeComboOptions = creativeOptions.map((value) => ({ value, label: value }));
+  const domainComboOptions = domainOptions.map((v) => ({ value: v, label: v }));
 
   return (
     <div className={styles.filters}>
+      {domainView && (
+        <div className={styles.sessionContext}>
+          <span className={styles.sessionContextLabel}>Площадка размещения</span>
+          <div className={styles.sessionContextCombobox}>
+            <Combobox
+              options={domainComboOptions}
+              value={current.publisherDomain ?? ''}
+              onChange={onDomainChange}
+              placeholder="Все площадки"
+              allLabel="Все площадки"
+            />
+          </div>
+          <button
+            type="button"
+            className={`${styles.sessionContextClear} ${styles.sessionContextClearEnd}`}
+            onClick={exitDomainView}
+          >
+            Выйти из режима площадки ×
+          </button>
+        </div>
+      )}
       <div className={styles.grid}>
         {!lockCampaignId && (
           <div className={styles.field}>

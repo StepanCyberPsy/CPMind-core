@@ -217,6 +217,7 @@ packages/backend/
 | `POST` | `/api/auth/login` | bcrypt + выдача JWT cookie |
 | `POST` | `/api/auth/logout` | очистка cookie |
 | `GET` | `/api/impressions` | список с фильтрацией, пагинацией, сортировкой |
+| `GET` | `/api/impressions/domain_aggregate` | агрегат по `creativeId` + опциональный `publisherDomain`: avg Score, avg S1–S7, `impressionsCount`, `campaignsCount`. Для admin: скоуп опционально сужается через `userUuid`. Для user: автоматически ограничен `ownerId` из JWT |
 | `GET` | `/api/impressions/export/csv` | экспорт с UTF-8 BOM, батчинг 10 000 строк |
 | `GET` | `/api/tags/mine` | собственные теги текущего пользователя |
 
@@ -420,7 +421,9 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 **`ListFilters.ivtVerdict`** — опциональный фильтр по IVT-вердикту (`valid | givt | sivt_suspected | sivt_confirmed`). Транслируется в `eq(impressions.ivtVerdict, value)` в `buildWhereFromFilters()`. Валидируется через `z.enum` в `ImpressionListQuerySchema`. `SORT_COLUMN_MAP` — та же идея, что `NUMERIC_RANGE_COLUMNS`: один источник истины для маппинга поля сортировки в колонку Drizzle.
 
-**CSV-экспорт** (`buildWhereClause`, вызывается из `/export/csv`): расширен теми же `tagConstantsVersion`, `weightsVersion` и диапазонными параметрами через `parseNumericParam()`.
+**`ListFilters.publisherDomain`** — опциональный фильтр по домену площадки размещения. Транслируется в `eq(impressions.publisherDomain, value)` в `buildWhereFromFilters()`. Добавлен в `ImpressionListQuerySchema` как `z.string().min(1).optional()`. Используется фронтендом в режиме площадки (`domainView=1`).
+
+**CSV-экспорт** (`buildWhereClause`, вызывается из `/export/csv`): расширен теми же `tagConstantsVersion`, `weightsVersion`, `publisherDomain` и диапазонными параметрами через `parseNumericParam()`.
 
 ### `services/impressions.ts` (обновлён)
 
@@ -429,6 +432,14 @@ export const NUMERIC_RANGE_COLUMNS = {
 **`JoinedImpressionRow` interface** расширен соответственно: `skippable: boolean | null`, `publisher_domain: string | null`, `s6_audible_time_sec: number | null`, `s6_duration_sec: number | null`, `s6_skippable: boolean | null`, все `*_model_version: string | null`.
 
 **`toAdminImpressionRow()`** маппит новые поля: `publisher_domain: row.publisher_domain ?? 'unknown'`, `skippable: row.skippable ?? false`.
+
+**`USER_VISIBLE_COLUMNS`** расширен: добавлен `publisher_domain: impressions.publisherDomain`. Соответственно, `publisher_domain` добавлен в `USER_VISIBLE_IMPRESSION_FIELDS` в `@cpmind/shared` — user-роль получает поле в JSON и CSV.
+
+**`UserVisibleRow` interface** расширен: `publisher_domain: string | null`.
+
+**`toUserImpressionRow()`** деструктурирует `publisher_domain` явно и применяет fallback: `publisher_domain: publisher_domain ?? 'unknown'`.
+
+**`getPublisherDomainAggregate(creativeId, publisherDomain?, targetUserId?)`** — новая функция. Агрегирует метрики по `creativeId` с опциональным фильтром по `publisherDomain`. При `publisherDomain = undefined` — агрегация по всем доменам для данного creative. Использует Drizzle `avg()` и `countDistinct()`. Возвращает `PublisherDomainAggregate` из `@cpmind/shared`. Используется эндпоинтом `GET /api/impressions/domain_aggregate`.
 
 ### `services/csv.ts` (обновлён)
 

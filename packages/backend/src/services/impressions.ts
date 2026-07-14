@@ -1,4 +1,15 @@
-import { and, eq, gte, lte, asc, desc, count, type SQL } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  gte,
+  lte,
+  asc,
+  desc,
+  avg,
+  count,
+  countDistinct,
+  type SQL,
+} from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, tags, users } from '../db/schema.js';
 import type {
@@ -37,6 +48,7 @@ export interface ListFilters {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
   deviceType?: string;
   isSuspicious?: boolean;
   dateFrom?: Date;
@@ -68,6 +80,7 @@ export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
     filters.sessionGroupId !== undefined ? eq(impressions.sessionGroupId, filters.sessionGroupId) : undefined,
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
     filters.creativeId !== undefined ? eq(impressions.creativeId, filters.creativeId) : undefined,
+    filters.publisherDomain !== undefined ? eq(impressions.publisherDomain, filters.publisherDomain) : undefined,
     filters.deviceType !== undefined ? eq(impressions.deviceType, filters.deviceType) : undefined,
     filters.isSuspicious !== undefined ? eq(impressions.isSuspicious, filters.isSuspicious) : undefined,
     filters.dateFrom !== undefined ? gte(impressions.createdAt, filters.dateFrom) : undefined,
@@ -84,6 +97,7 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
     ...(queryParams['sessionGroupId'] !== undefined && { sessionGroupId: queryParams['sessionGroupId'] }),
     ...(queryParams['campaignId'] !== undefined && { campaignId: queryParams['campaignId'] }),
     ...(queryParams['creativeId'] !== undefined && { creativeId: queryParams['creativeId'] }),
+    ...(queryParams['publisherDomain'] !== undefined && { publisherDomain: queryParams['publisherDomain'] }),
     ...(queryParams['deviceType'] !== undefined && { deviceType: queryParams['deviceType'] }),
     ...(queryParams['isSuspicious'] !== undefined && {
       isSuspicious: queryParams['isSuspicious'] === 'true',
@@ -140,6 +154,7 @@ export const USER_VISIBLE_COLUMNS = {
   creative_id: impressions.creativeId,
   creative_type: impressions.creativeType,
   device_type: impressions.deviceType,
+  publisher_domain: impressions.publisherDomain,
   timestamp_start: impressions.timestampStart,
   timestamp_end: impressions.timestampEnd,
   s1_normalized: impressions.s1Normalized,
@@ -277,6 +292,7 @@ export interface UserVisibleRow {
   creative_id: string;
   creative_type: string;
   device_type: string;
+  publisher_domain: string | null;
   timestamp_start: number;
   timestamp_end: number;
   s1_normalized: number | null;
@@ -383,9 +399,11 @@ function toAdminImpressionDetail(row: JoinedImpressionDetailRow): ImpressionDeta
 }
 
 function toUserImpressionRow(row: UserVisibleRow): UserImpressionRow {
+  const { publisher_domain, ivt_verdict, ...rest } = row;
   return {
-    ...row,
-    ivt_verdict: row.ivt_verdict as IvtVerdict,
+    ...rest,
+    publisher_domain: publisher_domain ?? 'unknown',
+    ivt_verdict: ivt_verdict as IvtVerdict,
   };
 }
 
@@ -489,5 +507,62 @@ export async function getImpressionForAdmin(id: string): Promise<ImpressionDetai
       lastRecalibratedAt: latestCalibration.approvedAt,
       lastRecalibratedWeightsVersion: latestCalibration.weightsVersion,
     }),
+  };
+}
+
+// Агрегат по creativeId + publisherDomain для сводной строки режима площадки
+export interface PublisherDomainAggregate {
+  impressions_count: number;
+  campaigns_count: number;
+  avg_score: number | null;
+  avg_s1: number | null;
+  avg_s2: number | null;
+  avg_s3: number | null;
+  avg_s4: number | null;
+  avg_s5: number | null;
+  avg_s6: number | null;
+  avg_s7: number | null;
+}
+
+export async function getPublisherDomainAggregate(
+  creativeId: string,
+  publisherDomain?: string,
+  targetUserId?: number,
+): Promise<PublisherDomainAggregate> {
+  const where = and(
+    eq(impressions.creativeId, creativeId),
+    publisherDomain !== undefined ? eq(impressions.publisherDomain, publisherDomain) : undefined,
+    targetUserId !== undefined ? buildOwnerFilter(targetUserId) : undefined,
+  );
+
+  const [row] = await db.select({
+    impressions_count: count(),
+    campaigns_count: countDistinct(impressions.campaignId),
+    avg_score: avg(impressions.scoreFinal),
+    avg_s1: avg(impressions.s1Normalized),
+    avg_s2: avg(impressions.s2Normalized),
+    avg_s3: avg(impressions.s3Normalized),
+    avg_s4: avg(impressions.s4Normalized),
+    avg_s5: avg(impressions.s5Normalized),
+    avg_s6: avg(impressions.s6Normalized),
+    avg_s7: avg(impressions.s7Normalized),
+  })
+    .from(impressions)
+    .where(where);
+
+  const toNum = (v: string | null | undefined): number | null =>
+    v !== null && v !== undefined ? Number(v) : null;
+
+  return {
+    impressions_count: row?.impressions_count ?? 0,
+    campaigns_count: Number(row?.campaigns_count ?? 0),
+    avg_score: toNum(row?.avg_score),
+    avg_s1: toNum(row?.avg_s1),
+    avg_s2: toNum(row?.avg_s2),
+    avg_s3: toNum(row?.avg_s3),
+    avg_s4: toNum(row?.avg_s4),
+    avg_s5: toNum(row?.avg_s5),
+    avg_s6: toNum(row?.avg_s6),
+    avg_s7: toNum(row?.avg_s7),
   };
 }

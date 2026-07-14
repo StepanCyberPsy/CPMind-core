@@ -31,6 +31,8 @@ export function Filters({
   weightsVersions,
   campaignOptions,
   creativeOptions,
+  domainView = false,
+  domainOptions = [],
 }: FiltersProps) {
   const router = useRouter();
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
@@ -45,6 +47,33 @@ export function Filters({
   const [ivtVerdict, setIvtVerdict] = useState(current.ivtVerdict ?? '');
   const [dateFrom, setDateFrom] = useState(current.dateFrom ?? '');
   const [dateTo, setDateTo] = useState(current.dateTo ?? '');
+
+  const exitSegmentView = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('sessionGroupId');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const exitDomainView = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('domainView');
+    url.searchParams.delete('publisherDomain');
+    url.searchParams.delete('creativeId');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const onDomainChange = useCallback((value: string) => {
+    const url = new URL(window.location.href);
+    value !== ''
+      ? url.searchParams.set('publisherDomain', value)
+      : url.searchParams.delete('publisherDomain');
+    url.searchParams.set('page', '1');
+    router.push(url.pathname + url.search);
+  }, [router]);
+
+  const domainComboOptions = domainOptions.map((v) => ({ value: v, label: v }));
 
   const applyFilters = useCallback(() => {
     const url = new URL(window.location.href);
@@ -71,13 +100,6 @@ export function Filters({
     dateFrom,
     dateTo,
   ]);
-
-  const exitSegmentView = useCallback(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('sessionGroupId');
-    url.searchParams.set('page', '1');
-    router.push(url.pathname + url.search);
-  }, [router]);
 
   const resetFilters = useCallback(() => {
     setCampaignId('');
@@ -120,6 +142,27 @@ export function Filters({
           <span className={styles.sessionContextId}>{current.sessionGroupId}</span>
           <button type="button" className={styles.sessionContextClear} onClick={exitSegmentView}>
             Выйти из режима сегментов ×
+          </button>
+        </div>
+      )}
+      {domainView && (
+        <div className={styles.sessionContext}>
+          <span className={styles.sessionContextLabel}>Площадка размещения</span>
+          <div className={styles.sessionContextCombobox}>
+            <Combobox
+              options={domainComboOptions}
+              value={current.publisherDomain ?? ''}
+              onChange={onDomainChange}
+              placeholder="Все площадки"
+              allLabel="Все площадки"
+            />
+          </div>
+          <button
+            type="button"
+            className={`${styles.sessionContextClear} ${styles.sessionContextClearEnd}`}
+            onClick={exitDomainView}
+          >
+            Выйти из режима площадки ×
           </button>
         </div>
       )}

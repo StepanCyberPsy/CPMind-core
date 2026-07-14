@@ -7,6 +7,8 @@ export interface ImpressionsSearchParams {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
+  domainView?: string;
   tagConstantsVersion?: string;
   weightsVersion?: string;
   deviceType?: string;
@@ -83,6 +85,7 @@ export function parseListSearchParams(
     ...(searchParams.sessionGroupId && { sessionGroupId: searchParams.sessionGroupId }),
     ...(searchParams.campaignId && { campaignId: searchParams.campaignId }),
     ...(searchParams.creativeId && { creativeId: searchParams.creativeId }),
+    ...(searchParams.publisherDomain && { publisherDomain: searchParams.publisherDomain }),
     ...(searchParams.tagConstantsVersion && { tagConstantsVersion: searchParams.tagConstantsVersion }),
     ...(searchParams.weightsVersion && { weightsVersion: searchParams.weightsVersion }),
     ...(searchParams.deviceType && { deviceType: searchParams.deviceType }),

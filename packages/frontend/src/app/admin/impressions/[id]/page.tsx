@@ -8,7 +8,7 @@ import styles from '@/styles/detail-page.module.css';
 
 interface Props {
   params: { id: string };
-  searchParams: { userUuid?: string };
+  searchParams: { userUuid?: string; back?: string };
 }
 
 export default async function ImpressionDetailPage({ params, searchParams }: Props) {
@@ -16,8 +16,12 @@ export default async function ImpressionDetailPage({ params, searchParams }: Pro
   const token = cookieStore.get('cpmind_token')?.value;
   const cookieHeader = token ? `cpmind_token=${token}` : undefined;
   const ownUuid = token ? decodeTokenUuid(token) : null;
-  const backUuid = searchParams.userUuid ?? ownUuid;
-  const backHref = backUuid ? `/admin/impressions?userUuid=${backUuid}` : '/admin/impressions';
+
+  const backHref = searchParams.back
+    ? decodeURIComponent(searchParams.back)
+    : ownUuid !== null
+      ? `/admin/impressions?userUuid=${ownUuid}`
+      : '/admin/impressions';
 
   const impression = await fetchImpressionById(params.id, cookieHeader);
   if (!impression) notFound();

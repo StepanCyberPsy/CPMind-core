@@ -284,7 +284,7 @@ export function IvtPanel({ listConfigs, thresholdsConfigs }: Props) {
   return (
     <div>
       <div className={styles.sectionHeader}>
-        <span className={styles.sectionTitle}>Управление IVT-трафиком</span>
+        <span className={styles.sectionTitle}>Версии конфигураций констант</span>
         {!showListForm && !showThresholdsForm && (
           <button
             className={cStyles.primaryBtn}

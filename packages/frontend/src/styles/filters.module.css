@@ -45,6 +45,12 @@
     min-width: 0;
 }
 
+.sessionContextCombobox {
+    flex: 1;
+    min-width: 180px;
+    max-width: 280px;
+}
+
 .sessionContextClear {
     padding: 4px 10px;
     font-size: 12px;
@@ -57,6 +63,10 @@
     transition: all 0.15s;
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+.sessionContextClearEnd {
+    margin-left: auto;
 }
 
 .sessionContextClear:hover {

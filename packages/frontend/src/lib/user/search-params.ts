@@ -5,6 +5,8 @@ export interface UserImpressionsSearchParams {
   page?: string;
   campaignId?: string;
   creativeId?: string;
+  publisherDomain?: string;
+  domainView?: string;
   deviceType?: string;
   isSuspicious?: string;
   dateFrom?: string;
@@ -75,6 +77,7 @@ export function parseUserListSearchParams(
     sortDir,
     ...(campaignId && { campaignId }),
     ...(searchParams.creativeId && { creativeId: searchParams.creativeId }),
+    ...(searchParams.publisherDomain && { publisherDomain: searchParams.publisherDomain }),
     ...(searchParams.deviceType && { deviceType: searchParams.deviceType }),
     ...(searchParams.dateFrom && { dateFrom: searchParams.dateFrom }),
     ...(searchParams.dateTo && { dateTo: searchParams.dateTo }),

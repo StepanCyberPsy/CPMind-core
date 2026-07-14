@@ -1,6 +1,10 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { fetchUserCampaigns, fetchUserImpressions } from '@/lib/user/api';
+import {
+  fetchUserCampaigns,
+  fetchUserImpressions,
+  fetchUserPublisherDomainAggregate,
+} from '@/lib/user/api';
 import { parseUserListSearchParams, type UserImpressionsSearchParams } from '@/lib/user/search-params';
 import { UserFilters } from '@/components/user/Filters';
 import { UserImpressionsTableClient } from '@/components/user/ImpressionsTable';
@@ -19,20 +23,42 @@ export default async function UserImpressionsPage({
 
   const { params, sortBy, sortDir } = parseUserListSearchParams(searchParams);
 
+  const isDomainView = searchParams.domainView === '1' && searchParams.creativeId !== undefined;
+  const creativeIdFilter = searchParams.creativeId;
+
   const dropdownScopeParams: UserListParams = {
     page: 1,
     limit: 200,
     ...(params.campaignId !== undefined && { campaignId: params.campaignId }),
   };
 
-  const [data, campaigns, dropdownData] = await Promise.all([
+  const domainOptionsScopeParams: UserListParams = {
+    page: 1,
+    limit: 200,
+    ...(creativeIdFilter !== undefined && { creativeId: creativeIdFilter }),
+  };
+
+  const [data, campaigns, dropdownData, domainOptionsData, aggregate] = await Promise.all([
     fetchUserImpressions(params, cookieHeader),
     fetchUserCampaigns(cookieHeader),
     fetchUserImpressions(dropdownScopeParams, cookieHeader),
+    isDomainView
+      ? fetchUserImpressions(domainOptionsScopeParams, cookieHeader)
+      : Promise.resolve(null),
+    isDomainView && creativeIdFilter !== undefined
+      ? fetchUserPublisherDomainAggregate(
+          creativeIdFilter,
+          searchParams.publisherDomain,
+          cookieHeader,
+        )
+      : Promise.resolve(undefined),
   ]);
 
   const campaignOptions = campaigns.map((campaign) => campaign.campaignId).sort();
   const creativeOptions = Array.from(new Set(dropdownData.items.map((row) => row.creative_id))).sort();
+  const domainOptions = domainOptionsData !== null
+    ? Array.from(new Set(domainOptionsData.items.map((r) => r.publisher_domain))).sort()
+    : [];
 
   return (
     <div className={styles.page}>
@@ -66,14 +92,19 @@ export default async function UserImpressionsPage({
           campaignOptions={campaignOptions}
           creativeOptions={creativeOptions}
           lockCampaignId={params.campaignId !== undefined}
+          domainView={isDomainView}
+          domainOptions={domainOptions}
         />
+        
         <UserImpressionsTableClient
           initialData={data.items}
           pageCount={data.pages}
           currentPage={data.page}
           currentSort={{ sortBy, sortDir }}
           currentParams={params}
+          isDomainView={isDomainView}
           {...(params.campaignId !== undefined && { campaignId: params.campaignId })}
+          {...(isDomainView && aggregate !== undefined && { aggregate })}
         />
       </div>
     </div>

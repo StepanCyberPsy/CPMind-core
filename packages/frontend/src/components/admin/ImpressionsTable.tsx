@@ -9,7 +9,8 @@ import {
 } from '@tanstack/react-table';
 import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ImpressionRow } from '@cpmind/shared';
+import type { ImpressionRow, PublisherDomainAggregate } from '@cpmind/shared';
+import { usePopover } from '@/lib/shared/use-popover';
 import { buildSegmentColorMap, type SegmentColor } from '@/lib/admin/segment-color';
 import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
 import { SignalFilterModal } from './SignalFilterModal';
@@ -25,6 +26,11 @@ interface BuildColumnsArgs {
   currentParams: ListParams;
   showRaw: boolean;
   onToggleRaw: () => void;
+  onImpressionAction: (
+    row: ImpressionRow,
+    action: 'detail' | 'filterByDomain'
+  ) => void;
+  isDomainView: boolean;
 }
 
 function renderFilterableHeader(
@@ -110,12 +116,128 @@ function formatDeviceType(deviceType: string): string {
   return deviceType;
 }
 
+interface ImpressionActionsMenuProps {
+  row: ImpressionRow;
+  onAction: (row: ImpressionRow, action: 'detail' | 'filterByDomain') => void;
+}
+
+function ImpressionActionsMenu({
+  row,
+  onAction,
+}: ImpressionActionsMenuProps) {
+  const { open, setOpen, triggerRef, panelRef, coords } = usePopover();
+
+  return (
+    <div className={styles.menuWrapper}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.menuTrigger}
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        aria-expanded={open}
+        aria-label="Действия с импрешеном"
+      >
+        ⋮
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          className={styles.menuPanel}
+          style={coords ? { top: coords.top, left: coords.left } : undefined}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className={styles.menuItem}
+            onClick={() => { setOpen(false); onAction(row, 'detail'); }}
+          >
+            Детали импрешена
+          </button>
+          <button
+            type="button"
+            className={styles.menuItem}
+            onClick={() => { setOpen(false); onAction(row, 'filterByDomain'); }}
+          >
+            Фильтр по площадке
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface PublisherDomainAggregateRowProps {
+  aggregate: PublisherDomainAggregate;
+  publisherDomain: string;
+}
+
+function PublisherDomainAggregateRow({
+  aggregate,
+  publisherDomain,
+}: PublisherDomainAggregateRowProps) {
+  const fmtAvg = (v: number | null) => v !== null ? v.toFixed(1) : '—';
+
+  return (
+    <div className={styles.aggregateRow}>
+      <div className={styles.aggregateHeader}>
+        <span className={styles.aggregateLabel}>Площадка:</span>
+        <span className={styles.aggregateDomain}>{publisherDomain}</span>
+      </div>
+      <div className={styles.aggregateStats}>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Кампании</span>
+          <span className={styles.aggregateStatValue}>{aggregate.campaigns_count}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Импрешены</span>
+          <span className={styles.aggregateStatValue}>{aggregate.impressions_count.toLocaleString('ru-RU')}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>Средний SCORE</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_score)}</span>
+        </div>
+        <div className={styles.aggregateStatDivider} />
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S1</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s1)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S2</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s2)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S3</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s3)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S4</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s4)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S5</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s5)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S6</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s6)}</span>
+        </div>
+        <div className={styles.aggregateStat}>
+          <span className={styles.aggregateStatLabel}>S7</span>
+          <span className={styles.aggregateStatValue}>{fmtAvg(aggregate.avg_s7)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function buildColumns({
   navigateTo,
   segmentColorMap,
   currentParams,
   showRaw,
   onToggleRaw,
+  onImpressionAction,
+  isDomainView,
 }: BuildColumnsArgs) {
   const baseColumns = [
     col.accessor('created_at', {
@@ -142,6 +264,16 @@ function buildColumns({
       header: 'ID Креатива',
       enableSorting: false,
       cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
+    }),
+    col.display({
+      id: '__actions__',
+      header: () => null,
+      cell: ({ row }) => isDomainView ? null : (
+        <ImpressionActionsMenu
+          row={row.original}
+          onAction={onImpressionAction}
+        />
+      ),
     }),
     col.accessor('device_type', {
       header: 'Устройство',
@@ -420,10 +552,11 @@ export function ImpressionsTableClient({
   currentPage,
   currentSort,
   currentParams,
+  aggregate,
+  isDomainView = false,
 }: ImpressionsTableProps) {
   const router = useRouter();
   const [showRaw, setShowRaw] = useState(false);
-
   const [sorting, setSorting] = useState<SortingState>(() => [{
     id: currentSort.sortBy === 'createdAt' ? 'created_at' : '__none__',
     desc: currentSort.sortDir === 'desc',
@@ -440,14 +573,47 @@ export function ImpressionsTableClient({
 
   const onToggleRaw = useCallback(() => setShowRaw(prev => !prev), []);
 
+  const handleImpressionAction = useCallback((
+    row: ImpressionRow,
+    action: 'detail' | 'filterByDomain',
+  ) => {
+    if (action === 'detail') {
+      const back = encodeURIComponent(window.location.pathname + window.location.search);
+      router.push(`/admin/impressions/${row.id}?back=${back}`);
+      return;
+    }
+    navigateTo({
+      creativeId: row.creative_id,
+      domainView: '1',
+      publisherDomain: '',
+      page: '1',
+    });
+  }, [router, navigateTo]);
+
   const segmentColorMap = useMemo(
     () => buildSegmentColorMap(initialData),
     [initialData],
   );
 
   const columns = useMemo(
-    () => buildColumns({ navigateTo, segmentColorMap, currentParams, showRaw, onToggleRaw }),
-    [navigateTo, segmentColorMap, currentParams, showRaw, onToggleRaw],
+    () => buildColumns({
+      navigateTo,
+      segmentColorMap,
+      currentParams,
+      showRaw,
+      onToggleRaw,
+      onImpressionAction: handleImpressionAction,
+      isDomainView,
+    }),
+    [
+      navigateTo,
+      segmentColorMap,
+      currentParams,
+      showRaw,
+      onToggleRaw,
+      handleImpressionAction,
+      isDomainView,
+    ],
   );
 
   function onSortingChange(
@@ -465,8 +631,16 @@ export function ImpressionsTableClient({
   }
 
   function onRowClick(row: ImpressionRow): void {
-    router.push(`/admin/impressions/${row.id}`);
+    const back = encodeURIComponent(window.location.pathname + window.location.search);
+    if (isDomainView) {
+      router.push(`/admin/impressions/${row.id}?back=${back}`);
+      return;
+    }
+    return;
   }
+
+  const showAggregate = aggregate !== undefined;
+  const aggregateDomainLabel = currentParams.publisherDomain ?? 'Все площадки';
 
   const table = useReactTable({
     data: initialData,
@@ -478,84 +652,95 @@ export function ImpressionsTableClient({
   });
 
   return (
-    <div className={styles.wrapper}>
-      <div className={styles.scrollContainer}>
-        <table className={styles.table}>
-          <thead>
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id}>
-                {hg.headers.map((header) => {
-                  const canSort = header.column.getCanSort();
-                  const sorted = header.column.getIsSorted();
-                  const isToggle = header.column.id === '__raw_toggle__';
-                  return (
-                    <th
-                      key={header.id}
-                      className={`${styles.th} ${canSort ? styles.thSortable : ''} ${isToggle ? styles.thRawToggle : ''}`}
-                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {canSort && (
-                        <span className={`${styles.sortIcon} ${sorted ? styles.sortIconActive : ''}`}>
-                          {sorted === 'asc' ? '↑' : sorted === 'desc' ? '↓' : '↕'}
-                        </span>
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length} className={styles.empty}>
-                  Импрешены не найдены
-                </td>
-              </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className={styles.tr}
-                  onClick={() => onRowClick(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={`${styles.td} ${cell.column.id === '__raw_toggle__' ? styles.tdRawToggle : ''}`}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+    <>
+      {showAggregate && (
+        <PublisherDomainAggregateRow
+          aggregate={aggregate!}
+          publisherDomain={aggregateDomainLabel}
+        />
+      )}
+      <div className={styles.wrapper}>
+        <div className={styles.scrollContainer}>
+          <table className={styles.table}>
+            <thead>
+              {table.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((header) => {
+                    const canSort = header.column.getCanSort();
+                    const sorted = header.column.getIsSorted();
+                    const isToggle = header.column.id === '__raw_toggle__';
+                    const isActions = header.column.id === '__actions__';
+                    return (
+                      <th
+                        key={header.id}
+                        className={`${styles.th} ${canSort ? styles.thSortable : ''} ${isToggle ? styles.thRawToggle : ''} ${isActions && !isDomainView ? styles.thActions : ''}`}
+                        style={isActions && isDomainView ? { display: 'none' } : undefined}
+                        onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {canSort && (
+                          <span className={`${styles.sortIcon} ${sorted ? styles.sortIconActive : ''}`}>
+                            {sorted === 'asc' ? '↑' : sorted === 'desc' ? '↓' : '↕'}
+                          </span>
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td colSpan={columns.length} className={styles.empty}>
+                    Импрешены не найдены
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={`${styles.tr} ${isDomainView ? styles.trClickable : ''}`}
+                    onClick={isDomainView ? () => onRowClick(row.original) : undefined}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={`${styles.td} ${cell.column.id === '__raw_toggle__' ? styles.tdRawToggle : ''} ${cell.column.id === '__actions__' && !isDomainView ? styles.tdActions : ''}`}
+                        style={cell.column.id === '__actions__' && isDomainView ? { display: 'none' } : undefined}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      <div className={styles.footer}>
-        <span className={styles.pageInfo}>
-          Страница {currentPage} из {pageCount || 1}
-        </span>
-        <div className={styles.pageButtons}>
-          <button
-            className={styles.pageBtn}
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage <= 1}
-          >
-            ← Назад
-          </button>
-          <button
-            className={styles.pageBtn}
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage >= pageCount}
-          >
-            Вперед →
-          </button>
+        <div className={styles.footer}>
+          <span className={styles.pageInfo}>
+            Страница {currentPage} из {pageCount || 1}
+          </span>
+          <div className={styles.pageButtons}>
+            <button
+              className={styles.pageBtn}
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage <= 1}
+            >
+              ← Назад
+            </button>
+            <button
+              className={styles.pageBtn}
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage >= pageCount}
+            >
+              Вперед →
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
