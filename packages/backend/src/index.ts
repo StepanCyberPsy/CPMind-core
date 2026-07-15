@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import {
   bootstrapAdmin,
   bootstrapTagConstants,
+  bootstrapDefaultWeights,
   bootstrapS1WeibullDefault,
   bootstrapS3LogisticDefault,
   bootstrapS4Default,
@@ -50,6 +51,13 @@ async function main(): Promise<void> {
     await bootstrapTagConstants();
   } catch (err) {
     console.error('[CPMind] Tag constants bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapDefaultWeights();
+  } catch (err) {
+    console.error('[CPMind] Default weights bootstrap failed — server will not start:', err);
     process.exit(1);
   }
 

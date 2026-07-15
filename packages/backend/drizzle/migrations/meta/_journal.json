@@ -134,6 +134,13 @@
       "when": 1784112881585,
       "tag": "0018_dapper_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784200000000,
+      "tag": "0019_seed_default_weights",
+      "breakpoints": true
     }
   ]
 }

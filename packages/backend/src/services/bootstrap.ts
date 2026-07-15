@@ -4,9 +4,12 @@ import {
   DEFAULT_WEIBULL_PARAMS,
   DEFAULT_LOGISTIC_PARAMS,
   DEFAULT_S4_CONFIGS,
-  DEFAULT_S5_DESKTOP, DEFAULT_S5_MOBILE_TABLET,
+  DEFAULT_S5_DESKTOP,
+  DEFAULT_S5_MOBILE_TABLET,
   DEFAULT_S6_LOGISTIC_PARAMS,
   DEFAULT_S7_THRESHOLDS,
+  DEFAULT_BANNER_WEIGHTS,
+  DEFAULT_VIDEO_WEIGHTS,
 } from '@cpmind/shared';
 import { db } from '../db/index.js';
 import {
@@ -14,6 +17,7 @@ import {
   tags,
   impressions,
   tagConstantsConfigs,
+  weightConfigs,
   s1WeibullConfigs,
   s3LogisticConfigs,
   s4Configs,
@@ -342,4 +346,61 @@ export async function bootstrapS7Default(): Promise<void> {
       isActive: true,
     })),
   );
+}
+
+// Создает v1.0_uncalibrated_banner и v1.0_uncalibrated_video если отсутствует активный
+export async function bootstrapDefaultWeights(): Promise<void> {
+  const [existingBanner] = await db
+    .select({id: weightConfigs.id})
+    .from(weightConfigs)
+    .where(and(
+      eq(weightConfigs.configType, 'banner'),
+      eq(weightConfigs.isActive, true),
+    ))
+    .limit(1);
+
+  if (!existingBanner) {
+    await db.insert(weightConfigs).values({
+      version: DEFAULT_BANNER_WEIGHTS.version,
+      configType: 'banner',
+      weights: {
+        s1: DEFAULT_BANNER_WEIGHTS.s1,
+        s2: DEFAULT_BANNER_WEIGHTS.s2,
+        s3: DEFAULT_BANNER_WEIGHTS.s3,
+        s4: DEFAULT_BANNER_WEIGHTS.s4,
+        s5: DEFAULT_BANNER_WEIGHTS.s5,
+        s6: DEFAULT_BANNER_WEIGHTS.s6,
+        s7: DEFAULT_BANNER_WEIGHTS.s7,
+      } as unknown as Record<string, unknown>,
+      description: 'Стартовые экспертные веса для баннеров, не подтверждённые данными',
+      isActive: true,
+    });
+  }
+
+  const [existingVideo] = await db
+    .select({id: weightConfigs.id})
+    .from(weightConfigs)
+    .where(and(
+      eq(weightConfigs.configType, 'video'),
+      eq(weightConfigs.isActive, true),
+    ))
+    .limit(1);
+
+  if (!existingVideo) {
+    await db.insert(weightConfigs).values({
+      version: DEFAULT_VIDEO_WEIGHTS.version,
+      configType: 'video',
+      weights: {
+        s1: DEFAULT_VIDEO_WEIGHTS.s1,
+        s2: DEFAULT_VIDEO_WEIGHTS.s2,
+        s3: DEFAULT_VIDEO_WEIGHTS.s3,
+        s4: DEFAULT_VIDEO_WEIGHTS.s4,
+        s5: DEFAULT_VIDEO_WEIGHTS.s5,
+        s6: DEFAULT_VIDEO_WEIGHTS.s6,
+        s7: DEFAULT_VIDEO_WEIGHTS.s7,
+      } as unknown as Record<string, unknown>,
+      description: 'Стартовые экспертные веса для видео, не подтверждённые данными',
+      isActive: true,
+    });
+  }
 }
