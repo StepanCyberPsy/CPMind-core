@@ -62,6 +62,7 @@ export function processImpression(
     ivtThresholds,
     userAgent
   );
+  const fIvt: 0 | 1 = (ivt.ivt_verdict === 'givt' || ivt.ivt_verdict === 'sivt_confirmed') ? 0 : 1;
 
   return {
     impressionId: payload.impression_id,
@@ -102,7 +103,7 @@ export function processImpression(
     s7Normalized: result.normalized.s7,
 
     fPresence: result.f_presence,
-    scoreFinal: result.score_final,
+    scoreFinal: result.score_final * fIvt,
     weightsVersion: result.weights_version,
     s1ModelVersion: s1ModelVersion,
     s3ModelVersion: s3ModelVersion,

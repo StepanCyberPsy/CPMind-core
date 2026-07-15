@@ -161,6 +161,7 @@ export function computeScore(
 export function recomputeScoreFromNormalized(
   normalized: NormalizedSignals,
   fPresence: 0 | 1,
+  fIvt: 0 | 1,
   weights: WeightsConfig,
 ): RecomputeScoreResult {
   const nullSignals = detectNullSignals(normalized);
@@ -176,7 +177,7 @@ export function recomputeScoreFromNormalized(
     normalized.s7 * effective_weights.s7;
 
   return {
-    score_final: weightedSum * fPresence,
+    score_final: weightedSum * fPresence * fIvt,
     effective_weights,
   };
 }

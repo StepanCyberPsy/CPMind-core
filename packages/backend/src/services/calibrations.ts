@@ -221,6 +221,7 @@ async function processCalibrationBatch(
           id: impressions.id,
           signalsNormalized: impressions.signalsNormalized,
           fPresence: impressions.fPresence,
+          ivtVerdict: impressions.ivtVerdict,
           scoreFinal: impressions.scoreFinal,
           weightsVersion: impressions.weightsVersion,
         })
@@ -235,7 +236,13 @@ async function processCalibrationBatch(
       const draftItems = rows.map((row) => {
         const normalized = row.signalsNormalized as NormalizedSignals;
         const fPresence = row.fPresence as 0 | 1;
-        const { score_final } = recomputeScoreFromNormalized(normalized, fPresence, weights);
+        const fIvt: 0 | 1 = (row.ivtVerdict === 'givt' || row.ivtVerdict === 'sivt_confirmed') ? 0 : 1;
+        const { score_final } = recomputeScoreFromNormalized(
+          normalized,
+          fPresence,
+          fIvt,
+          weights
+        );
 
         return {
           batchId,

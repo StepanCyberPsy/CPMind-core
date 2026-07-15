@@ -10,7 +10,12 @@ const logger = pino({ name: 's4-calibration-job' });
 const RECALIBRATION_WINDOW_DAYS = 30;
 const MIN_SAMPLE_SIZE = 1000;
 
-const SEGMENTS = ['desktop_banner', 'mobile_banner', 'desktop_video', 'mobile_video'] as const;
+const SEGMENTS = [
+  'desktop_banner',
+  'mobile_banner',
+  'desktop_video',
+  'mobile_video'
+] as const;
 type S4Segment = typeof SEGMENTS[number];
 
 function buildS4SegmentFilter(segment: S4Segment): {
