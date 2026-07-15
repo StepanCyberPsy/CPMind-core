@@ -106,7 +106,7 @@ export const impressions = pgTable('impressions', {
   // Score
   fPresence: smallint('f_presence').notNull(),
   scoreFinal: real('score_final').notNull(),
-  weightsVersion: text('weights_version').notNull().default('v1.0_uncalibrated'),
+  weightsVersion: text('weights_version').notNull(),
   s1ModelVersion: text('s1_model_version'),
   s3ModelVersion: text('s3_model_version'),
   s4ModelVersion: text('s4_model_version'),

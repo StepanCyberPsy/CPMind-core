@@ -52,7 +52,7 @@ export interface ScoreResult {
  * Все промежуточные функции — pure, без side effects.
  *
  * @param payload — raw ImpressionPayload от тега (не мутируется)
- * @param weights — конфигурация весов (по умолчанию DEFAULT_WEIGHTS v1.0_uncalibrated)
+ * @param weights — активная или дефолтная конфигурация весов для категории креатива
  */
 
 export function computeScore(

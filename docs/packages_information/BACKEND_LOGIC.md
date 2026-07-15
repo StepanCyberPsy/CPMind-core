@@ -1184,7 +1184,13 @@ CREATE INDEX IF NOT EXISTS "idx_impressions_publisher_domain"
     ON "impressions" USING btree ("publisher_domain");
 ```
 
-18. **packages/backend/drizzle/migrations/meta/_journal.json**
+18. **packages/backend/drizzle/migrations/0018_dapper_karnak.sql** (фикс DEFAULT-весов для видео):
+
+```sql
+ALTER TABLE "impressions" ALTER COLUMN "weights_version" DROP DEFAULT;
+```
+
+19. **packages/backend/drizzle/migrations/meta/_journal.json**
 
 ```json
 {
@@ -1315,6 +1321,13 @@ CREATE INDEX IF NOT EXISTS "idx_impressions_publisher_domain"
       "version": "7",
       "when": 1783530420000,
       "tag": "0017_dear_jubilee",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784112881585,
+      "tag": "0018_dapper_karnak",
       "breakpoints": true
     }
   ]

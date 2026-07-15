@@ -1,0 +1,1 @@
+ALTER TABLE "impressions" ALTER COLUMN "weights_version" DROP DEFAULT;

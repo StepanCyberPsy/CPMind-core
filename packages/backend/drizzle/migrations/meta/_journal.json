@@ -127,6 +127,13 @@
       "when": 1783692693514,
       "tag": "0017_dear_jubilee",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784112881585,
+      "tag": "0018_dapper_karnak",
+      "breakpoints": true
     }
   ]
 }

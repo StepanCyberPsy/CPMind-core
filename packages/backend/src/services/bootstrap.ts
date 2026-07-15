@@ -224,7 +224,7 @@ export async function bootstrapS4Default(): Promise<void> {
   await db.insert(s4Configs).values(
     segments.map((s) => ({
       segmentKey: s.segmentKey,
-      version: 'v1.0_uncalibrated',
+      version: 'v0',
       lambda: s.lambda,
       tRefMs: s.tRefMs,
       sampleSize: 0,

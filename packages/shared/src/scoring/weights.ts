@@ -1,11 +1,11 @@
 /**
- * Стартовые веса для баннерных креативов — v1.0_uncalibrated.
+ * Стартовые веса для баннерных креативов — v1.0_uncalibrated_banner.
  * S6 = 0.0: баннеры не содержат видео, вес не перераспределяется
  * (null-сигнал с нулевым базовым весом добавляет 0 к availableSum).
  * Сумма весов = 1.00.
  */
 export const DEFAULT_BANNER_WEIGHTS: WeightsValues = {
-  version: 'v1.0_uncalibrated',
+  version: 'v1.0_uncalibrated_banner',
   s1: 0.30,
   s2: 0.20,
   s3: 0.15,
@@ -16,12 +16,12 @@ export const DEFAULT_BANNER_WEIGHTS: WeightsValues = {
 };
 
 /**
- * Стартовые веса для видео-креативов — v1.0_uncalibrated.
+ * Стартовые веса для видео-креативов — v1.0_uncalibrated_video.
  * S6 доминирует (0.40) как основной измеритель вовлечённости в видео.
  * Сумма весов = 1.00.
  */
 export const DEFAULT_VIDEO_WEIGHTS: WeightsValues = {
-  version: 'v1.0_uncalibrated',
+  version: 'v1.0_uncalibrated_video',
   s1: 0.15,
   s2: 0.10,
   s3: 0.10,
@@ -87,7 +87,15 @@ export function computeEffectiveWeights(
   weights: WeightsConfig,
 ): EffectiveWeights {
   const nullSet = new Set<SignalKey>(nullSignals);
-  const allKeys: SignalKey[] = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+  const allKeys: SignalKey[] = [
+    's1',
+    's2',
+    's3',
+    's4',
+    's5',
+    's6',
+    's7'
+  ];
 
   const availableSum = allKeys.reduce<number>((sum, key) => {
     return nullSet.has(key) ? sum : sum + weights[key];

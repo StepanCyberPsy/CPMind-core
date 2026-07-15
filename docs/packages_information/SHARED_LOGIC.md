@@ -462,9 +462,9 @@ interface NormalizeAllParams {
 
 ### `weights.ts` — веса и перераспределение
 
-**`DEFAULT_BANNER_WEIGHTS`** — стартовые веса для баннеров `v1.0_uncalibrated`: s6: 0.00, сумма 1.0. S6 с нулевым весом не перераспределяется при null (добавляет 0 к availableSum).
+**`DEFAULT_BANNER_WEIGHTS`** — стартовые веса для баннеров `v1.0_uncalibrated_banner`: s6: 0.00, сумма 1.0. S6 с нулевым весом не перераспределяется при null (добавляет 0 к availableSum).
 
-**`DEFAULT_VIDEO_WEIGHTS`** — стартовые веса для видео `v1.0_uncalibrated`: s6: 0.40, s1: 0.15, s2: 0.10, s3: 0.10, s4: 0.10, s5: 0.10, s7: 0.05, сумма 1.0.
+**`DEFAULT_VIDEO_WEIGHTS`** — стартовые веса для видео `v1.0_uncalibrated_video`: s6: 0.40, s1: 0.15, s2: 0.10, s3: 0.10, s4: 0.10, s5: 0.10, s7: 0.05, сумма 1.0.
 
 **`CreativeCategory`** = `'banner' | 'video'` — тип для per-creative-type routing.
 
