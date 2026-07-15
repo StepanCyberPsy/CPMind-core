@@ -10,6 +10,13 @@ interface Props {
   siblingSegments?: ImpressionRow[];
 }
 
+interface IvtSignalItem {
+  rule: string;
+  detail: string | null;
+  confidence: string | null;
+  metadata: string[];
+}
+
 function safeToIso(value: unknown): string {
   if (value === null || value === undefined) return '—';
   const n = Number(value);
@@ -24,13 +31,93 @@ function fmt(
   decimals = 2,
   suffix = '',
 ): string {
-  if (v === null || v === undefined) return 'n/a';
+  if (v === null || v === undefined) return 'Нет данных';
   return v.toFixed(decimals) + suffix;
 }
 
 function fmtBool(v: boolean | null | undefined): string {
-  if (v === null || v === undefined) return 'n/a';
+  if (v === null || v === undefined) return 'Нет данных';
   return v ? 'true' : 'false';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringifyTechnicalValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getTechnicalValues(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+
+  return values
+    .map((item) => stringifyTechnicalValue(item))
+    .filter((item): item is string => item !== null);
+}
+
+function fmtTechnicalInline(value: unknown): string {
+  const values = getTechnicalValues(value);
+  return values.length > 0 ? values.join(', ') : 'n/a';
+}
+
+function parseIvtSignal(
+  value: unknown,
+  index: number,
+): IvtSignalItem | null {
+  if (!isRecord(value)) {
+    const rule = stringifyTechnicalValue(value);
+
+    return rule === null
+      ? null
+      : {
+        rule,
+        detail: null,
+        confidence: null,
+        metadata: [],
+      };
+  }
+
+  const rule = stringifyTechnicalValue(value['rule']) ?? `Сигнал ${index + 1}`;
+  const detail = stringifyTechnicalValue(value['detail']);
+  const confidence = stringifyTechnicalValue(value['confidence']);
+
+  const metadata = Object.entries(value)
+    .filter(([key]) => !['rule', 'detail', 'confidence'].includes(key))
+    .map(([key, item]) => {
+      const formatted = fmtTechnicalInline(item);
+      return `${key}: ${formatted}`;
+    });
+
+  return {
+    rule,
+    detail,
+    confidence,
+    metadata,
+  };
+}
+
+function normalizeIvtSignals(value: unknown): IvtSignalItem[] {
+  const values = Array.isArray(value) ? value : [value];
+
+  return values
+    .map((item, index) => parseIvtSignal(item, index))
+    .filter((item): item is IvtSignalItem => item !== null);
 }
 
 function fmtDate(iso: string): string {
@@ -93,23 +180,94 @@ function Field({
   value,
   mono = false,
   highlight = false,
+  wide = false,
 }: {
   label: string;
   value: React.ReactNode;
   mono?: boolean;
   highlight?: boolean;
+  wide?: boolean;
 }) {
   return (
-    <div className={`${styles.field} ${highlight ? styles.fieldHighlight : ''}`}>
+    <div className={[
+      styles.field,
+      highlight ? styles.fieldHighlight : '',
+      wide ? styles.fieldWide : '',
+    ].join(' ')}>
       <div className={styles.fieldLabel}>{label}</div>
       <div className={[
         styles.fieldValue,
         mono ? styles.fieldValueMono : '',
         highlight ? styles.fieldValueHighlight : '',
-        (value === '—' || value === 'n/a') ? styles.fieldValueNull : '',
+        (value === '—' || value === 'Нет данных') ? styles.fieldValueNull : '',
       ].join(' ')}>
         {value ?? '—'}
       </div>
+    </div>
+  );
+}
+
+function IvtSignalsList({ value }: { value: unknown }) {
+  const [expanded, setExpanded] = useState(false);
+  const signals = normalizeIvtSignals(value);
+  const visibleSignals = expanded ? signals : signals.slice(0, 3);
+  const hiddenCount = signals.length - visibleSignals.length;
+
+  if (signals.length === 0) {
+    return (
+      <span className={styles.ivtSignalsEmpty}>
+        Сигналы отсутствуют
+      </span>
+    );
+  }
+
+  return (
+    <div className={styles.ivtSignalsList}>
+      {visibleSignals.map((signal, index) => (
+        <div
+          key={`${signal.rule}-${index}`}
+          className={styles.ivtSignalItem}
+        >
+          <div className={styles.ivtSignalHeader}>
+            <span className={styles.ivtSignalRule}>
+              {signal.rule}
+            </span>
+
+            {signal.confidence !== null && (
+              <span className={styles.ivtSignalConfidence}>
+                confidence: {signal.confidence}
+              </span>
+            )}
+          </div>
+
+          {signal.detail !== null && (
+            <div className={styles.ivtSignalDetail}>
+              {signal.detail}
+            </div>
+          )}
+
+          {signal.metadata.map((item) => (
+            <div
+              key={item}
+              className={styles.ivtSignalMetadata}
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {signals.length > 3 && (
+        <button
+          type="button"
+          className={styles.ivtSignalsToggle}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded
+            ? 'Скрыть'
+            : `Показать ещё ${hiddenCount}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -132,6 +290,8 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
   const sortedSegments = siblingSegments
     ? [...siblingSegments].sort((a, b) => a.segment_index - b.segment_index)
     : [];
+
+  const hasIvtSignals = normalizeIvtSignals(imp.ivt_signals).length > 0;
 
   const raw = imp.signals_raw as Record<string, Record<string, unknown>> | null;
   const s1 = raw?.['s1'] ?? {};
@@ -173,6 +333,12 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
           <div className={styles.scoreMetaRow}>
             Weights:{' '}
             <span className={styles.weightsVersion}>{imp.weights_version}</span>
+          </div>
+          <div className={styles.scoreMetaRow}>
+            Tag constants:{' '}
+            <span className={styles.weightsVersion}>
+              {imp.tag_constants_version ?? 'Нет данных'}
+            </span>
           </div>
         </div>
         <div className={styles.scoreDate}>{fmtDate(imp.created_at)}</div>
@@ -222,6 +388,11 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
           <Field
             label="ivt_category"
             value={imp.ivt_category ?? '—'}
+          />
+          <Field
+            label="ivt_signals"
+            value={<IvtSignalsList value={imp.ivt_signals} />}
+            wide={hasIvtSignals}
           />
           <Field
             label="ivt_confidence"
@@ -296,6 +467,42 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
         </div>
       </CollapsibleSection>
 
+      {/* Версии моделей — скрыта по умолчанию */}
+      <CollapsibleSection title="Версии моделей сигналов" defaultOpen={false}>
+        <div className={styles.fieldGrid}>
+          <Field
+            label="s1_model_version"
+            value={imp.s1_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
+            label="s3_model_version"
+            value={imp.s3_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
+            label="s4_model_version"
+            value={imp.s4_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
+            label="s5_model_version"
+            value={imp.s5_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
+            label="s6_model_version"
+            value={imp.s6_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
+            label="s7_model_version"
+            value={imp.s7_model_version ?? 'Нет данных'}
+            mono
+          />
+        </div>
+      </CollapsibleSection>
+
       {/* F_Presence — открыта по умолчанию */}
       <CollapsibleSection title="F_Presence (raw)" defaultOpen={true}>
         <div className={styles.fieldGrid}>
@@ -312,6 +519,11 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
             label="events_count_during_impression"
             value={String(pr['events_count_during_impression'] ?? 0)}
             highlight
+          />
+          <Field
+            label="event_intervals_ms"
+            value={fmtTechnicalInline(pr['event_intervals_ms'])}
+            mono
           />
         </div>
       </CollapsibleSection>
@@ -425,7 +637,7 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
             value={fmtBool(s5['clicked'] as boolean)}
             highlight={s5['clicked'] === true}
           />
-          <Field label="hover_count" value={String(s5['hover_count'] ?? 'n/a')} />
+          <Field label="hover_count" value={String(s5['hover_count'] ?? 'Нет данных')} />
           <Field
             label="hover_duration_max_ms"
             value={fmt(s5['hover_duration_max_ms'] as number, 0, ' мс')}
@@ -446,13 +658,13 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
             label="cursor_trajectory_entropy"
             value={fmt(s5['cursor_trajectory_entropy'] as number, 3)}
           />
-          <Field label="tap_count" value={String(s5['tap_count'] ?? 'n/a')} />
+          <Field label="tap_count" value={String(s5['tap_count'] ?? 'Нет данных')} />
           <Field
             label="touch_start_end_delta_ms"
             value={fmt(s5['touch_start_end_delta_ms'] as number, 0, ' мс')}
           />
           <Field label="zoom" value={fmtBool(s5['zoom'] as boolean)} />
-          <Field label="swipe_count" value={String(s5['swipe_count'] ?? 'n/a')} />
+          <Field label="swipe_count" value={String(s5['swipe_count'] ?? 'Нет данных')} />
           <Field label="top_event" value={imp.s5_raw_top_event} highlight />
         </div>
       </CollapsibleSection>
@@ -482,10 +694,18 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
                 value={fmt(s6['completion_rate_pct'] as number, 1, '%')}
                 highlight
               />
+              <Field
+                label="duration_sec"
+                value={fmt(s6['duration_sec'] as number, 1, ' сек')}
+              />
               <Field label="pause_initiated" value={fmtBool(s6['pause_initiated'] as boolean)} />
               <Field label="skipped" value={fmtBool(s6['skipped'] as boolean)} />
+              <Field
+                label="skippable"
+                value={fmtBool(imp.s6_skippable ?? imp.skippable)}
+              />
               <Field label="replay_count" value={String(s6['replay_count'] ?? 0)} />
-              <Field label="muted_status" value={String(s6['muted_status'] ?? 'n/a')} />
+              <Field label="muted_status" value={String(s6['muted_status'] ?? 'Нет данных')} />
               <Field
                 label="volume_level"
                 value={fmt(s6['volume_level'] as number, 0)}
