@@ -119,15 +119,17 @@ packages/backend/
     │   ├── users_stats.ts            # getUsersWithStats() — LEFT JOIN +
     │   │                             # subquery primary tag
     │   ├── tags.ts                   # CRUD тегов, resolveActiveTagOwner()
-    │   ├── bootstrap.ts              # bootstrapAll(): bootstrapAdmin() +
-    │   │                             # bootstrapDefaultTagConstants() +
+    │   ├── bootstrap.ts              # bootstrapAdmin() +
+    │   │                             # bootstrapTagConstants() +
     │   │                             # bootstrapDefaultWeights() +
     │   │                             # bootstrapS1WeibullDefault() +
     │   │                             # bootstrapS3LogisticDefault() +
     │   │                             # bootstrapS4Default() +
-    │   │                             # bootstrapS5LogisticDefault() +
-    │   │                             # bootstrapS6LogisticDefault() +
-    │   │                             # bootstrapS7QuantileDefault()
+    │   │                             # bootstrapS5Default() +
+    │   │                             # bootstrapS6Default() +
+    │   │                             # bootstrapS7Default()
+    │   │                             # bootstrapAll() отсутствует — index.ts
+    │   │                             # вызывает каждую функцию напрямую
     │   │                             # Все функции идемпотентны (skip if exists)
     │   ├── weibull_config.ts         # S1: getActiveS1WeibullParams(segmentKey),
     │   │                             # in-memory кэш Map<segmentKey, WeibullParams>,
@@ -485,18 +487,18 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 `fitS7Quantiles(data: S7RawObservation[])` — вычисляет квантили позиции и кластеринга из исторических данных. `percentileContinuous(sorted, p)` — линейная интерполяция (эквивалент PostgreSQL `percentile_cont`). `S7RawObservation: {relativeY, clutter, isAboveTheFold, deviceType}`. Живёт в backend — используется только `jobs/s7_quantile_recalibration.ts`.
 
-### `services/bootstrap.ts` (обновлён)
+### `services/bootstrap.ts`
 
-`bootstrapAll()` вызывается из `index.ts` при старте. Включает:
+`bootstrapAll()` отсутствует — `index.ts` вызывает каждую функцию напрямую в строгой последовательности, каждая в собственном `try/catch` с `process.exit(1)` при ошибке. Функции:
 - `bootstrapAdmin()` — идемпотентно (skip if exists)
-- `bootstrapDefaultTagConstants()` — v0 из `DEFAULT_TAG_CONSTANTS`
+- `bootstrapTagConstants()` — v0 из `DEFAULT_TAG_CONSTANTS`
 - `bootstrapDefaultWeights()` — banner и video конфиги из `DEFAULT_BANNER_WEIGHTS` / `DEFAULT_VIDEO_WEIGHTS`
-- `bootstrapS1WeibullDefault()` — 9 сегментов × `DEFAULT_WEIBULL_PARAMS`, `is_active=true`
-- `bootstrapS3LogisticDefault()` — 9 сегментов, нулевые коэффициенты
+- `bootstrapS1WeibullDefault()` — глобальный сегмент `'global'` × `DEFAULT_WEIBULL_PARAMS`, `is_active=true`
+- `bootstrapS3LogisticDefault()` — глобальный сегмент `'global'`, нулевые коэффициенты
 - `bootstrapS4Default()` — 5 сегментов × дефолтные λ/T_ref
-- `bootstrapS5LogisticDefault()` — 2 сегмента × prior-коэффициенты
-- `bootstrapS6LogisticDefault()` — 6 сегментов, нулевые коэффициенты → S6=50
-- `bootstrapS7QuantileDefault()` — 3 сегмента × `DEFAULT_S7_THRESHOLDS`
+- `bootstrapS5Default()` — 2 сегмента × prior-коэффициенты
+- `bootstrapS6Default()` — 6 сегментов, нулевые коэффициенты → S6=50
+- `bootstrapS7Default()` — 3 сегмента × `DEFAULT_S7_THRESHOLDS`
 
 Все `bootstrapS*` функции: `INSERT ... ON CONFLICT DO NOTHING` — idempotent при повторном старте.
 
@@ -634,15 +636,15 @@ WHERE deletion_scheduled_at IS NOT NULL
 
 ### `jobs/s1_weibull_recalibration.ts` (новый)
 
-Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней, фильтр `is_suspicious=false`. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skip: only N samples` если выборка мала.
+Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней, фильтр `is_suspicious=false`. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions` через `inArray(impressions.creativeType, matchingCreativeTypes)`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skipped — insufficient sample size` если выборка мала.
 
 ### `jobs/s3_logistic_recalibration.ts` (новый)
 
-Cron `0 5 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 9 сегментов. Прокси-метка: `y=1` если `time_in_view > медиана S1 по сегменту AND NOT suspicious`. `fitLogisticMLE(X, y)` из `@cpmind/shared` (IRLS). Фильтрует по `tag_constants_version` — только данные с той же версией констант что у целевого сегмента.
+Cron `0 5 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 9 сегментов. Фильтр по `creative_type` через `inArray(impressions.creativeType, matchingCreativeTypes)`. Доминирующая `tag_constants_version` резолвится одним запросом перед сегментным циклом — только данные с этой версией констант попадают в обучение. Прокси-метка: `y=1` если `clicked=true ИЛИ time_in_view > медиана по сегменту`. `fitLogisticMLE(X, y)` из `@cpmind/shared` (IRLS). Hold-out 20% для оценки test accuracy.
 
 ### `jobs/s4_calibration.ts` (новый)
 
-Cron `0 6 1 * *` (ежемесячно, 1-е число 06:00 UTC). Окно 30d. `MIN_SAMPLE_SIZE=1000`. 5 сегментов. `fitS4Params(data)` из `services/s4_fit.ts`.
+Cron `0 6 1 * *` (ежемесячно, 1-е число 06:00 UTC). Окно 30d. `MIN_SAMPLE_SIZE=1000`. 4 сегмента: `desktop_banner`, `mobile_banner`, `desktop_video`, `mobile_video` (сегмент `default` не калибруется автоматически — остаётся на bootstrap-значениях `v0`). Фильтр по `creative_type` и `device_type` через `inArray()`. `fitS4Params(data)` из `services/s4_fit.ts`. Версия конфига: `v_YYYY-MM-DD_auto`.
 
 ### `jobs/s5_logistic_recalibration.ts` (новый)
 

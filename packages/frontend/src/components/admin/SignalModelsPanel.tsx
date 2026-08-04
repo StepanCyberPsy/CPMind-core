@@ -38,6 +38,7 @@ import type {
     S6LogisticConfigRow,
     S7QuantileConfigRow,
 } from '@/lib/admin/types';
+import { FormulaCard } from './FormulaCard';
 import cStyles from '@/styles/components.module.css';
 import styles from '@/styles/signal-models.module.css';
 
@@ -1233,6 +1234,8 @@ export function SignalModelsPanel({
                     </button>
                 ))}
             </div>
+
+            <FormulaCard signal={activeTab} />
 
             {activeTab === 's1' && <S1Table groups={s1Groups} {...tableProps} />}
 

@@ -1,0 +1,15 @@
+.btn {
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background-color: var(--bg-subtle);
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+}
+
+.btn:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
+}

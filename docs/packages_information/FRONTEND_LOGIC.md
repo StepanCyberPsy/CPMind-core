@@ -31,7 +31,7 @@ packages/frontend/
 └── src/
     ├── middleware.ts            # edge middleware: ролевые редиректы
     ├── app/
-    │   ├── layout.tsx           # root layout
+    │   ├── layout.tsx           # root layout; импортирует katex/dist/katex.min.css (глобальный CSS)
     │   ├── page.tsx             # redirect по роли; export const dynamic = 'force-dynamic'
     │   │                        # предотвращает кэширование redirect-ответа при повторном
     │   │                        # открытии домена после закрытия вкладки
@@ -61,7 +61,11 @@ packages/frontend/
     │   ├── shared/
     │   │   ├── LoginForm.tsx
     │   │   ├── Combobox.tsx
-    │   │   └── ComboboxDatePicker.tsx
+    │   │   ├── ComboboxDatePicker.tsx
+    │   │   └── ConfirmDialog.tsx    # NEW: переиспользуемый модальный диалог подтверждения;
+    │   │                            # ReactDOM.createPortal в document.body; принимает
+    │   │                            # message, confirmLabel, cancelLabel, isLoading,
+    │   │                            # onConfirm, onCancel
     │   ├── admin/
     │   │   ├── Filters.tsx      # обновлён: domainView-баннер с Combobox площадок,
     │   │   │                    # exitDomainView(), onDomainChange()
@@ -75,8 +79,17 @@ packages/frontend/
     │   │   ├── WeightsConfigPanel.tsx
     │   │   ├── SignalModelsPanel.tsx # NEW: управление жизненным циклом конфигов
     │   │   │                        # S1/S3/S4/S5/S6/S7 (6 табов, таблицы по сегментам,
-    │   │   │                        # accordion параметров, TTL-таймер, меню ⋮)
-    │   │   ├── UsersPanelTable.tsx
+    │   │   │                        # accordion параметров, TTL-таймер, меню ⋮);
+    │   │   │                        # рендерит FormulaCard между табами и таблицей
+    │   │   ├── FormulaCard.tsx  # NEW: KaTeX-рендеринг формулы нормализации активного сигнала;
+    │   │   │                    # три секции: формула (display mode), таблица переменных,
+    │   │   │                    # описание логики; collapsible через useState(expanded);
+    │   │   │                    # данные из SIGNAL_FORMULAS[signal]
+    │   │   ├── LogoutButton.tsx # NEW: кнопка выхода для admin; открывает ConfirmDialog;
+    │   │   │                    # POST /api/auth/logout + router.push('/login');
+    │   │   │                    # размещена в toolbar UsersPanelTable левее CreateUserForm
+    │   │   ├── UsersPanelTable.tsx  # обновлён: добавлен LogoutButton в .toolbar;
+    │   │   │                        # gap и align-items добавлены в .toolbar
     │   │   ├── UserActionsMenu.tsx
     │   │   ├── CreateUserForm.tsx
     │   │   ├── WeightVersionPicker.tsx
@@ -115,6 +128,10 @@ packages/frontend/
     │   │   │                    # SignalModelsPanelProps, PublisherDomainAggregate
     │   │   ├── signals-meta.ts  # SIGNALS_META, getSignalMeta()
     │   │   ├── segment-color.ts # buildSegmentColorMap()
+    │   │   ├── signal-formulas.ts # NEW: SIGNAL_FORMULAS — статические данные формул
+    │   │   │                      # нормализации S1–S7 (LaTeX, переменные, источники,
+    │   │   │                      # описание логики); FormulaDefinition, VariableRow,
+    │   │   │                      # FormulaBlock, SignalTab — типы данных компонента
     │   │   └── searchParams.ts  # обновлён: publisherDomain, domainView в
     │   │                        # ImpressionsSearchParams и parseListSearchParams
     │   └── user/
@@ -140,12 +157,17 @@ packages/frontend/
         ├── weights-panel.module.css
         ├── signals.module.css   # NEW: стили страницы /admin/signals
         ├── signal-models.module.css # NEW: стили компонента SignalModelsPanel
-        ├── users_panel.module.css
-        ├── combobox.module.css
-        ├── signal-filter-modal.module.css
-        ├── recalibration.module.css
-        ├── tag-builder-modal.module.css
-        ├── user_panel.module.css
+        ├── formula-card.module.css  # NEW: стили FormulaCard — collapsible карточка,
+        │                            # KaTeX-блок с горизонтальным скроллом, таблица
+        │                            # переменных (tdSymbol/tdSource на bg-subtle),
+        │                            # адаптив ≤640px
+        ├── confirm-dialog.module.css # NEW: стили ConfirmDialog — полноэкранный оверлей
+        │                             # rgba(0,0,0,0.35), dialog 320px по центру,
+        │                             # cancelBtn (серый) + confirmBtn (accent)
+        ├── logout-button.module.css  # NEW: серая кнопка выхода (bg-subtle + border),
+        │                             # hover: bg-hover + border-strong
+        ├── users_panel.module.css    # обновлён: .toolbar добавлены align-items: center
+        │                             # и gap: 8px для размещения LogoutButton + CreateUserForm
         ├── create-user-form.module.css
         ├── ivt-list-entries-modal.module.css
         ├── ivt.module.css
@@ -197,6 +219,8 @@ Next.js edge middleware. Перехватывает все запросы, пр�
 - Скоупирования страницы `/admin/weights/recalculate` на собственные данные
 
 Обе функции — `atob` + JSON.parse, без внешних зависимостей. Работают и в Edge Runtime (middleware), и в Node (Server Components).
+
+**Логаут (admin-only):** `POST /api/auth/logout` реализован на backend (очищает `cpmind_token` cookie). Фронтенд вызывает его через `LogoutButton` с подтверждением через `ConfirmDialog`. После успеха — `router.push('/login')`. Middleware при следующем запросе обнаруживает отсутствие cookie и редиректит на `/login` автоматически. Логаут реализован только для роли `admin`; для роли `user` сессия истекает по TTL токена (7 дней).
 
 ### Cookie forwarding
 
@@ -271,6 +295,8 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `fetchIvtListConfig(id, cookie)` - список конфигурации для GIVT.
 
 **`buildQuery(params)`** — собирает `URLSearchParams` из `ListParams`. Числовые параметры диапазонов проверяются на `undefined` через явный guard, не `if (params.scoreMin)` — потому что `0` является валидным значением.
+
+**Логаут-запрос** (`POST /api/auth/logout`) не выносится в `api.ts` — выполняется inline в `LogoutButton` как единственный вызов без переиспользования: `fetch(\`${BACKEND}/api/auth/logout\`, { method: 'POST', credentials: 'include' })`.
 
 ### `src/lib/admin/searchParams.ts`
 
@@ -443,6 +469,8 @@ Client Component. Сортировка по колонкам (Кампании, 
 
 **Клик по логину** — навигация на `/admin/impressions?userUuid=X`. Остальные ячейки — не кликабельны (`cursor: pointer` убран с `<tr>`). Строка "Все импрешены" — отдельная кнопка над таблицей.
 
+**Toolbar:** `<LogoutButton />` размещён левее `<CreateUserForm />` в блоке `.toolbar`. `.toolbar` получил `align-items: center` и `gap: 8px` для выравнивания кнопок. `LogoutButton` — серая кнопка (`--bg-subtle` + border), визуально отличается от синей «+ Создать пользователя».
+
 **`CopyableUuid`** — компонент с независимым `useState(copied)`. `navigator.clipboard.writeText()` + `stopPropagation()`. Показывает `▋` → `✓` на 1500 мс. Отдельный экземпляр на каждую строку — состояние не утекает между строками.
 
 Две UUID-колонки: "User UUID" (для идентификации в URL `?userUuid=`) и "Tag UUID" (для передачи клиенту и вставки в `data-tag-uuid`). Данные `tagUuid` берутся из `UserStatsRow.tagUuid` (добавлено в эту сессию через подзапрос в `getUsersWithStats()`).
@@ -460,6 +488,24 @@ Client Component. Поповер с формой создания пользов
 Клиентская валидация: `login.length >= 3`, `password.length >= 12` (минимальные длины, зеркало backend). Ошибки сервера (`err.error`) отображаются инлайн. После успеха — `router.refresh()`, без перезагрузки страницы.
 
 Переключатель видимости пароля (`👁` / `🙈`): `type={passwordVisible ? 'text' : 'password'}`. Сбрасывается при каждом открытии формы.
+
+### `LogoutButton.tsx`
+
+Client Component. Кнопка «Выйти» для admin-роли. При клике открывает `ConfirmDialog` с текстом «Вы уверены, что хотите выйти из аккаунта?». При подтверждении — `POST /api/auth/logout` + `router.push('/login')`. Состояния: `dialogOpen: boolean`, `loading: boolean`. В состоянии загрузки кнопка подтверждения в диалоге показывает `...`. После успешного логаута — редирект без явного `router.refresh()` (новая страница загружается с нуля). Только для admin; в user-панели не используется.
+
+### `FormulaCard.tsx`
+
+Client Component. Collapsible карточка с математическим описанием формулы нормализации активного сигнала.
+
+**Структура:** header (название сигнала, вес, chevron ▾) + body (три секции: формулы, переменные, логика).
+
+**KaTeX rendering:** `katex.renderToString(latex, { displayMode: true, throwOnError: false, output: 'html' })` → `dangerouslySetInnerHTML`. Display-mode для блочных формул. Inline-mode для символов в таблице переменных. `throwOnError: false` — при невалидном LaTeX рендерит fallback без краша.
+
+**Таблица переменных:** три колонки — символ (KaTeX inline, `bg-subtle`, правая граница), описание (текст), источник (моно, `bg-subtle`, левая граница). Источник показывает имя таблицы БД (`s1_weibull_configs`) или `payload` / `вычисляется`.
+
+**Данные:** `SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition>` из `lib/admin/signal-formulas.ts`. Полностью статические — правятся в data-файле, компонент не трогается.
+
+**Адаптив:** `.formula` — горизонтальный скролл при переполнении на мобильных. Таблица переменных — горизонтальный скролл через `.tableWrapper`. На ≤640px padding уменьшен.
 
 ### `WeightVersionPicker.tsx`
 
@@ -566,6 +612,8 @@ Client Component. Управление жизненным циклом конф�
 **`SIGNAL_ACTIONS`** — константная карта `Record<SignalTab, Record<SignalAction, (id) => Promise<void>>>`. Единственная точка привязки функций из `lib/admin/api.ts` к табу и действию. `handleAction` использует её для диспетчеризации без switch/if.
 
 Формы создания отсутствуют принципиально — конфиги создаются исключительно cron-джобами (MLE/IRLS на реальных данных). Admin управляет только жизненным циклом.
+
+**`FormulaCard`** — рендерится между `tabBar` и `deviceTabBar`/таблицей. Один экземпляр на активный таб (`<FormulaCard signal={activeTab} />`). Получает `signal: SignalTab`, находит данные в `SIGNAL_FORMULAS[signal]`, рендерит KaTeX-формулы в display-режиме. Collapsed/expanded state локален (`useState(true)` — раскрыт по умолчанию). Формула не меняется при переключении device-таба — меняются только параметры в таблице ниже.
 
 ---
 
@@ -737,6 +785,14 @@ Client Component. Единый компонент управления IVT-ко�
 
 ## Shared компоненты
 
+### `ConfirmDialog.tsx`
+
+Client Component. Переиспользуемый модальный диалог подтверждения. `ReactDOM.createPortal` в `document.body` — не зависит от z-index стека родителя. Монтируется только на клиенте (`useState(mounted)` + `useEffect`).
+
+**Props:** `message: string`, `confirmLabel: string`, `cancelLabel: string`, `isLoading: boolean`, `onConfirm: () => void`, `onCancel: () => void`.
+
+**Поведение:** клик по оверлею вызывает `onCancel`. Кнопки заблокированы при `isLoading=true`. `confirmBtn` — accent-цвет (синяя); `cancelBtn` — серая. Оба label передаются через props — компонент не знает контекста применения. Используется в `LogoutButton`; архитектурно готов к переиспользованию в любом другом confirm-флоу (деактивация, удаление и т.п.).
+
 ### `Combobox.tsx`
 
 Client Component. Кастомный dropdown с поиском. `usePopover()` для позиционирования панели. Опции фильтруются по введённому тексту (без учёта регистра). Первая опция — всегда "Все" (значение `''`).
@@ -758,6 +814,8 @@ Client Component. `POST /api/auth/login` с `credentials: 'include'`. После
 Все стили — CSS Modules. Нет CSS-in-JS, нет Tailwind.
 
 **`globals.css`** — глобальные стили. Важная деталь: `input, select, textarea { appearance: none; ... }` — убирает нативную отрисовку всех контролов. Для чекбоксов в `RecalibrationTable` нужен явный override: `appearance: auto; -webkit-appearance: checkbox`.
+
+**`katex/dist/katex.min.css`** — импортируется в `app/layout.tsx` первым, до `globals.css`. Подключается глобально через `node_modules` — единственный правильный способ для Next.js 14 App Router. Обеспечивает рендеринг KaTeX-формул в `FormulaCard`.
 
 **CSS-переменные** (из `globals.css`): `--bg-base`, `--bg-surface`, `--bg-hover`, `--bg-subtle`, `--accent`, `--accent-bg`, `--accent-dark`, `--negative`, `--negative-bg`, `--positive`, `--positive-bg`, `--moderate`, `--moderate-bg`, `--border`, `--border-strong`, `--text-primary`, `--text-secondary`, `--text-muted`, `--font-mono`, `--radius`, `--radius-sm`, `--radius-md`, `--shadow-md`.
 

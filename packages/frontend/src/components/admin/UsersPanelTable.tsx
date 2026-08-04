@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { UserStatsRow } from '@cpmind/shared';
 import { UserActionsMenu } from './UserActionsMenu';
 import { CreateUserForm } from './CreateUserForm';
+import { LogoutButton } from './LogoutButton';
 import styles from '@/styles/users_panel.module.css';
 
 interface Props {
@@ -165,6 +166,7 @@ export function UsersPanelTable({ initialUsers, currentUserUuid }: Props) {
     <>
       <div className={styles.toolbar}>
         <CreateUserForm />
+        <LogoutButton />
       </div>
 
       <div className={styles.wrapper}>
