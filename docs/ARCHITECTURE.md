@@ -639,14 +639,14 @@ S6=null для баннерных креативов — вес перерасп
 
 Все таблицы следуют единому паттерну: `id` (uuid PK), `segment_key`/`device_type`, параметры модели, `sample_size`, `fitted_at`/`computed_at`, `is_active` (partial unique index по сегменту WHERE is_active=true), `deletion_scheduled_at` (TTL 60 мин через `scheduled_deletion.ts`).
 
-| Таблица | Сегментация | Параметры | Cron |
-|---|---|---|---|
-| `s1_weibull_configs` | 9 сегментов `device×creative_group` | `k`, `lambda` | `0 4 * * 0` (weekly) |
-| `s3_logistic_configs` | 9 сегментов `device×creative_group` | `coefficients` (β0..β7), `feature_means`, `feature_stds` | `0 5 * * 0` (weekly) |
-| `s4_configs` | 5 сегментов `device_creative` | `lambda`, `t_ref_ms` | `0 6 1 * *` (monthly) |
-| `s5_logistic_configs` | 2 сегмента `desktop`, `mobile_tablet` | `coefficients` (β0..β4) | `0 6 * * 0` (weekly) |
-| `s6_logistic_configs` | 6 сегментов `device×skippable` | `coefficients` (β0..β8), `feature_means`, `feature_stds` | `0 7 * * 0` (weekly) |
-| `s7_quantile_configs` | 3 сегмента `desktop`, `mobile`, `tablet` | `relative_y_low`, `relative_y_mid`, `clutter_mid`, `clutter_high` | `0 8 1 * *` (monthly) |
+| Таблица | Сегментация | Параметры | Cron | День и время |
+|---|---|---|---|---|
+| `s1_weibull_configs` | 9 сегментов `device×creative_group` | `k`, `lambda` | `0 4 * * 0` (weekly) | Каждое воскресенье, 04:00 UTC |
+| `s3_logistic_configs` | 9 сегментов `device×creative_group` | `coefficients` (β0..β7), `feature_means`, `feature_stds` | `0 5 * * 0` (weekly) | Каждое воскресенье, 05:00 UTC |
+| `s4_configs` | 5 сегментов `device_creative` | `lambda`, `t_ref_ms` | `0 6 1 * *` (monthly) | Каждый 1й день месяца, 06:00 UTC |
+| `s5_logistic_configs` | 2 сегмента `desktop`, `mobile_tablet` | `coefficients` (β0..β4) | `0 6 * * 0` (weekly) | Каждое воскресенье, 06:00 UTC |
+| `s6_logistic_configs` | 6 сегментов `device×skippable` | `coefficients` (β0..β8), `feature_means`, `feature_stds` | `0 7 * * 0` (weekly) | Каждое воскресенье, 07:00 UTC |
+| `s7_quantile_configs` | 3 сегмента `desktop`, `mobile`, `tablet` | `relative_y_low`, `relative_y_mid`, `clutter_mid`, `clutter_high` | `0 8 1 * *` (monthly) | Каждый 1й день месяца, 08:00 UTC |
 
 ### Индексы
 

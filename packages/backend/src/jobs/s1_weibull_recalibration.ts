@@ -1,5 +1,10 @@
 import cron from 'node-cron';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  gte,
+  inArray,
+} from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s1WeibullConfigs } from '../db/schema.js';
 import { fitWeibullMLE } from '@cpmind/shared';
@@ -20,7 +25,7 @@ const CREATIVE_GROUP_MAP: Record<string, string> = {
 const DEVICE_TYPES = ['desktop', 'mobile', 'tablet'] as const;
 const CREATIVE_GROUPS = ['static', 'animated', 'video'] as const;
 
-async function recalibrateS1Weibull(): Promise<void> {
+export async function recalibrateS1Weibull(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   for (const deviceType of DEVICE_TYPES) {
@@ -37,7 +42,7 @@ async function recalibrateS1Weibull(): Promise<void> {
         .where(
           and(
             eq(impressions.deviceType, deviceType),
-            sql`${impressions.creativeType} = ANY(${matchingCreativeTypes})`,
+            inArray(impressions.creativeType, matchingCreativeTypes),
             gte(impressions.createdAt, windowStart),
             eq(impressions.isSuspicious, false),
           ),

@@ -1,5 +1,13 @@
 import cron from 'node-cron';
-import { and, eq, gte, isNotNull, sql, desc } from 'drizzle-orm';
+import {
+    and,
+    eq,
+    gte,
+    isNotNull,
+    sql,
+    desc,
+    inArray,
+} from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s3LogisticConfigs } from '../db/schema.js';
 import { fitLogisticMLE } from '@cpmind/shared';
@@ -100,7 +108,7 @@ function extractFeatures(
   };
 }
 
-async function recalibrateS3Logistic(): Promise<void> {
+export async function recalibrateS3Logistic(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   const tagConstantsVersion = await resolveDominantTagConstantsVersion(windowStart);
@@ -127,7 +135,7 @@ async function recalibrateS3Logistic(): Promise<void> {
         .from(impressions)
         .where(and(
           eq(impressions.deviceType, deviceType),
-          sql`${impressions.creativeType} = ANY(${matchingCreativeTypes})`,
+          inArray(impressions.creativeType, matchingCreativeTypes),
           eq(impressions.tagConstantsVersion, tagConstantsVersion),
           gte(impressions.createdAt, windowStart),
           eq(impressions.isSuspicious, false),

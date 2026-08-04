@@ -1,5 +1,10 @@
 import cron from 'node-cron';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import {
+    and,
+    eq,
+    gte,
+    inArray,
+} from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s4Configs } from '../db/schema.js';
 import { fitS4Params, type S4Row } from '../services/s4_fit.js';
@@ -41,9 +46,9 @@ async function fetchSegmentData(
     .from(impressions)
     .where(and(
       isMobile
-        ? sql`${impressions.deviceType} IN ('mobile', 'tablet')`
+        ? inArray(impressions.deviceType, ['mobile', 'tablet'])
         : eq(impressions.deviceType, 'desktop'),
-      sql`${impressions.creativeType} = ANY(${creativeTypes})`,
+      inArray(impressions.creativeType, creativeTypes),
       gte(impressions.createdAt, windowStart),
       eq(impressions.isSuspicious, false),
     ));
@@ -79,7 +84,7 @@ async function fetchSegmentData(
     .filter((r): r is S4Row => r !== null);
 }
 
-async function recalibrateS4(): Promise<void> {
+export async function recalibrateS4(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   for (const segment of SEGMENTS) {
