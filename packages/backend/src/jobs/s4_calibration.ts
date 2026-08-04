@@ -84,7 +84,7 @@ async function fetchSegmentData(
     .filter((r): r is S4Row => r !== null);
 }
 
-export async function recalibrateS4(): Promise<void> {
+async function recalibrateS4(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   for (const segment of SEGMENTS) {

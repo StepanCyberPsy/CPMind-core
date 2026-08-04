@@ -25,7 +25,7 @@ const CREATIVE_GROUP_MAP: Record<string, string> = {
 const DEVICE_TYPES = ['desktop', 'mobile', 'tablet'] as const;
 const CREATIVE_GROUPS = ['static', 'animated', 'video'] as const;
 
-export async function recalibrateS1Weibull(): Promise<void> {
+async function recalibrateS1Weibull(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   for (const deviceType of DEVICE_TYPES) {
