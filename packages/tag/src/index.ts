@@ -17,12 +17,6 @@ import { DebugOverlay } from './debug/overlay.js';
 (function (win: Window, doc: Document) {
   'use strict';
 
-  try {
-    init();
-  } catch (e) {
-    console.warn('[CPMind] Initialization error:', e);
-  }
-
   const CREATIVE_SELECTOR = '[data-cpmind-creative]';
 
   const initializedContainers = new WeakSet<HTMLElement>();
@@ -120,6 +114,12 @@ import { DebugOverlay } from './debug/overlay.js';
     for (const container of containers) {
       initializeContainer(container);
     }
+  }
+
+  try {
+    init();
+  } catch (e) {
+    console.warn('[CPMind] Initialization error:', e);
   }
 
 })(window, document);
