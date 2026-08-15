@@ -1,10 +1,12 @@
 /**
  * S1 — Time-in-View
  *
- * Использует IntersectionObserver с threshold 0.5 (≥50% пикселей в viewport).
+ * Использует IntersectionObserver с порогами из S1_VIEWPORT_THRESHOLDS.
+ * Impression начинается при первом фактическом входе креатива в viewport.
+ * Время S1 накапливается только при видимости ≥75%.
  * Аккумулирует:
- *   - timeInViewSec:        суммарное время видимости
- *   - maxContinuousViewSec: максимальный непрерывный отрезок
+ *   - timeInViewSec:        суммарное время видимости ≥75%
+ *   - maxContinuousViewSec: максимальный непрерывный отрезок видимости ≥75%
  *   - visiblePixelsPct:     % пикселей в viewport на момент последней фиксации
  *   - timestampStart:       UTC ms первого входа в viewport
  *
@@ -27,21 +29,23 @@ function createObserver(
       if (!entry) return;
 
       const now = Date.now();
+      const hasEnteredViewport = entry.isIntersecting && entry.intersectionRatio > 0;
       const inView = entry.intersectionRatio >= 0.75;
       const pixelsPct = Math.round(entry.intersectionRatio * 100);
 
+      if (hasEnteredViewport && session.timestampStart === 0) {
+        session.timestampStart = now;
+
+        if (cfg.debug) {
+          console.log('[CPMind S1] First viewport entry:', {
+            timestamp: now,
+            intersectionRatio: entry.intersectionRatio,
+          });
+        }
+      }
+
       if (inView) {
         session.visiblePixelsPct = pixelsPct;
-        if (session.timestampStart === 0) {
-          session.timestampStart = now;
-
-          if (cfg.debug) {
-            console.log('[CPMind S1] First viewport entry:', {
-              timestamp: now,
-              intersectionRatio: entry.intersectionRatio,
-            });
-          }
-        }
 
         if (session.viewStart === null) {
           session.viewStart = now;
@@ -83,9 +87,9 @@ function createObserver(
       }
     },
     {
-      // 0 — фиксируем выход из viewport
-      // 0.5 — стандарт MRC: ≥50% пикселей в viewport
-      // 1.0 — дополнительная точность для share of screen
+      // 0 — фиксируем вход и выход из viewport
+      // 0.75 — порог накопления Time-in-View
+      // 1.0 — полная видимость креатива
       threshold: S1_VIEWPORT_THRESHOLDS,
     },
   );

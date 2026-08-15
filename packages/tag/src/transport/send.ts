@@ -1,29 +1,47 @@
 import type { Session, TagConfig } from '../types.js';
 import { buildPayload } from '../session.js';
 
+const finalizedPayloads = new WeakMap<Session, string>();
+
 export function finalizeAndSend(
   session: Session,
   cfg: TagConfig,
   isFinal: boolean,
 ): void {
-  if (session.sent) return;
   if (session.timestampStart === 0) return;
+
+  if (isFinal) {
+    const finalizedPayload = finalizedPayloads.get(session);
+
+    if (finalizedPayload !== undefined) {
+      sendPayload(finalizedPayload, cfg.endpoint);
+      return;
+    }
+  }
+
+  if (session.sent) return;
 
   session.timestampEnd = Date.now();
   session.sent = isFinal;
 
   const payload = buildPayload(session, cfg);
+  const serializedPayload = JSON.stringify(payload);
+
+  if (isFinal) {
+    finalizedPayloads.set(session, serializedPayload);
+  }
 
   if (cfg.debug) {
     console.log('[CPMind] Final payload:', JSON.stringify(payload, null, 2));
   }
 
-  sendPayload(payload, cfg.endpoint);
+  sendPayload(serializedPayload, cfg.endpoint);
 }
 
-function sendPayload(payload: unknown, endpoint: string): void {
-  const body = JSON.stringify(payload);
-
+function sendPayload(
+  body: string,
+  endpoint: string,
+): void {
   if (typeof navigator.sendBeacon === 'function') {
     const blob = new Blob([body], { type: 'application/json' });
     const queued = navigator.sendBeacon(endpoint, blob);

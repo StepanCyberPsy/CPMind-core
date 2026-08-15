@@ -28,24 +28,30 @@ export interface PresenceHandle {
   resetSegment: () => void;
 }
 
+const EVENT_TYPES = [
+  'mousemove',
+  'mousedown',
+  'mouseup',
+  'touchstart',
+  'touchend',
+  'touchmove',
+  'keydown',
+  'keyup',
+  'scroll',
+  'click',
+] as const;
+
+type PresenceEventType = typeof EVENT_TYPES[number];
+
+function useCapture(eventType: PresenceEventType): boolean {
+  return eventType === 'click';
+}
+
 export function initPresence(
   session: Session,
   cfg: TagConfig,
   onIdle: () => void,
 ): PresenceHandle {
-  const EVENT_TYPES = [
-    'mousemove',
-    'mousedown',
-    'mouseup',
-    'touchstart',
-    'touchend',
-    'touchmove',
-    'keydown',
-    'keyup',
-    'scroll',
-    'click',
-  ] as const;
-
   let lastUpdateTime = 0;
   const THROTTLE_MS = 100;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +93,7 @@ export function initPresence(
   for (const eventType of EVENT_TYPES) {
     document.addEventListener(eventType, onUserEvent, {
       passive: true,
-      capture: false,
+      capture: useCapture(eventType),
     });
   }
 
@@ -103,7 +109,9 @@ export function initPresence(
       idleTimer = null;
     }
     for (const eventType of EVENT_TYPES) {
-      document.removeEventListener(eventType, onUserEvent, { capture: false });
+      document.removeEventListener(eventType, onUserEvent, {
+        capture: useCapture(eventType),
+      });
     }
   }
 

@@ -23,17 +23,22 @@ import { DebugOverlay } from './debug/overlay.js';
     console.warn('[CPMind] Initialization error:', e);
   }
 
-  function init(): void {
-    const containers = doc.querySelectorAll<HTMLElement>('[data-cpmind-creative]');
-    if (containers.length === 0) return;
+  const CREATIVE_SELECTOR = '[data-cpmind-creative]';
 
-    for (const container of containers) {
-      const cfg = parseConfig(container);
-      if (!cfg) {
-        console.warn('[CPMind] Missing required data attributes on [data-cpmind-creative]:', container);
-        continue;
-      }
+  const initializedContainers = new WeakSet<HTMLElement>();
 
+  function initializeContainer(container: HTMLElement): void {
+    if (initializedContainers.has(container)) return;
+
+    const cfg = parseConfig(container);
+    if (!cfg) {
+      console.warn('[CPMind] Missing required data attributes on [data-cpmind-creative]:', container);
+      return;
+    }
+
+    initializedContainers.add(container);
+
+    try {
       const session = createSession(cfg);
 
       void collectFpHash().then((hash) => {
@@ -57,6 +62,63 @@ import { DebugOverlay } from './debug/overlay.js';
       }
 
       attachUnloadHandlers(container, session, cfg, presenceHandle.cleanup);
+    } catch (e) {
+      console.warn('[CPMind] Creative initialization error:', e);
+    }
+  }
+
+  function initializeFromNode(node: Node): void {
+    if (!(node instanceof HTMLElement)) return;
+
+    if (node.matches(CREATIVE_SELECTOR)) {
+      initializeContainer(node);
+    }
+
+    const containers = node.querySelectorAll<HTMLElement>(CREATIVE_SELECTOR);
+
+    for (const container of containers) {
+      initializeContainer(container);
+    }
+  }
+
+  function init(): void {
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes') {
+          if (
+            mutation.target instanceof HTMLElement &&
+            mutation.target.matches(CREATIVE_SELECTOR)
+          ) {
+            initializeContainer(mutation.target);
+          }
+
+          continue;
+        }
+
+        for (const node of mutation.addedNodes) {
+          initializeFromNode(node);
+        }
+      }
+    });
+
+    observer.observe(doc.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: [
+        'data-cpmind-creative',
+        'data-tag-uuid',
+        'data-campaign-id',
+        'data-creative-id',
+        'data-creative-type',
+        'data-endpoint',
+      ],
+    });
+
+    const containers = doc.querySelectorAll<HTMLElement>(CREATIVE_SELECTOR);
+
+    for (const container of containers) {
+      initializeContainer(container);
     }
   }
 

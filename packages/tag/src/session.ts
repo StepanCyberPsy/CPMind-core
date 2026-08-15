@@ -166,6 +166,17 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
     ? (persistenceSamples.filter(Boolean).length / persistenceSamples.length) * 100
     : 0;
 
+  // S5: учитываем текущий незавершённый hover без мутации состояния
+  const activeHoverDurationMs = session.deviceType === 'desktop' && session.lastHoverStart !== null
+    ? Math.max(0, now - session.lastHoverStart)
+    : 0;
+
+  const hoverDurationTotalMs = session.hoverDurationTotalMs + activeHoverDurationMs;
+  const hoverDurationMaxMs = Math.max(
+    session.hoverDurationMaxMs,
+    activeHoverDurationMs,
+  );
+
   // F_Presence: time_since_last_event_ms
   const timeSinceLastEventMs = session.lastUserEventTimestamp !== null
     ? Math.max(0, now - session.lastUserEventTimestamp)
@@ -210,8 +221,8 @@ export function buildPayload(session: Session, cfg: TagConfig): object {
       s5: {
         clicked: session.clicked,
         hover_count: session.deviceType === 'desktop' ? session.hoverCount : null,
-        hover_duration_max_ms: session.deviceType === 'desktop' ? session.hoverDurationMaxMs : null,
-        hover_duration_total_ms: session.deviceType === 'desktop' ? session.hoverDurationTotalMs : null,
+        hover_duration_max_ms: session.deviceType === 'desktop' ? hoverDurationMaxMs : null,
+        hover_duration_total_ms: session.deviceType === 'desktop' ? hoverDurationTotalMs : null,
         hover_to_click_latency_ms: session.deviceType === 'desktop' ? session.hoverToClickLatencyMs : null,
         cursor_proximity_min_px: session.deviceType === 'desktop'
           ? (session.cursorProximityMinPx === Infinity ? null : session.cursorProximityMinPx)

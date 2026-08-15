@@ -63,7 +63,7 @@ function initDesktop(
         hoverToClickLatencyMs: session.hoverToClickLatencyMs,
       });
     }
-  });
+  }, { capture: true });
 
   // mouseenter
   creativeEl.addEventListener('mouseenter', () => {

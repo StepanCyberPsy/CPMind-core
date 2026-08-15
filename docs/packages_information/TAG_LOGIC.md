@@ -37,7 +37,8 @@ packages/tag/
 ├── dist/                     # НЕ коммитится в git
 │   └── cpmind-tag.min.js     # только локальная dev-сборка (CLI), version='dev'
 └── src/
-    ├── index.ts              # entry point: IIFE-обёртка + глобальный try/catch
+    ├── index.ts              # entry point: IIFE-обёртка + глобальный try/catch,
+    │                         # idempotent discovery через WeakSet + MutationObserver
     ├── constants.ts          # чтение констант из esbuild define
     ├── types.ts              # TypeScript-типы состояния сессии
     │                         # (обновлен: TagConfig.publisherDomain?,
@@ -171,14 +172,19 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
        └── IIFE выполняется немедленно после загрузки
 
 2. Инициализация
-   └── querySelectorAll('[data-cpmind-creative]')
-       └── Для каждого баннера (независимая сессия):
-           ├── parseConfig() — data-атрибуты + tag_uuid из cfg
-           ├── createSession() — impression_id (UUID v4), session_group_id
-           ├── collectFpHash() — fire-and-forget async, результат → session.fpHash
-           ├── initS1(), initS2(), initS3(), initS4(), initS5(), initS6(), initS7()
-           ├── initPresence()
-           └── attachUnloadHandlers()
+   ├── MutationObserver начинает отслеживать новые и изменяемые DOM-узлы
+   ├── querySelectorAll('[data-cpmind-creative]') — initial scan
+   └── Для каждого валидного контейнера (независимая сессия):
+       ├── WeakSet защищает от повторной инициализации одного HTMLElement
+       ├── parseConfig() — data-атрибуты + tag_uuid из cfg
+       ├── createSession() — impression_id (UUID v4), session_group_id
+       ├── collectFpHash() — fire-and-forget async, результат → session.fpHash
+       ├── initS1(), initS2(), initS3(), initS4(), initS5(), initS6(), initS7()
+       ├── initPresence()
+       └── attachUnloadHandlers()
+
+   Динамически добавленный или изначально неполный контейнер повторно проверяется
+   после DOM-мутаций. После успешной инициализации повторная Session не создаётся.
 
 3. Сбор сигналов (параллельно, пока пользователь на странице)
    ├── S1: IntersectionObserver — время видимости
@@ -196,11 +202,13 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
    └── pagehide — закрытие/переход
 
 5. finalizeAndSend(session, cfg, isFinal=true)
-   ├── buildPayload() — сборка ImpressionPayload, включает:
-   │   ├── publisher_domain: session.publisherDomain
-   │   ├── skippable: cfg.skippable ?? false  (только для video_creative)
-   │   ├── fp_hash: session.fpHash ?? undefined (null → поле опускается)
-   │   └── presence.event_intervals_ms: session.eventIntervals (если непустой)
+   ├── первый final-trigger:
+   │   ├── buildPayload() — сборка ImpressionPayload
+   │   ├── JSON.stringify() — сериализация один раз
+   │   ├── сохранение immutable payload для текущей Session
+   │   └── отправка payload
+   ├── последующий final-trigger:
+   │   └── повторная отправка того же serialized payload с тем же impression_id
    ├── sendBeacon(endpoint, payload)  ← основной
    └── fetch keepalive (payload)      ← fallback
 
@@ -239,7 +247,9 @@ https://app.cpmind.tech/tag/cpmind-tag_v{N}.min.js
 
 ### `src/index.ts` — entry point
 
-IIFE-обёртка: `(function() { ... })()` — не загрязняет глобальное пространство имён страницы. Глобальный `try/catch` на весь код тега — ошибка внутри тега не ломает страницу и не блокирует навигацию по кликовой ссылке баннера.
+IIFE-обёртка: `(function() { ... })()` — не загрязняет глобальное пространство имён страницы. Глобальный `try/catch` на entry point и локальный `try/catch` на инициализацию каждого креатива — ошибка одной сессии не ломает страницу и остальные креативы.
+
+Discovery выполняется в двух режимах: initial scan через `querySelectorAll('[data-cpmind-creative]')` и последующее наблюдение через `MutationObserver`. `WeakSet<HTMLElement>` обеспечивает idempotent initialization и исключает создание нескольких Session для одного DOM-контейнера.
 
 ### `src/constants.ts` — калибруемые константы
 
@@ -275,9 +285,10 @@ IIFE-обёртка: `(function() { ... })()` — не загрязняет гл
 ### `src/session.ts`
 
 - `createSession(cfg)` — начальное состояние: генерация `impression_id` (UUID v4), `session_group_id` (тот же формат, неизменен на всё время жизни тега на странице), `segment_index = 0`. IVT-поля: `fpHash: null`, `lastThrottledEventTimestamp: null`, `eventIntervals: []`. **Новое (текущая сессия):** `publisherDomain: getPublisherDomain(cfg.publisherDomain)` — вызывается при создании сессии, результат сохраняется в `session.publisherDomain`. Домен вычисляется один раз на момент инициализации.
-- `buildPayload()` — сборка `ImpressionPayload` для отправки. Включает `tag_uuid` и `tag_constants_version` из `cfg`. IVT-поля: `fp_hash: session.fpHash ?? undefined` (undefined → поле не сериализуется), `presence.event_intervals_ms: session.eventIntervals.length > 0 ? session.eventIntervals : undefined`. **Новое (текущая сессия):**
+- `buildPayload()` — сборка `ImpressionPayload` для отправки. Включает `tag_uuid` и `tag_constants_version` из `cfg`. IVT-поля: `fp_hash: session.fpHash ?? undefined` (undefined → поле не сериализуется), `presence.event_intervals_ms: session.eventIntervals.length > 0 ? session.eventIntervals : undefined`.
   - `publisher_domain: session.publisherDomain`
   - `skippable: cfg.skippable ?? false`
+  - для desktop S5 учитывает текущий незавершённый hover как snapshot на момент `timestampEnd`: active hover добавляется к `hover_duration_total_ms` и участвует в `hover_duration_max_ms` без мутации Session
 - `resetSessionForNewSegment()` — сбрасывает `lastThrottledEventTimestamp: null`, `eventIntervals: []`. `fpHash` не сбрасывается. `publisherDomain` не сбрасывается — домен площадки постоянен для всей сессии.
 - `computeActiveTimeMsInRange()` — пересчёт S4 active time строго в границах `[timestamp_start, timestamp_end]` из `visibility_state_history`. **Фикс P-05:** старый `Math.min(activeTimeMs, totalDuration)` маскировал рассинхрон таймеров через потолок, не устранял его.
 - `resetSessionForNewSegment()` — обнуление полей сессии in-place при разрыве показа
@@ -340,7 +351,9 @@ function djb2Hash(str: string): string {
 
 ### S1 (`signals/s1.ts`) — Time-in-View
 
-`IntersectionObserver` с порогами из `S1_VIEWPORT_THRESHOLDS` (текущее значение `[0, 0.75, 1.0]`, было `[0, 0.5, 1.0]`). При пересечении порога **0.75** запускается таймер видимости. При выходе — таймер останавливается, время добавляется к `time_in_view_sec`.
+`IntersectionObserver` с порогами из `S1_VIEWPORT_THRESHOLDS` (текущее значение `[0, 0.75, 1.0]`). `timestampStart` фиксируется при первом фактическом пересечении креатива с viewport (`entry.isIntersecting && entry.intersectionRatio > 0`). Это определяет начало impression и не означает начало накопления S1.
+
+Таймер Time-in-View запускается только при `intersectionRatio >= 0.75`. При выходе ниже порога таймер останавливается, время добавляется к `time_in_view_sec`. Таким образом, начало impression отделено от порога качества S1 ≥75%.
 
 **Порог видимости изменён в текущей сессии:** 50% (0.5) → **75% (0.75)**, минимальное непрерывное время 1.0s → **2.0s**. Основание: Zhang & Chen 2015, Uhl et al. 2020 (n=350k+ показов) — пользователи, действительно воспринявшие баннер, в среднем держат ≥75% видимости ≥2 секунды. MRC-стандарт 50%/1s недооценивает реальную планку восприятия.
 
@@ -381,8 +394,9 @@ rAF-throttled обработчик `scroll`. Зона наблюдения: ±`S
 Маршрутизация по `device_type`:
 
 **Desktop события:**
-- `click` → `clicked = true`, уровень 100
+- `click` → `clicked = true`, `hover_to_click_latency_ms`; listener работает в capture phase и регистрируется до transport click-handler, поэтому S5 фиксируется до финализации payload
 - `mouseenter/leave` → начало/конец наведения, учёт длительности
+- незавершённый hover на момент финализации учитывается в `buildPayload()` как snapshot без мутации Session
 - `mousemove` с дедупликацией (`MOUSE_MOVE_DEDUP_PX`) → proximity + trajectory entropy
 - Энтропия траектории: дисперсия углов движения → `ENTROPY_ANGLE_THRESHOLD` → детект случайного vs. целенаправленного движения
 
@@ -428,8 +442,7 @@ rAF-throttled обработчик `scroll`. Зона наблюдения: ±`S
 
 ### Presence (`signals/presence.ts`) — F_Presence
 
-Отслеживает 10 типов пользовательских событий на `document`:
-`mousemove`, `mousedown`, `mouseup`, `click`, `touchstart`, `touchend`, `keydown`, `keyup`, `scroll`, `wheel`.
+Отслеживает пользовательские события на `document`. `click` регистрируется в capture phase, чтобы Presence успевал обновить состояние до transport-finalization клика. Остальные события сохраняют стандартную event phase. Выбор capture phase централизован в `useCapture()` и используется одинаково при регистрации и cleanup listeners.
 
 Throttle 100 мс для обновления `last_user_event_timestamp`. В том же throttle-блоке: вычисляется дельта `now - session.lastThrottledEventTimestamp` и добавляется в `session.eventIntervals` (cap 50 через `shift()` при превышении). `lastThrottledEventTimestamp` обновляется после записи интервала. Без throttle для `events_count_during_impression`.
 
@@ -470,9 +483,10 @@ Throttle 100 мс для обновления `last_user_event_timestamp`. В т
 
 **`finalizeAndSend(session, cfg, isFinal)`:**
 
-- При `isFinal=true`: устанавливает `session.sent = true` — идемпотентность, повторные вызовы игнорируются
-- При `isFinal=false` (промежуточный сегмент): `session.sent` не залипает → следующий сегмент тоже отправится
-- Вызывает `buildPayload()` → `sendPayload()`
+- При первом `isFinal=true`: устанавливает `timestampEnd`, собирает payload, сериализует его один раз и сохраняет строку в `WeakMap<Session, string>`
+- Последующие final-trigger'ы не пересчитывают состояние Session и повторно отправляют тот же immutable serialized payload с тем же `impression_id`
+- `session.sent = true` предотвращает повторную финализацию состояния, но не блокирует transport retry сохранённого final payload
+- При `isFinal=false` промежуточный сегмент не сохраняется в `WeakMap`, `session.sent` остаётся `false`, поэтому существующая idle-segmentation продолжает работать
 
 **`sendPayload(endpoint, payload)`:**
 
@@ -486,11 +500,11 @@ Throttle 100 мс для обновления `last_user_event_timestamp`. В т
 
 **`attachUnloadHandlers()`** — три обработчика:
 
-1. **`click` (capture=true)** — Mobile Safari fix. При клике по баннеру iOS Safari начинает навигацию немедленно. `sendBeacon` в обработчике click с `capture:true` вызывается **до** начала навигации — единственный надёжный способ доставки данных при переходе по ссылке в iOS Safari. Дополнительно: если `session.s6 !== null` и `e.target.closest('[data-cpmind-skip]') !== null` — устанавливает `session.s6.skipped = true` **до** вызова `finalizeAndSend`. Порядок гарантирован: `capture=true` обрабатывает event до того, как он доходит до skip-кнопки нативно.
-2. **`visibilitychange`** — когда вкладка уходит в фон
-3. **`pagehide`** — при закрытии вкладки или переходе
+1. **`click` (capture=true)** — transport-handler выполняется после ранее зарегистрированных S5 capture-handler и Presence document capture-handler, поэтому interaction state фиксируется до построения final payload
+2. **`visibilitychange`** — при переходе вкладки в `hidden` выполняет первую final-отправку либо повторную отправку уже сохранённого final payload
+3. **`pagehide`** — при закрытии вкладки или переходе повторно отправляет тот же final payload, если он уже был финализирован предыдущим trigger
 
-При любом из трёх событий: `finalizeAndSend(session, cfg, isFinal=true)` + `cleanupPresence()` (снятие всех 10 presence-обработчиков с `document`).
+Final payload для одной Session строится один раз. Повторные final-trigger'ы выполняют только transport retry с тем же `impression_id`; backend-дедупликация не допускает создания второго impression.
 
 ---
 
@@ -543,6 +557,10 @@ python3 -m http.server 8080
 ## Важные архитектурные решения
 
 **IIFE-изоляция.** Весь код завёрнут в `(function() { ... })()`. Никаких глобальных переменных. Ошибка внутри тега не достигает `window.onerror` страницы клиента и не блокирует кликовую ссылку баннера.
+
+**Динамический discovery креативов.** Тег выполняет initial scan существующих `[data-cpmind-creative]` и продолжает наблюдать DOM через `MutationObserver`. `WeakSet` обеспечивает idempotent initialization. Это устраняет зависимость от порядка выполнения CPMind и сторонних WordPress/ad scripts, которые могут вставлять или дополнять рекламный контейнер после загрузки тега.
+
+**Immutable final payload.** Состояние финализируется один раз. Сериализованный payload сохраняется для Session и может повторно отправляться на последующих lifecycle-trigger'ах без повторного расчёта сигналов. Все retry используют один `impression_id`.
 
 **Нет коммита артефакта.** `dist/` в `.gitignore`. Версионированные файлы генерируются backend-ом в runtime и живут в Docker volume, а не в git-репозитории.
 
