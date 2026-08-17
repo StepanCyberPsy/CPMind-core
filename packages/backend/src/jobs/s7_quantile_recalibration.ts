@@ -59,7 +59,7 @@ async function fetchDeviceObservations(
   return observations;
 }
 
-async function recalibrateS7Quantiles(): Promise<void> {
+export async function recalibrateS7Quantiles(): Promise<void> {
   const windowStart = new Date(
     Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );

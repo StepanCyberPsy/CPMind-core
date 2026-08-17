@@ -1,5 +1,12 @@
-export type CreativeType = 'banner_static' | 'banner_gif' | 'banner_html5' | 'video_creative';
-export type DeviceType   = 'desktop' | 'mobile' | 'tablet';
+export type CreativeType =
+  | 'banner_static'
+  | 'banner_gif'
+  | 'banner_html5'
+  | 'video_creative';
+export type DeviceType =
+  | 'desktop'
+  | 'mobile'
+  | 'tablet';
 
 export interface TagConfig {
   tagUuid: string;
@@ -53,9 +60,16 @@ export interface SignalsS6State {
   replay_count: number;
 
   // Audibility
-  muted_status: 'muted' | 'unmuted' | 'mixed';
+  muted_status:
+    | 'muted'
+    | 'unmuted'
+    | 'mixed';
   volume_level: number;
-  audio_connection: 'speaker' | 'headphones' | 'bluetooth' | 'unknown';
+  audio_connection:
+    | 'speaker'
+    | 'headphones'
+    | 'bluetooth'
+    | 'unknown';
   audible_time_sec: number;
   audible_quartile_25: boolean;
   audible_quartile_50: boolean;
@@ -74,9 +88,16 @@ export interface S6RawData {
   pause_initiated: boolean;
   skipped: boolean;
   replay_count: number;
-  muted_status: 'muted' | 'unmuted' | 'mixed';
+  muted_status:
+    | 'muted'
+    | 'unmuted'
+    | 'mixed';
   volume_level: number;
-  audio_connection: 'speaker' | 'headphones' | 'bluetooth' | 'unknown';
+  audio_connection:
+    | 'speaker'
+    | 'headphones'
+    | 'bluetooth'
+    | 'unknown';
   audible_time_sec: number;
   duration_sec: number | null;
   audible_quartile_25: boolean;

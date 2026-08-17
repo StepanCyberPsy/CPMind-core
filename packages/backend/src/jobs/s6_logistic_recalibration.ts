@@ -124,7 +124,7 @@ async function fetchSegmentData(
   });
 }
 
-async function recalibrateS6Logistic(): Promise<void> {
+export async function recalibrateS6Logistic(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   const tagConstantsVersion = await resolveDominantTagConstantsVersion(windowStart);
