@@ -100,4 +100,9 @@ export const DEFAULT_TAG_CONSTANTS: TagConstantsValues = {
 // Матрица поддерживаемых браузеров для сборки тега. Не калибруется через UI — это
 // решение о технической поддержке, не сигнальный порог. Общий источник для CLI
 // (packages/tag/build.ts) и runtime-сборки внутри backend (services/tag_builder.ts)
-export const TAG_BUILD_TARGETS = ['chrome90', 'firefox90', 'safari14', 'edge90'] as const;
+export const TAG_BUILD_TARGETS = [
+  'chrome90',
+  'firefox90',
+  'safari14',
+  'edge90'
+] as const;

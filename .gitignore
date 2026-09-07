@@ -70,6 +70,7 @@ prompt_tasks/
 # Версии
 nginx/nginx_v1.conf
 nginx/nginx_v2.conf
+nginx/nginx_v3.conf
 docker-compose.prod.v1.yml
 
 # Куки, экспорты, тестовые файлы и др
@@ -79,3 +80,4 @@ test_givt_list.csv
 
 # Тестовые файлы
 *.mp4
+cpmind-structure.txt

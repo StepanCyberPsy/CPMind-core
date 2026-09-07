@@ -224,6 +224,26 @@
     font-size: 14px;
 }
 
+.workspaceLink {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    background-color: var(--accent-bg);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.workspaceLink:hover {
+    background-color: var(--accent);
+    color: #ffffff;
+}
+
 @media (max-width: 768px) {
     .header {
         padding: 0 18px;

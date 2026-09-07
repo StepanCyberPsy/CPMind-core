@@ -7,7 +7,7 @@ import {
 } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s4Configs } from '../db/schema.js';
-import { fitS4Params, type S4Row } from '../services/s4_fit.js';
+import { fitS4Params, type S4Row } from '../services/configs/s4_fit.js';
 import pino from 'pino';
 
 const logger = pino({ name: 's4-calibration-job' });

@@ -34,9 +34,23 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
       CALIBRATION_DRAFT_TTL_MINUTES: ${CALIBRATION_DRAFT_TTL_MINUTES:-60}
       TAG_DIST_DIR: /tag_dist
-      LOG_LEVEL: info
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT: "3001"
       HOST: "0.0.0.0"
+      YC_SIGNER_KEY_ID: ${YC_SIGNER_KEY_ID}
+      YC_SIGNER_SECRET: ${YC_SIGNER_SECRET}
+      STAGING_BUCKET: ${STAGING_BUCKET}
+      SOURCE_BUCKET: ${SOURCE_BUCKET}
+      DELIVERY_BUCKET: ${DELIVERY_BUCKET}
+      CDN_BASE_URL: ${CDN_BASE_URL}
+      DELIVERY_BASE_URL: ${DELIVERY_BASE_URL}
+      CREATIVE_BASE_URL: ${CREATIVE_BASE_URL}
+      COLLECT_ENDPOINT: ${COLLECT_ENDPOINT}
+      DISPLAY_RUNTIME_VERSION: ${DISPLAY_RUNTIME_VERSION:-1}
+      PLAYER_RUNTIME_VERSION: ${PLAYER_RUNTIME_VERSION:-1}
+      BACKEND_DB_POOL_MAX: ${BACKEND_DB_POOL_MAX:-20}
+      BACKEND_DB_IDLE_TIMEOUT_MS: ${BACKEND_DB_IDLE_TIMEOUT_MS:-30000}
+      BACKEND_DB_CONNECTION_TIMEOUT_MS: ${BACKEND_DB_CONNECTION_TIMEOUT_MS:-2000}
     volumes:
       - tag_dist:/tag_dist
     depends_on:
@@ -105,6 +119,38 @@ services:
       - ./backups:/backups
       - ./backup/crontab:/etc/crontabs/root:ro
     entrypoint: crond -f -l 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: packages/media-worker/Dockerfile
+    restart: always
+    stop_grace_period: 60s
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://cpmind:${DB_PASSWORD}@postgres:5432/cpmind
+      YC_WORKER_KEY_ID: ${YC_WORKER_KEY_ID}
+      YC_WORKER_SECRET: ${YC_WORKER_SECRET}
+      STAGING_BUCKET: ${STAGING_BUCKET}
+      SOURCE_BUCKET: ${SOURCE_BUCKET}
+      DELIVERY_BUCKET: ${DELIVERY_BUCKET}
+      CDN_BASE_URL: ${CDN_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      WORKER_LEASE_MS: ${WORKER_LEASE_MS:-900000}
+      WORKER_HEARTBEAT_MS: ${WORKER_HEARTBEAT_MS:-30000}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-5000}
+      WORKER_TEMP_DIR: /tmp/cpmind-worker
+      WORKER_DB_POOL_MAX: ${WORKER_DB_POOL_MAX:-5}
+      WORKER_DB_IDLE_TIMEOUT_MS: ${WORKER_DB_IDLE_TIMEOUT_MS:-30000}
+      WORKER_DB_CONNECTION_TIMEOUT_MS: ${WORKER_DB_CONNECTION_TIMEOUT_MS:-5000}
+    tmpfs:
+      - /tmp/cpmind-worker:size=10g,mode=1777
     depends_on:
       postgres:
         condition: service_healthy

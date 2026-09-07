@@ -12,7 +12,7 @@ import {
   listAllTags,
   listMyTags,
   updateTagByUuid,
-} from '../services/tags.js';
+} from '../services/tag/tags.js';
 
 export const tagsRoute: FastifyPluginAsync = async (app) => {
 

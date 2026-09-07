@@ -141,6 +141,20 @@
       "when": 1784200000000,
       "tag": "0019_seed_default_weights",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788016731935,
+      "tag": "0020_wide_marauders",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788083944523,
+      "tag": "0021_aromatic_silver_samurai",
+      "breakpoints": true
     }
   ]
 }

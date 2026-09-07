@@ -1,0 +1,257 @@
+.root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+.section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.select {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239ca3af' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+}
+
+.select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-8) var(--space-6);
+    border: 2px dashed var(--border-strong);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-subtle);
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s;
+    text-align: center;
+    min-height: 140px;
+}
+
+.dropzone:hover,
+.dropzoneDragging {
+    border-color: var(--accent);
+    background-color: var(--accent-bg);
+}
+
+.dropzoneIcon {
+    font-size: 28px;
+    line-height: 1;
+    color: var(--text-muted);
+}
+
+.dropzoneText {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.dropzoneHint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.fileInput {
+    display: none;
+}
+
+.fileInfo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.fileName {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.fileSize {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.removefile {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 16px;
+    transition: color 0.15s, background-color 0.15s;
+    cursor: pointer;
+    border: none;
+    background: none;
+    padding: 0;
+}
+
+.removefile:hover {
+    color: var(--negative);
+    background-color: var(--negative-bg);
+}
+
+.progressBar {
+    height: 4px;
+    background-color: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    background-color: var(--accent);
+    border-radius: 2px;
+    transition: width 0.2s linear;
+}
+
+.progressLabel {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+}
+
+.errorBox {
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--negative-bg);
+    border: 1px solid var(--negative);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--negative);
+}
+
+.successBox {
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--positive-bg);
+    border: 1px solid var(--positive);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--positive);
+    font-weight: 500;
+}
+
+.primaryBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.primaryBtn:hover:not(:disabled) {
+    background-color: var(--accent-dark);
+    border-color: var(--accent-dark);
+}
+
+.primaryBtn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.cancelBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 20px;
+    background-color: var(--bg-surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.cancelBtn:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+}
+
+.ghostBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 20px;
+    background-color: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.ghostBtn:hover {
+    background-color: var(--accent-bg);
+    border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+    .dropzone {
+        padding: var(--space-6) var(--space-4);
+        min-height: 110px;
+    }
+
+    .actions {
+        flex-direction: column;
+    }
+}

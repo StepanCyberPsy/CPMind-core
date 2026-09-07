@@ -11,11 +11,11 @@ import {
   listUsers,
   updateUserByUuid,
   LoginAlreadyExistsError,
-} from '../services/users.js';
+} from '../services/users/users.js';
 import {
   getUsersWithStats,
   getCampaignStatsForUser,
-} from '../services/users_stats.js';
+} from '../services/users/users_stats.js';
 
 export const usersRoute: FastifyPluginAsync = async (app) => {
 

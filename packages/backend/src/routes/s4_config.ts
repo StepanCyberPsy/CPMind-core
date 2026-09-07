@@ -7,7 +7,7 @@ import {
   deactivateS4Config,
   scheduleS4ConfigDeletion,
   cancelS4ConfigDeletion,
-} from '../services/s4_config.js';
+} from '../services/configs/s4_config.js';
 
 export const s4ConfigRoute: FastifyPluginAsync = async (app) => {
 

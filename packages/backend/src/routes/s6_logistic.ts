@@ -7,7 +7,7 @@ import {
   deactivateS6LogisticConfig,
   scheduleS6LogisticConfigDeletion,
   cancelS6LogisticConfigDeletion,
-} from '../services/s6_logistic_config.js';
+} from '../services/configs/s6_logistic_config.js';
 
 export const s6LogisticRoute: FastifyPluginAsync = async (app) => {
 

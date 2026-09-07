@@ -124,5 +124,98 @@ export {
     DEFAULT_IVT_THRESHOLDS,
 } from './schemas/ivt.js';
 
+// Креативы
+export {
+    CreativeTypeSchema,
+    CreativeStatusSchema,
+    DeviceTypeSchema,
+} from './schemas/creative.js';
+
+// Ассеты
+export {
+    AssetClassSchema,
+    AssetStatusSchema,
+    AudioConnectionSchema,
+    AssetRowSchema,
+} from './schemas/asset.js';
+
+// Загрузка
+export {
+    MAX_UPLOAD_SIZE_BYTES,
+    UploadStatusSchema,
+    UploadStrategySchema,
+    CreateUploadPayloadSchema,
+    UploadPartPresignedUrlSchema,
+    UploadSessionResponseSchema,
+    CompleteMultipartPartSchema,
+    CompleteUploadPayloadSchema,
+    UploadSessionStatusSchema,
+} from './schemas/upload.js';
+
+// Delivery
+export {
+    DeliveryModeSchema,
+    MeasurementModeSchema,
+    MeasurementFinalizationReasonSchema,
+    AdSessionIdSchema,
+    PlayerTimeoutsSchema,
+    DeliveryRuntimeConfigSchema,
+    DeliveryTimingSchema,
+} from './schemas/delivery.js';
+
+// Placements
+export {
+    PlcmtSchema,
+    AutoplayModeSchema,
+    PlacementRowSchema,
+    CreatePlacementPayloadSchema,
+    UpdatePlacementPayloadSchema,
+    PlacementListResponseSchema,
+    PlacementUuidParamSchema,
+} from './schemas/placement.js';
+
+// Рекламные сессии
+export {
+    AdSessionIdentitySchema,
+    AdSessionAutoplayOutcomeSchema,
+    AdSessionPlayerErrorCodeSchema,
+    AdSessionPlaybackQualitySchema,
+    AdSessionDeliveryEventTypeSchema,
+    DeliveryEventPayloadSchema,
+    AdSessionRowSchema,
+} from './schemas/ad_session.js';
+
+// Player
+export {
+    PlayerActionSourceSchema,
+    PlayerLifecycleStateSchema,
+    PlayerTerminalOutcomeSchema,
+    VideoMeasurementEventSchema,
+} from './schemas/player.js';
+
+// VAST
+export {
+    VastVerificationSchema,
+    VastTrackingUriTemplateSchema,
+    VastMediaFileUrlSchema,
+    VastClickThroughUrlSchema,
+    VastLinearTrackingEventTypeSchema,
+    VastTrackingRequestEventSchema,
+    VastErrorCodeSchema,
+    VastTrackingEventParamSchema,
+    VastTrackingQuerySchema,
+    VastTrackingRequestSchema,
+    VastTimeOffsetSchema,
+    VastTrackingResourceSchema,
+    VastMediaFileSchema,
+    VastImpressionSchema,
+    VastAdSystemSchema,
+    VastUniversalAdIdSchema,
+    VastClickThroughSchema,
+    VastClickTrackingSchema,
+    VastVideoClicksSchema,
+    VastParsedAdSchema,
+} from './schemas/vast.js';
+
 // Типы
 export type * from './types/index.js';

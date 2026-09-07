@@ -1,152 +1,904 @@
 # CPMind — Архитектура системы
 
-Документ описывает устройство CPMind MVP: из чего состоит система, как компоненты взаимодействуют между собой, как данные движутся от момента показа баннера до отображения в панели аналитики. Детали реализации каждого пакета — в `docs/packages_information/`.
+Эталонный технический документ для инженеров. Описывает полную архитектуру CPMind: пакетный граф, инфраструктуру, потоки данных, pipeline измерения и скоринга, модели нормализации, IVT-детекцию, базу данных. Детали реализации каждого пакета — в `docs/packages_information/`.
 
 ---
 
 ## Содержание
 
 1. [Обзор системы](#обзор-системы)
-2. [Компоненты](#компоненты)
-3. [Технический стек и конфигурация](#технический-стек-и-конфигурация)
-4. [Многопользовательская модель](#многопользовательская-модель)
-5. [Поток данных](#поток-данных)
-6. [Pipeline расчёта Score](#pipeline-расчёта-score)
-7. [Формула CPMind Score](#формула-cpmind-score)
-8. [Калибровка: пересчёт исторических импрешенов](#калибровка-пересчёт-исторических-импрешенов)
-9. [Версионирование констант тега](#версионирование-констант-тега)
-10. [IVT — детекция невалидного трафика](#ivt--детекция-невалидного-трафика)
-11. [База данных](#база-данных)
-11. [Инфраструктура](#инфраструктура)
-12. [Безопасность](#безопасность)
-13. [Ограничения MVP](#ограничения-mvp)
+2. [Граф зависимостей пакетов](#граф-зависимостей-пакетов)
+3. [Инфраструктура](#инфраструктура)
+4. [NGINX и доменная модель](#nginx-и-доменная-модель)
+5. [Hosted Creative Delivery — полный flow](#hosted-creative-delivery--полный-flow)
+6. [Поток измерения и скоринга (Legacy Tag)](#поток-измерения-и-скоринга-legacy-tag)
+7. [Upload и Media Processing Pipeline](#upload-и-media-processing-pipeline)
+8. [Pipeline расчёта Score](#pipeline-расчёта-score)
+9. [Сигналы S1–S7 и F_Presence](#сигналы-s1s7-и-fpresence)
+10. [Формула CPMind Score](#формула-cpmind-score)
+11. [Калибровка исторических импрешенов](#калибровка-исторических-импрешенов)
+12. [IVT — детекция невалидного трафика](#ivt--детекция-невалидного-трафика)
+13. [База данных](#база-данных)
+14. [Безопасность](#безопасность)
+15. [Технический стек](#технический-стек)
+16. [Монорепо: конфигурация](#монорепо-конфигурация)
+17. [Известные ограничения](#известные-ограничения)
 
 ---
 
 ## Обзор системы
 
-CPMind — система измерения качества рекламных показов. В отличие от стандартных метрик (количество показов, клики, viewability), CPMind измеряет **реальное поведение пользователя** во время показа баннера и превращает его в единое число от 0 до 100 — CPMind Score.
+CPMind — платформа измерения качества рекламных показов. Вместо стандартных метрик (impressions, CTR) CPMind измеряет **реальное поведение пользователя** во время контакта с рекламным креативом и превращает его в число от 0 до 100 — CPMind Score.
 
-```
-┌──────────────────────────────────────────────┐
-│           Сайт клиента (любой)               │
-│                                              │
-│   [Баннер] ← обёрнут в контейнер тега        │
-│   [JS-тег] ← tag_uuid + tag_constants_version│
-│              зашиты в конкретный собранный   │
-│              файл, следит за поведением      │
-│       │                                      │
-│       │  sendBeacon / fetch keepalive        │
-└───────┼──────────────────────────────────────┘
-        │
-        ▼
-┌───────────────────────────────────────────────────┐
-│              app.cpmind.tech (сервер)             │
-│                                                   │
-│  [NGINX]  ← SSL, роутинг, раздача версий тега     │
-│     │                                             │
-│  [Backend] ← резолв владельца и версии констант,  │
-│     │        валидация, расчёт Score, хранение,   │
-│     │        runtime-сборка esbuild для тега      │
-│  [PostgreSQL] ← users/tags (владение),            │
-│     │           impressions, weight_configs,      │
-│     │           tag_constants_configs,            │
-│     │           calibration_batches/items,        │
-│     │           ivt_list_configs,                 │
-│     │           ivt_thresholds_configs,           │
-│     │           s1_weibull_configs,               │
-│     │           s3/s5/s6_logistic_configs,        │
-│     │           s4_configs,                       │
-│     │           s7_quantile_configs               │
-│  [Frontend] ← панель аналитика (admin/user роли)  │
-└───────────────────────────────────────────────────┘
-```
+### Два режима доставки
 
-**Поддерживаемые типы креативов:** `banner_static`, `banner_gif`, `banner_html5`, `video_creative`.
+**Hosted Creative Delivery (основной)** — рекламный материал загружается в CPMind, обрабатывается media-worker'ом и доставляется издателю через единый embed-скрипт. Издатель вставляет одну строку HTML; CPMind монтирует рекламный блок, измеряет показ и раздаёт VAST для видео.
+
+**Legacy Tag (совместимость)** — JS-тег подключается к произвольному HTML-контейнеру на странице издателя. Тег измеряет показ и отправляет данные напрямую в `/api/collect`.
+
+### Четыре домена
+
+| Домен | Назначение |
+|---|---|
+| `app.cpmind.tech` | Панель управления (Next.js) + Backend API (Fastify) |
+| `delivery.cpmind.tech` | Embed-скрипты, VAST XML, tracking-пиксели, SDK events |
+| `creative.cpmind.tech` | Изолированный origin для HTML5-креативов в iframe |
+| `cdn.cpmind.tech` | CDN-раздача иммутабельных ассетов (JS-бандлы, медиафайлы) |
 
 ---
 
-## Компоненты
+## Граф зависимостей пакетов
 
-### JS-тег (`packages/tag`)
+```mermaid
+graph TD
+    shared["@cpmind/shared<br/><small>Zod-схемы, формулы, типы</small>"]
+    sdk["@cpmind/sdk<br/><small>S1–S7, transport, MeasurementSession</small>"]
+    tag["@cpmind/tag<br/><small>Legacy: DOM discovery, S6 legacy</small>"]
+    display["@cpmind/display-runtime<br/><small>Banner render + measure</small>"]
+    player["@cpmind/player<br/><small>VAST + video player + measure</small>"]
+    embed["@cpmind/embed<br/><small>Loader: type routing → CDN</small>"]
+    bridge["@cpmind/creative-bridge<br/><small>HTML5 iframe postMessage</small>"]
+    backend["@cpmind/backend<br/><small>Fastify API, scoring, delivery</small>"]
+    frontend["@cpmind/frontend<br/><small>Next.js панель</small>"]
+    worker["@cpmind/media-worker<br/><small>Обработка файлов, FFmpeg</small>"]
 
-~31 КБ, Vanilla TypeScript, IIFE-формат. Размещается на сайте клиента. Невидим, не изменяет внешний вид баннера, не блокирует загрузку страницы (`async`), не ломает страницу при ошибках (глобальный `try/catch`). Не собирает персональных данных, не использует cookie. Вычисляет необратимый SHA-256 хэш отпечатка устройства (`fp_hash`, 16 байт) для IVT-детекции частотных аномалий — PII не передаётся и не хранится. Дополнительно накапливает интервалы между событиями присутствия (`event_intervals_ms`, cap 50) для детекции роботизированного тайминга. Передаёт домен площадки размещения (`publisher_domain`) — явный или автоматически определённый из `document.referrer`/`window.location.hostname`, с детерминированным `unknown_{hash}` как fallback.
+    shared --> sdk
+    shared --> tag
+    shared --> backend
+    shared --> frontend
+    shared --> worker
+    shared --> embed
+    shared --> bridge
+    shared --> display
+    shared --> player
 
-`tag_uuid` и `tag_constants_version` зашиты в конкретный собранный файл через esbuild `define` — не запрашиваются с сервера в runtime. Сборка происходит не при `docker build`, а в runtime backend-контейнера по запросу администратора. Несколько версий существуют на сервере одновременно.
+    sdk --> tag
+    sdk --> display
+    sdk --> player
 
-Подробности реализации: `docs/packages_information/TAG_LOGIC.md`
+    display -.->|"inlines at build"| sdk
+    player -.->|"inlines at build"| sdk
+    embed -.->|"loads from CDN"| display
+    embed -.->|"loads from CDN"| player
+    display -.->|"iframe"| bridge
 
-### Backend (`packages/backend`)
+    backend -.->|"runtime build via esbuild"| tag
+    backend -.->|"generates embed JS"| embed
 
-Fastify API-сервер (Node.js 20). Принимает данные от тега, резолвит владельца и активную версию констант, рассчитывает Score, хранит в PostgreSQL. Собирает runtime-бандлы тега через esbuild JS API.
+    style shared fill:#e8f5e9,stroke:#43a047
+    style sdk fill:#e3f2fd,stroke:#1e88e5
+    style backend fill:#fff3e0,stroke:#fb8c00
+    style worker fill:#fce4ec,stroke:#e53935
+    style frontend fill:#f3e5f5,stroke:#8e24aa
+```
 
-Подробности реализации: `docs/packages_information/BACKEND_LOGIC.md`
+### Пояснения к графу
 
-### Frontend (`packages/frontend`)
+**Сплошные стрелки** — статические зависимости (импорт при сборке или runtime).
 
-Next.js 14 App Router. Панель аналитики, защищённая JWT-cookie. Маршруты и функционал строго зависят от роли токена. `admin` видит все данные, управляет пользователями и тегами, калибрует веса и константы. `user` видит только свои импрешены с урезанным набором полей.
+**Пунктирные стрелки** — динамические связи: бандл inlines SDK при esbuild-сборке; embed загружает display-runtime или player с CDN в браузере; backend вызывает esbuild JS API для сборки tag bundle.
 
-Подробности реализации: `docs/packages_information/FRONTEND_LOGIC.md`
+**Build-time только** (`@cpmind/shared` → `@cpmind/tag`): shared используется как devDependency — только типизация, в выходной бандл не попадает.
 
-### Shared (`packages/shared`)
+### Порядок сборки (monorepo)
 
-Единственный источник истины для математики и контрактов. Используется в backend, frontend и теге (тег — только типизация, не runtime). Содержит: Zod-схемы валидации, формулы нормализации S1–S7, расчёт Score, калибровку весов, схемы пользователей/тегов/калибровки/констант тега, IVT-классификацию (`classifyIvtSync` — pure function, GIVT/SIVT детекция).
-
-Подробности реализации: `docs/packages_information/SHARED_LOGIC.md`
-
-### NGINX
-
-Веб-сервер, стоящий перед backend и frontend. Отвечает за:
-- SSL-терминация (HTTPS) + OCSP stapling
-- HTTP → HTTPS редирект
-- Роутинг: `/api/collect` → beacon endpoint (rate limit, 5s timeout), `/api/*` → backend (панель), `/` → frontend, `/tag/` → статические файлы тега (`alias`, отдает любой файл из директории — несколько версий одновременно без правок конфигурации)
-- Rate limiting: не более 100 req/s с одного IP на `/api/collect`, burst 200, статус 429
-- Security headers: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP
-- Раздача файлов тега с заголовком `Access-Control-Allow-Origin: *`
-- `proxy_buffering off` для `/api/` — корректный стриминг CSV-экспорта
-- `worker_processes auto` — использование всех ядер сервера
-
-Директория `/tag/` (volume `tag_dist`) монтируется в NGINX на чтение, в backend — на чтение-запись: backend пишет туда новые версионированные файлы при создании/активации констант тега.
-
-### PostgreSQL
-
-Реляционная база данных. Таблицы: `impressions` (один рекламный показ, включая привязку к владельцу и версии констант тега), `users`/`tags` (многопользовательская модель), `weight_configs` (версии конфигурации весов), `calibration_batches`/`calibration_items` (черновики пересчета Score), `tag_constants_configs` (версии калибруемых констант тега), `ivt_list_configs` (версионированные GIVT-списки паттернов), `ivt_thresholds_configs` (версионированные пороги SIVT-детекции), `s1_weibull_configs` (Weibull-параметры по сегментам), `s3_logistic_configs` / `s5_logistic_configs` / `s6_logistic_configs` (логистические параметры по сегментам), `s4_configs` (λ/T_ref по сегментам), `s7_quantile_configs` (квантильные пороги по device_type). Данные `impressions` хранятся 90 дней (автоматическое удаление старых записей в 03:00 UTC) — связанные `calibration_items` удаляются вместе с импрешеном (`ON DELETE CASCADE`).
+```
+shared → sdk → backend
+                tag (esbuild IIFE)
+                display-runtime (esbuild IIFE)
+                player (esbuild IIFE)
+                embed (esbuild IIFE)
+                creative-bridge (esbuild IIFE)
+                frontend (next build)
+                media-worker (tsc)
+```
 
 ---
 
-## Технический стек и конфигурация
+## Инфраструктура
+
+### Docker Compose (production)
+
+```mermaid
+graph TD
+    internet["Internet"]
+    nginx["nginx:1.27-alpine<br/>:80 :443"]
+    backend["backend<br/>node:20-alpine<br/>:3001"]
+    frontend["frontend<br/>node:20-alpine<br/>:3000"]
+    worker["media-worker<br/>node:20-alpine + ffmpeg"]
+    postgres["postgres:16-alpine<br/>:5432"]
+    backup["backup<br/>postgres:16-alpine<br/>crond"]
+
+    ycs["Yandex Object Storage<br/>staging / source / delivery"]
+    cdn["Yandex CDN<br/>cdn.cpmind.tech"]
+
+    internet -->|"443/80"| nginx
+    nginx -->|"proxy"| backend
+    nginx -->|"proxy"| frontend
+    nginx -->|"alias /tag/"| tag_vol[("tag_dist volume")]
+    backend -->|"write"| tag_vol
+    backend --> postgres
+    backend -->|"presigned PUT"| ycs
+    worker --> postgres
+    worker -->|"GET staging"| ycs
+    worker -->|"PUT delivery/source"| ycs
+    ycs -->|"origin"| cdn
+    postgres --> backup
+
+    style nginx fill:#e8f5e9,stroke:#43a047
+    style backend fill:#fff3e0,stroke:#fb8c00
+    style frontend fill:#f3e5f5,stroke:#8e24aa
+    style worker fill:#fce4ec,stroke:#e53935
+    style postgres fill:#e3f2fd,stroke:#1e88e5
+    style ycs fill:#f5f5f5,stroke:#757575
+    style cdn fill:#f5f5f5,stroke:#757575
+```
+
+**Сеть:** все контейнеры в изолированной Docker-сети `internal` (bridge). Наружу экспонирует только NGINX через порты 80 и 443.
+
+**Порядок запуска через healthcheck-цепочку:**
+```
+postgres (healthy)
+    ↓
+backend (healthy) + media-worker
+    ↓
+frontend (healthy)
+    ↓
+nginx
+```
+
+**Volumes:**
+- `postgres_data` — данные PostgreSQL
+- `tag_dist` — скомпилированные JS-файлы legacy tag (backend пишет, nginx читает)
+- `./backups` — pg_dump дампы на хосте
+- `tmpfs /tmp/cpmind-worker:size=10g` — RAM-диск для media-worker (видеообработка)
+
+**media-worker:** `stop_grace_period: 60s` — при SIGTERM даётся 60 секунд на завершение текущего job. `USER cpmind` — non-root.
+
+### Yandex Cloud Object Storage
+
+Три бакета с разными политиками доступа:
+
+| Бакет | ACL | Lifecycle | Назначение |
+|---|---|---|---|
+| `cpmind-upload-staging` | private | expire 2 дня | Временное хранение файлов до обработки |
+| `cpmind-source-assets` | private | нет | Архив оригинальных файлов |
+| `cpmind-delivery-assets` | public read | нет | CDN origin для обработанных ассетов |
+
+**IAM сервисные аккаунты:**
+- `cpmind-backend-signer` — роль `storage.uploader` на staging: генерирует presigned PUT URLs для браузерной загрузки
+- `cpmind-media-worker` — `storage.viewer` на staging + `storage.uploader` на source/delivery
+
+**Известное ограничение:** `storage.uploader` не включает DELETE → media-worker получает 403 при попытке удалить обработанный файл из staging. Файлы удаляются lifecycle rule через 2 дня. Fix: добавить `storage.editor` в `iam.tf`.
+
+### SSL и сертификаты
+
+Let's Encrypt wildcard-сертификат для всех четырёх доменов. Автообновление через certbot + `scripts/renew-certs.sh` (03:30 UTC). Все четыре домена обслуживаются одним физическим сервером — NGINX разделяет по SNI.
+
+### Бэкапы
+
+`pg_dump` через crond (backup-контейнер), 02:00 UTC, ротация 30 дней, путь `/backups/` на хосте.
+
+---
+
+## NGINX и доменная модель
+
+```mermaid
+graph LR
+    client["Browser / Publisher"]
+
+    subgraph nginx["NGINX (единая точка входа)"]
+        d_app["app.cpmind.tech"]
+        d_delivery["delivery.cpmind.tech"]
+        d_creative["creative.cpmind.tech"]
+    end
+
+    subgraph backend_svc["backend:3001"]
+        api_collect["POST /api/collect"]
+        api_rest["GET|POST /api/*"]
+        api_embed["GET /e/:token"]
+        api_vast["GET /vast/:token"]
+        api_track["GET /t/vast/:event"]
+        api_delivery_evt["POST /api/delivery/event"]
+    end
+
+    frontend_svc["frontend:3000"]
+    tag_static["tag_dist (static files)"]
+    ycs_delivery["delivery bucket (YC Object Storage)"]
+
+    client -->|HTTPS| d_app
+    client -->|HTTPS| d_delivery
+    client -->|HTTPS| d_creative
+
+    d_app -->|"/api/collect (rate 100r/s)"| api_collect
+    d_app -->|"/api/* (rate 30r/s)"| api_rest
+    d_app -->|"/"| frontend_svc
+    d_app -->|"/tag/ (alias, CORS *)"| tag_static
+
+    d_delivery -->|"/e/:token (no-store)"| api_embed
+    d_delivery -->|"/vast/:token (no-store)"| api_vast
+    d_delivery -->|"/t/* (rate 120r/s)"| api_track
+    d_delivery -->|"/api/delivery/event"| api_delivery_evt
+
+    d_creative -->|"proxy_pass HTTPS"| ycs_delivery
+
+    style nginx fill:#e8f5e9,stroke:#43a047
+    style backend_svc fill:#fff3e0,stroke:#fb8c00
+```
+
+**Rate limiting zones:**
+
+| Zone | Rate | Burst | Endpoint |
+|---|---|---|---|
+| `beacon` | 100 r/s | 200 | `/api/collect` |
+| `api` | 30 r/s | 60 | `/api/*` панельный |
+| `delivery` | 60 r/s | 30–120 | embed, VAST, tracking |
+
+**`creative.cpmind.tech`** — изолированный origin для HTML5 iframe. Отличия от других vhost: нет `X-Frame-Options` (должен грузиться в iframe), `CSP: connect-src 'none'` (kreativ не может делать сетевые запросы), `frame-ancestors: *`, `Referrer-Policy: no-referrer`.
+
+**`delivery.cpmind.tech`** — все responses `Cache-Control: no-store` (персонализированы по token, каждый запрос генерирует новый adSessionId).
+
+---
+
+## Hosted Creative Delivery — полный flow
+
+```mermaid
+sequenceDiagram
+    participant PUB as Publisher Page
+    participant DELIV as delivery.cpmind.tech
+    participant CDN as cdn.cpmind.tech
+    participant LOADER as cpmind-loader_v1.min.js
+    participant RUNTIME as display-runtime / player
+    participant SDK as @cpmind/sdk (inline)
+    participant APP as app.cpmind.tech
+
+    PUB->>DELIV: GET /e/{token}.js
+    DELIV->>DELIV: resolveDeliveryContext(token)<br/>createAdSession()
+    DELIV-->>PUB: JS: __CPMIND_QUEUE__.push(config)<br/>+ load loader from CDN
+
+    PUB->>CDN: GET /runtime/cpmind-loader_v1.min.js
+    CDN-->>PUB: loader (cached 1yr)
+    activate LOADER
+    LOADER->>LOADER: resolveRuntimeUrl(creativeType)
+    LOADER->>CDN: GET /runtime/cpmind-display_vN.min.js<br/>(or cpmind-player_vN.min.js)
+    CDN-->>LOADER: runtime bundle (cached 1yr)
+    deactivate LOADER
+
+    activate RUNTIME
+    RUNTIME->>RUNTIME: processEntry(entry)<br/>mountSurface / VAST fetch
+    RUNTIME->>CDN: GET asset URL (image / video / html5.zip)
+    CDN-->>RUNTIME: asset
+
+    RUNTIME->>DELIV: POST /api/delivery/event {requested}
+    RUNTIME->>DELIV: POST /api/delivery/event {asset_load_started}
+    RUNTIME->>DELIV: POST /api/delivery/event {creative_ready}
+    RUNTIME->>DELIV: POST /api/delivery/event {render_confirmed}
+
+    activate SDK
+    SDK->>SDK: startMeasurement(renderConfirmedAt)<br/>S1–S7 observers init
+    SDK->>SDK: [user views ad...]
+
+    note over SDK: user navigates away / pagehide
+    SDK->>APP: POST /api/collect {impression payload}
+    APP-->>SDK: 202 Accepted
+    deactivate SDK
+
+    RUNTIME->>DELIV: POST /api/delivery/event {closed}
+    deactivate RUNTIME
+```
+
+### Embed Script: что генерирует backend
+
+При `GET /e/{token}` backend (`services/delivery/embed.ts`):
+
+1. `resolveDeliveryContext(token)` — загружает placement + pinned/latest ready creative version + assets + tagConstants + deliveryRuntimeConfig
+2. `createAdSession()` — создаёт запись в `ad_sessions`, генерирует `adSessionId`
+3. Генерирует JS-код:
+
+```javascript
+(function() {
+  'use strict';
+  // Монтирует div нужного размера в document.body
+  var el = document.createElement('div');
+  el.style.width = '{width}px'; el.style.height = '{height}px';
+  document.body.appendChild(el);
+  // Помещает конфиг в очередь
+  window.__CPMIND_QUEUE__ = window.__CPMIND_QUEUE__ || [];
+  var cfg = { /* DeliveryRuntimeConfig: adSessionId, tagConstants, VAST URL, ... */ };
+  cfg.container = el;
+  window.__CPMIND_QUEUE__.push(cfg);
+  // Загружает loader один раз
+  if (!window.__CPMIND_LOADER__) {
+    window.__CPMIND_LOADER__ = true;
+    var s = document.createElement('script');
+    s.src = '{CDN_BASE_URL}/runtime/cpmind-loader_v1.min.js';
+    s.async = true;
+    document.head.appendChild(s);
+  }
+})();
+```
+
+### Loader: маршрутизация по типу
+
+`cpmind-loader_v1.min.js` (этот пакет — `@cpmind/embed`):
+
+```
+banner_static | banner_gif | banner_html5 → cpmind-display_v{N}.min.js
+video_creative                             → cpmind-player_v{N}.min.js
+```
+
+Дедупликация: Set + DOM-проверка → один runtime бандл для всех одинаковых типов на странице.
+
+### Display Runtime Flow
+
+```mermaid
+flowchart TD
+    A["processEntry(entry)"] --> B["createDisplaySessionContext()"]
+    B --> C["mountSurface(container)"]
+    C --> D{creativeType?}
+
+    D -->|"banner_static / gif"| E["runStaticFlow():<br/>img + anchor,<br/>toSafeHref validation,<br/>waitForImageLoaded + rAF"]
+    D -->|"banner_html5"| F["runHtml5Flow():<br/>iframe sandbox=allow-scripts,<br/>iframe.src ПОСЛЕ listener"]
+
+    F --> G["waitForHtml5Ready():<br/>postMessage handshake<br/>cpmind:ready → cpmind:init"]
+    G --> H["creative-bridge in iframe:<br/>click delegation,<br/>cpmind:destroy cleanup"]
+
+    E --> I["renderConfirmedAt = Date.now()"]
+    G --> I
+
+    I --> J["sendDisplayEvent(render_confirmed)"]
+    J --> K["prepareDisplayMeasurement(container)"]
+    K --> L["startMeasurement(renderConfirmedAt)"]
+    L --> M["SDK: S1–S7 active,<br/>impression collected on pagehide"]
+
+    style F fill:#e3f2fd,stroke:#1e88e5
+    style H fill:#e8f5e9,stroke:#43a047
+    style L fill:#fff3e0,stroke:#fb8c00
+```
+
+**HTML5 Creative Bridge (`@cpmind/creative-bridge`):**
+- Инжектируется media-worker'ом в `<head>` index.html HTML5-бандла
+- Выполняется внутри `<iframe sandbox="allow-scripts">` без `allow-same-origin`
+- `event.origin === 'null'` (opaque origin) — валидация только через `event.source === window.parent`
+- Перехватывает клики → делегирует хосту через `cpmind:click`
+- AbortController cleanup при `cpmind:destroy`
+
+### Player Flow (Video)
+
+```mermaid
+flowchart TD
+    A["CPMindPlayer.mountOutstream(opts)<br/>или attachNative(opts)"] --> B{Mode?}
+
+    B -->|outstream| C["createOutstreamLifecycle():<br/>observeEligibility(threshold=0)"]
+    B -->|instream| D["bindNativeContent(contentVideo):<br/>on 'play' once"]
+
+    C -->|"1px в viewport"| E["callbacks.onLoad()"]
+    D -->|"play event"| E2["defer pause iOS Safari fix<br/>safePause(contentVideo)"]
+    E2 --> E
+
+    E --> F["createPlayerSession(opts)"]
+    F --> G["loadVastXml(vastUrl)<br/>manual timeout + AbortSignal<br/>(Safari 14: no AbortSignal.any)"]
+    G --> H["parseVastXml(xml)<br/>DOMParser, InLine only"]
+    H --> I["selectMediaFile():<br/>DPR-aware, CDN_HOSTNAME trust check,<br/>video.canPlayType filter"]
+    I --> J["waitForCanPlay(video, signal)"]
+    J --> K["handle.play():<br/>attemptAutoplay() →<br/>muted fallback (Coalition for Better Ads)"]
+    K --> L["waitForFirstFrame():<br/>requestVideoFrameCallback or timeupdate"]
+    L --> M["bridge.startMeasurement(renderConfirmedAt)"]
+    M --> N["VAST tracking:<br/>quartiles fire-and-forget keepalive,<br/>vastFired Set deduplication"]
+
+    C -->|"50% в viewport"| O["onRequestPlay()"]
+    O --> K
+
+    style G fill:#fce4ec,stroke:#e53935
+    style M fill:#fff3e0,stroke:#fb8c00
+```
+
+**VAST URL** (`GET /vast/{token}`): генерирует полный VAST 4.3 InLine XML с tracking URL'ами вида `/t/vast/{event}?sid={adSessionId}`. Tracking пиксели (`GET /t/vast/:event`) обновляют timestamp-поля в `ad_sessions` через COALESCE (первое событие авторитетно).
+
+---
+
+## Поток измерения и скоринга (Legacy Tag)
+
+```mermaid
+sequenceDiagram
+    participant BROWSER as Browser (Tag)
+    participant NGINX as NGINX
+    participant BACKEND as Backend
+    participant DB as PostgreSQL
+
+    BROWSER->>BROWSER: tag.js: find [data-cpmind-creative]<br/>init S1–S7, presence, fpHash (async)
+    note over BROWSER: user views banner...
+
+    BROWSER->>BROWSER: sendBeacon trigger:<br/>click | visibilitychange | pagehide
+
+    BROWSER->>NGINX: POST /api/collect {impression payload}
+    NGINX->>NGINX: rate limit check (100r/s)
+    NGINX->>BACKEND: proxy_pass
+
+    BACKEND->>DB: resolveActiveTagOwner(tag_uuid)
+    DB-->>BACKEND: {tag_id, user_id}
+
+    BACKEND->>DB: resolveTagConstants(tag_constants_version)
+    DB-->>BACKEND: {PRESENCE_IDLE_TIMEOUT_MS, ...}
+
+    BACKEND->>BACKEND: Promise.all:<br/>weights, ivt_list, ivt_thresholds,<br/>S1–S7 model params (in-memory cache)
+
+    BACKEND->>BACKEND: applyAnomalyCapping()
+    BACKEND->>BACKEND: normalizeAll(signals, modelParams)
+    BACKEND->>BACKEND: computeScore(normalized, weights, F_Presence)
+    BACKEND->>BACKEND: classifyIvtSync(signals, ivtList, thresholds)
+
+    BACKEND->>DB: INSERT impressions ON CONFLICT DO NOTHING
+    DB-->>BACKEND: ok
+
+    BACKEND-->>NGINX: 202 Accepted
+    NGINX-->>BROWSER: 202
+```
+
+**Сегментация при простое:** если пользователь не взаимодействует ≥60 сек, тег отправляет промежуточный сегмент с тем же `session_group_id` и `segment_index+1`, сбрасывает накопители S1–S7. Последующая активность → новый сегмент.
+
+---
+
+## Upload и Media Processing Pipeline
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend (Browser)
+    participant API as Backend API
+    participant S3S as Staging Bucket
+    participant DB as PostgreSQL
+    participant MW as Media Worker
+    participant S3D as Delivery Bucket
+
+    UI->>API: POST /api/creative-uploads<br/>{campaignUuid, creativeType, filename, size, mime}
+    API->>API: createUploadSession():<br/>insert upload_session (draft)<br/>insert creative (draft)<br/>insert creative_version (draft)
+    API->>S3S: generate presigned PUT URL<br/>(cpmind-backend-signer IAM key)
+    API-->>UI: {uploadId, strategy, uploadUrl/parts, expiresAt}
+
+    note over UI: strategy=single: 1 PUT<br/>strategy=multipart: N PUTs (threshold 100MB, part 10MB, concurrency 4)
+
+    UI->>S3S: PUT file (direct, presigned URL)<br/>XHR upload with progress tracking
+    UI->>API: POST /api/creative-uploads/{uuid}/complete
+
+    API->>DB: transaction:<br/>session→processing, version→processing,<br/>creative→processing,<br/>INSERT creative_processing_jobs (pending)
+    API-->>UI: 200 ok
+
+    note over UI: poll GET /api/creative-uploads/{uuid}
+
+    MW->>DB: SKIP LOCKED claim job<br/>(lease 900s, heartbeat 30s)
+    DB-->>MW: job row
+
+    MW->>S3S: GET staging file
+    MW->>MW: detectMime() (magic bytes, SVG special case)
+    MW->>MW: processor by MIME:<br/>static→sharp, gif→sharp,<br/>svg→sanitize, html5→extract+inject bridge+repack,<br/>video→ffprobe+ffmpeg renditions+poster
+    MW->>MW: ZIP security: path traversal, null bytes,<br/>symlinks, compression ratio (static+runtime), total size
+    MW->>MW: SHA-256 per file → content-addressed key
+    MW->>S3D: PUT processed files (content-addressed)
+    MW->>DB: transaction:<br/>createAsset (ON CONFLICT DO NOTHING),<br/>linkAssetToCreativeVersion,<br/>version→ready, session→ready, job→ready
+    MW->>S3S: DELETE staging (best-effort, 403 fallback to lifecycle)
+
+    UI->>API: GET /api/creative-uploads/{uuid}
+    API-->>UI: {status: ready, creativeVersionUuid}
+
+    style MW fill:#fce4ec,stroke:#e53935
+    style S3S fill:#f5f5f5,stroke:#757575
+    style S3D fill:#f5f5f5,stroke:#757575
+```
+
+### Media Worker: обработка по типу
+
+| MIME | Процессор | Выходные файлы | Роли |
+|---|---|---|---|
+| `image/jpeg`, `image/png`, `image/webp` | sharp | 1 оптимизированное изображение | `source` |
+| `image/gif` | sharp | 1 оптимизированный GIF | `source` |
+| `image/svg+xml` | sanitize | 1 SVG | `source` |
+| `application/zip` (HTML5) | unzip + inject bridge + repack | 1 ZIP с bridge | `source` |
+| `video/*` | ffprobe + ffmpeg | N renditions (H.264) + 1 poster (JPEG) | `primary`, `rendition_*`, `poster` |
+
+**ZIP Security для HTML5 (многоуровневая):**
+
+```
+✗ Path traversal     (resolve check: must start with destDir/)
+✗ Null bytes in path (entryPath.includes('\0'))
+✗ Absolute paths     (normalize check)
+✗ Symlinks           (unix mode: (unixMode & 0xf000) === 0xa000)
+✗ ZIP bomb (static)  (compressedSize → decompressedSize ratio > 50)
+✗ ZIP bomb (runtime) (streaming ratio check per-chunk)
+✗ Total size         (> 100MB decompressed)
+✗ Too many files     (> 500 entries)
+```
+
+**PostgreSQL queue SKIP LOCKED:**
+
+```sql
+WITH candidate AS (
+    SELECT id FROM creative_processing_jobs
+    WHERE status = 'pending' AND available_at <= NOW() AND attempts < max_attempts
+    ORDER BY available_at ASC, created_at ASC
+    FOR UPDATE SKIP LOCKED LIMIT 1
+)
+UPDATE creative_processing_jobs SET
+    status = 'processing', locked_by = $1,
+    lease_expires_at = NOW() + interval '$2 ms',
+    heartbeat_at = NOW(), attempts = attempts + 1
+FROM candidate WHERE id = candidate.id
+RETURNING *
+```
+
+Lease + heartbeat (HEARTBEAT_MS < LEASE_MS — инвариант): при потере lease processing прерывается через AbortController. Recovery loop пересчитывает просроченные leases каждые `max(30s, min(LEASE_MS/2, HEARTBEAT_MS*2))`.
+
+---
+
+## Pipeline расчёта Score
+
+```mermaid
+flowchart TD
+    A["POST /api/collect<br/>ImpressionPayload"] --> B["Zod-валидация"]
+    B -->|"422"| ERR1["error response"]
+    B --> C["resolveActiveTagOwner(tag_uuid)<br/>→ tag_id + user_id, оба isActive"]
+    C -->|"422"| ERR1
+    C --> D["resolveTagConstants(tag_constants_version)<br/>→ PRESENCE_IDLE_TIMEOUT_MS"]
+    D -->|"422"| ERR1
+    D --> E
+
+    subgraph parallel ["Promise.all (parallel)"]
+        E1["weights config\n(in-memory cache)"]
+        E2["IVT list\n(in-memory cache)"]
+        E3["IVT thresholds\n(in-memory cache)"]
+        E4["S1 WeibullParams\nby device×creative"]
+        E5["S3 LogisticParams\nby device×creative"]
+        E6["S4 Config λ/T_ref\nby device_creative"]
+        E7["S5 LogisticParams\nby device_type"]
+        E8["S6 LogisticParams\nby device×skippable (null for banner)"]
+        E9["S7 Thresholds\nby device_type"]
+    end
+
+    E --> parallel
+    parallel --> F["applyAnomalyCapping()\nstructuredClone, не мутирует входной объект"]
+    F --> G["normalizeAll(signals, modelParams)\nS1 Weibull CDF, S2 linear,\nS3 logistic, S4 nonlinear,\nS5 logistic, S6 logistic (null→null),\nS7 quantile"]
+    G --> H["computeEffectiveWeights(weights, nullSignals)\nперераспределение S3=null,\nS6=null для баннеров"]
+    H --> I["F_Presence check\ntime_since_last_event_ms > PRESENCE_IDLE_TIMEOUT_MS → 0"]
+    I --> J["CPMind Score =\nΣ(Si × wi) × F_Presence\n→ [0, 100]"]
+    J --> K["Флаги подозрительности:\nno_events, tab_mostly_hidden,\nanomaly_duration, is_suspicious"]
+    K --> L["classifyIvtSync(signals, ivtList, thresholds)\nGIVT early return | SIVT rules\n→ verdict, category, confidence, score_reliable"]
+    L --> M["INSERT impressions\nON CONFLICT (impression_id) DO NOTHING\n→ 202 Accepted"]
+
+    style parallel fill:#f0f4ff,stroke:#90caf9
+    style L fill:#fce4ec,stroke:#e53935
+```
+
+**Latency:** ~5 мс p50, ~19 мс p95 на `/api/collect` при текущей нагрузке. Promise.all по всем 9 кэшированным параметрам — нулевой overhead к latency.
+
+---
+
+## Сигналы S1–S7 и F_Presence
+
+### S1 — Time-in-View (вес 0.30 banner / 0.15 video)
+
+Суммарное время, когда ≥75% пикселей баннера находилось в viewport. Порог 75%/2s — строже IAB MRC (50%/1s): научные данные (Zhang & Chen 2015, Uhl et al. 2020, n=350k+) показывают, что стандарт MRC занижает порог реального восприятия.
+
+**Нормализация:** Weibull CDF `F(t) = 1 − exp(−(t/λ)^k)`. MLE через Newton-Raphson. 9 сегментов: `{desktop|mobile|tablet} × {static|animated|video}`. Fallback: `k=1.0, λ=5.0`.
+
+**Реализация:** `IntersectionObserver`, thresholds `[0, 0.75, 1.0]` из `S1_VIEWPORT_THRESHOLDS`.
+
+### S2 — Share of Screen (вес 0.20 / 0.10)
+
+Средняя доля viewport, занятая баннером. Сэмплирование каждые 500 мс через `getBoundingClientRect`.
+
+### S3 — Scroll Velocity (вес 0.15 / 0.10)
+
+Паттерн скролла в ±300px от баннера. `null` при cross-domain iframe (нет `window.scrollY` родителя).
+
+**Нормализация:** логистическая регрессия, 8 коэффициентов β0..β7, z-score. 9 сегментов. Fallback: нулевые коэффициенты → S3=50.
+
+**Реализация:** rAF-throttled, алгоритм Welford для бегущего среднего.
+
+### S4 — Tab Activity (вес 0.15 / 0.10)
+
+Активность вкладки с учётом штрафа за переключения.
+
+**Нормализация:** `S4 = clamp(activeRatio × 100 × exp(−λ×n) × min(1, avgSession/T_ref), 0, 100)`. 5 сегментов: `desktop_banner`, `mobile_banner`, `desktop_video`, `mobile_video`, `default`. Fallback: `λ=0.08, T_ref=5000ms`.
+
+**Реализация:** `document.visibilitychange`. `computeActiveTimeMsInRange` из `visibilityStateHistory` — отсчёт строго от `timestampStart`, не от загрузки страницы.
+
+### S5 — Interaction Events (вес 0.15 / 0.10)
+
+Desktop: клик, hover-duration, hover-count, cursor-proximity, cursor-entropy. Mobile: клик, zoom, tap, swipe.
+
+**Нормализация:** логистическая регрессия, 2 сегмента: `desktop`, `mobile_tablet`. Прокси-метка: `y=1` если `clicked OR hoverDurationMaxMs >= p75`.
+
+### S6 — Video Engagement + Audibility (вес 0.00 banner / 0.40 video)
+
+19 полей: `play_initiated`, `quartile_25/50/75`, `completion`, `completion_rate_pct` (непрерывный %), `pause_initiated`, `skipped`, `replay_count`, `muted_status` (muted/unmuted/mixed), `volume_level`, `audio_connection`, `audible_time_sec`, `duration_sec`, `audible_quartile_*`, `muted_throughout`, `unmuted_by_user`.
+
+**Нормализация:** логистическая с interaction term `completionZ × audibleZ`. 6 сегментов: `{desktop|mobile|tablet} × {skippable|non_skippable}`. `S6=null` для баннеров — вес перераспределяется. Инвариант: `weights.s6 === 0` для banner конфига (enforced в `activateWeightsConfig`).
+
+**S6 Accumulator** (`@cpmind/sdk`): pure state machine без DOM-зависимостей. `audibleTimeStart` — timestamp начала audible-периода (аккумулируется при pause/ended/volumechange). `replay_count` инкрементируется при `seeked(newTime < lastSeekTime - 0.5s)`.
+
+### S7 — Page Context (вес 0.05 / 0.05)
+
+Позиция баннера (ATF/BTF), высота страницы, конкурирующие баннеры в viewport, persistence видимости.
+
+**Нормализация:** квантильная. `S7 = positionScore + clutterPenalty + persistenceBonus`. 3 сегмента по device_type. Fallback: `DEFAULT_S7_THRESHOLDS` per device.
+
+### F_Presence — мультипликатор присутствия
+
+Бинарный (0/1). `0` если `time_since_last_event_ms > PRESENCE_IDLE_TIMEOUT_MS` на момент финализации. Значение синхронизировано между тегом (таймер сегментации) и backend (расчёт) через одну версию констант — не дублируется. Обнуляет Score при заброшенных открытых вкладках.
+
+### Автоматическая рекалибровка моделей (cron)
+
+```mermaid
+gantt
+    title Еженедельный/ежемесячный cron (UTC)
+    dateFormat  HH:mm
+    axisFormat  %H:%M
+
+    section Воскресенье
+    S1 Weibull MLE (weekly)     :04:00, 1h
+    S3 Logistic IRLS (weekly)   :05:00, 1h
+    S5 Logistic IRLS (weekly)   :06:00, 1h
+    S6 Logistic IRLS (weekly)   :07:00, 1h
+
+    section 1-е число месяца
+    S4 λ/T_ref fit (monthly)    :06:00, 1h
+    S7 Quantile fit (monthly)   :08:00, 1h
+```
+
+Все модели: выборка 30 дней (S7: 60 дней), `is_suspicious=false`, MIN_SAMPLE_SIZE на сегмент. Новые конфиги создаются inactive, не заменяют активные автоматически. Hold-out 20% для S3/S5/S6. Удаление старых конфигов через `deletion_scheduled_at` (soft delete, 60 мин).
+
+---
+
+## Формула CPMind Score
+
+```
+Banner:
+CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S7×0.05) × F_Presence
+               [S6=null → его вес 0.00, перераспределение не применяется]
+
+Video:
+CPMind_Score = (S1×0.15 + S2×0.10 + S3×0.10 + S4×0.10 + S5×0.10 + S6×0.40 + S7×0.05) × F_Presence
+```
+
+**Перераспределение весов:** S3=null (cross-domain iframe) — `computeEffectiveWeights` распределяет его вес пропорционально между остальными. Сумма весов всегда 1.0.
+
+| Score | Интерпретация |
+|---|---|
+| 0–20 | Некачественный показ |
+| 20–40 | Слабый показ |
+| 40–60 | Средний показ |
+| 60–80 | Хороший показ |
+| 80–100 | Отличный показ |
+
+---
+
+## Калибровка исторических импрешенов
+
+```mermaid
+stateDiagram-v2
+    [*] --> processing: POST /api/calibrations\n(202 Accepted)
+    processing --> ready: background job\n(chunks of 500)
+    processing --> failed: error
+    ready --> [*]: DELETE (discard)\nor TTL expiry (60 min)
+    ready --> approved: approve items\n(optimistic concurrency check)
+    approved --> [*]: lives as audit forever
+```
+
+**Что пересчитывается:** только `score_final` и `weights_version`. Сырые сигналы, нормализованные, F_Presence, флаги — не зависят от весов, не пересчитываются.
+
+**Режимы выборки:** `ids` (конкретные impression IDs), `session_groups` (целые сегменты), `filter` (те же параметры что в основном списке). Ownership принудительно AND'ится во всех режимах — IDOR защита. Тест: свой + чужой id → `totalItems: 1`.
+
+**Optimistic concurrency:** перед UPDATE проверяется `score_final = previousScoreFinal`. Конфликт → 409 по элементу, без блокировки остальных.
+
+---
+
+## IVT — детекция невалидного трафика
+
+```mermaid
+flowchart LR
+    payload["Impression Payload"]
+
+    subgraph givt["GIVT check"]
+        ua_match["UA match\nagainst ivt_list_configs\n(exact/substring/regex)"]
+    end
+
+    subgraph sivt["SIVT rules (pure functions)"]
+        r1["checkRoboticTiming()\nstd_dev(event_intervals) < threshold"]
+        r2["checkSyntheticCursor()\ncursor_entropy < threshold"]
+        r3["checkImpossibleEvents()\nclick w/o hover (desktop)\ntime_in_view > 3s при tab=0"]
+    end
+
+    subgraph aggregate["Confidence aggregation"]
+        agg["P(A∪B) = 1 − (1−P(A))×(1−P(B))\n(вероятностное объединение)"]
+    end
+
+    batch["Batch job (30 min):\nfp_hash frequency analysis\n→ sivt_suspected / sivt_confirmed\ncategory: botnet_frequency"]
+
+    payload --> ua_match
+    ua_match -->|"match → givt"| verdict["verdict, score_reliable=false"]
+    ua_match -->|"no match"| r1
+    ua_match -->|"no match"| r2
+    ua_match -->|"no match"| r3
+    r1 --> agg
+    r2 --> agg
+    r3 --> agg
+    agg -->|"confidence >= confirm_threshold (0.85)"| sivt_confirmed["sivt_confirmed"]
+    agg -->|"0 < confidence < 0.85"| sivt_suspected["sivt_suspected"]
+    agg -->|"confidence = 0"| valid["valid"]
+    sivt_confirmed --> verdict
+    sivt_suspected --> verdict
+    valid --> verdict
+    batch -.->|"async retroactive update"| verdict
+
+    style givt fill:#fce4ec,stroke:#e53935
+    style sivt fill:#fff3e0,stroke:#fb8c00
+    style batch fill:#e3f2fd,stroke:#1e88e5
+```
+
+**Device fingerprint (`fp_hash`):** SHA-256(canvas + UA + screen + timezone + language) → первые 32 hex символа (128 бит). Вычисляется асинхронно (fire-and-forget), nullable. Юридически чист по 152-ФЗ/GDPR — необратимый хэш, не PII.
+
+**`score_reliable=false`** при любом `ivt_verdict != 'valid'` — не обнуляет Score математически, помечает как недостоверный.
+
+**Стратегическая развилка §7:** текущая реализация — Path A (поведенческая + fp_hash). Path B (серверный IP → CIDR mathing, UA vs device_type mismatch из заголовков) — деферред.
+
+---
+
+## База данных
+
+### ER-диаграмма (упрощённая)
+
+```mermaid
+erDiagram
+    users ||--o{ tags : "has"
+    users ||--o{ campaigns : "owns"
+    campaigns ||--o{ creatives : "contains"
+    creatives ||--o{ creative_versions : "has"
+    creative_versions ||--o{ creative_version_assets : "links"
+    assets }o--o{ creative_version_assets : "referenced"
+    creative_versions ||--o| creative_processing_jobs : "processes"
+    creative_processing_jobs ||--|| upload_sessions : "from"
+
+    users ||--o{ placements : "owns"
+    campaigns ||--o{ placements : "campaign"
+    creatives ||--o{ placements : "creative"
+    creative_versions }o--o{ placements : "pinned"
+    placements ||--o{ ad_sessions : "generates"
+    tags ||--o{ placements : "tag"
+
+    users ||--o{ impressions : "owns"
+    tags ||--o{ impressions : "tag"
+    ad_sessions }o--o| impressions : "correlates"
+
+    impressions ||--o{ calibration_items : "calibrates"
+    calibration_batches ||--o{ calibration_items : "contains"
+
+    weight_configs ||--o{ calibration_batches : "target"
+    tag_constants_configs ||--o{ impressions : "version"
+```
+
+### Ключевые таблицы
+
+**`impressions`** — основная единица хранения. Retention: 90 дней (job 03:00 UTC). Связанные `calibration_items` → ON DELETE CASCADE.
+
+**`ad_sessions`** — lifecycle рекламной сессии (hosted creative). Содержит полный набор timestamp-полей: `requestedAt`, `assetLoadStartedAt`, `creativeReadyAt`, `renderConfirmedAt`, VAST-тайминги (`vastImpressionAt`, `videoStartedAt`, `firstQuartileAt`, `midpointAt`, `thirdQuartileAt`, `completedAt`, `skippedAt`), `errorAt`/`errorCode`, `finalizationReason`. COALESCE при обновлении — первое событие каждого типа авторитетно.
+
+**`creative_processing_jobs`** — PostgreSQL SKIP LOCKED очередь. Ключевые поля: `upload_session_id`, `creative_version_id`, `processing_profile_version`, `status`, `attempts`/`max_attempts`, `locked_by`, `lease_expires_at`, `heartbeat_at`, `available_at`.
+
+Индексы:
+- Partial `(available_at, created_at) WHERE status='pending'` — эффективный SKIP LOCKED claim
+- Partial `(lease_expires_at) WHERE status='processing'` — recovery expired leases
+
+**`delivery_runtime_configs`** — таймауты player. Одна активная версия (partial unique `WHERE is_active=true`). Seed: `v1.0` при migration 0020.
+
+**`tag_constants_configs`** — множество активных версий одновременно (разные клиенты). Версии неизменяемы после создания. Деактивация удаляет физический файл и блокирует приём (`422`) без grace-периода.
+
+**`weight_configs`** — ровно одна активная на каждый `config_type` (`banner`/`video`). Partial unique `(config_type) WHERE is_active=true`. Инвариант: `weights.s6 === 0` для banner конфигов.
+
+### Индексы на `impressions`
+
+```
+impression_id (UNIQUE)
+session_group_id, created_at, campaign_id, creative_id
+device_type, is_suspicious, score_final, s6_normalized
+publisher_domain, tag_id, user_id
+(user_id, created_at) composite
+tag_constants_version, ivt_verdict, fp_hash
+ad_session_id WHERE NOT NULL
+measurement_mode, creative_version_id WHERE NOT NULL
+```
+
+### Retention
+
+| Данные | Retention | Механизм |
+|---|---|---|
+| `impressions` | 90 дней | job 03:00 UTC |
+| `calibration_items (pending)` | 60 мин | cleanup каждые 15 мин |
+| `s*_configs (inactive, scheduled)` | 60 мин после планирования | `scheduled_deletion.ts` каждые 15 мин |
+| `assets (unreferenced)` | 45 дней | `asset_gc.ts` 03:30 UTC |
+| `weight_configs`, `users`, `tags`, `tag_constants_configs` | бессрочно | нет автоудаления |
+| pg_dump | 30 дней | ротация в backup контейнере |
+
+---
+
+## Безопасность
+
+**JWT:** httpOnly cookie `cpmind_token`, TTL 7 дней. Payload `{uuid, id, role}`. `requireAuth` проверяет `isActive` из БД на каждый запрос — деактивация немедленно отзывает доступ.
+
+**Пароли:** bcrypt (rounds=10). Constant-time compare даже при несуществующем логине (dummy hash) — защита от timing-атаки user enumeration.
+
+**CORS по группам:**
+
+| Пути | Origin | Credentials |
+|---|---|---|
+| `/e/*`, `/vast/*`, `/t/*`, `/api/delivery/*` | `*` | false |
+| `/api/collect` | reflect origin | true |
+| Всё остальное | reflect origin | true |
+
+**HTML5 Creative isolation:** `sandbox="allow-scripts"` без `allow-same-origin`. Same-Origin Policy изолирует iframe от host DOM. `CSP: connect-src 'none'` на `creative.cpmind.tech` — сетевые запросы из iframe заблокированы на уровне браузера. postMessage валидация только через `event.source === window.parent` (event.origin всегда 'null' в opaque sandbox).
+
+**Media validation:** MIME detection по magic bytes (не по расширению/Content-Type). ZIP security — многоуровневая защита от ZIP bomb, path traversal, symlink escape. VAST media URL — CDN_HOSTNAME trust check в player (baked-in при сборке).
+
+**IDOR:** владелец из JWT, не из URL/query. Чужой ресурс → 404. В калибровке: ownership AND'ится во всех режимах выборки.
+
+**Известный непокрытый риск:** `tag_uuid` виден в HTML legacy страниц. Отправка показов под чужим UUID возможна — засоряет данные, не даёт доступа к чтению. Принятый риск. В hosted flow `delivery_token` — 192 бит непредсказуемая энтропия (randomBytes(24).base64url).
+
+---
+
+## Технический стек
 
 | Слой | Технология | Версия |
 |---|---|---|
 | Runtime | Node.js | 20 LTS |
 | Package manager | pnpm workspaces | 9.15.2 |
-| Language | TypeScript | 5.4.5 |
-| JS-тег | Vanilla TS, esbuild | 0.21.x |
-| Backend | Fastify | 4.28.x |
-| Runtime-сборка тега | esbuild JS API | 0.21.x |
-| Security headers | @fastify/helmet | 11.x |
-| Валидация | Zod | 3.23.x |
+| Language | TypeScript | 5.4.x |
+| API сервер | Fastify | 4.28.x |
 | ORM | Drizzle ORM | 0.31.x |
-| База данных | PostgreSQL | 16 |
+| Database | PostgreSQL | 16 |
 | Frontend | Next.js App Router | 14.2.x |
 | Таблица | TanStack Table | v8.17.x |
-| Авторизация | jsonwebtoken + bcryptjs | — |
-| Логирование | Pino (встроен в Fastify) | — |
-| Планировщик | node-cron | 3.0.x |
-| Контейнеризация | Docker + Docker Compose | — |
-| Веб-сервер | NGINX | 1.27-alpine |
+| Bundler (IIFE) | esbuild | 0.21.x |
+| Media processing | sharp + ffmpeg | — |
+| ZIP | unzipper + archiver | — |
+| MIME detection | file-type | 19.x |
+| Валидация | Zod | 3.23.x |
+| Логирование | Pino | 9.x |
+| Cron | node-cron | 3.0.x |
+| HTTP client | fetch (built-in) | — |
+| Object Storage | @aws-sdk/client-s3 | 3.600.x |
+| Web server | NGINX | 1.27-alpine |
+| Container | Docker + Compose | — |
+| CI/CD | GitHub Actions | — |
+| CDN | Yandex CDN | — |
 
-### Корневая конфигурация монорепо
+---
 
-**`tsconfig.base.json`** — базовый TypeScript-конфиг, наследуется всеми пакетами:
+## Монорепо: конфигурация
+
+### `tsconfig.base.json`
 
 ```json
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "lib": ["ES2022"],
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
@@ -162,570 +914,38 @@ Next.js 14 App Router. Панель аналитики, защищённая JWT
 }
 ```
 
-Ключевые флаги: `exactOptionalPropertyTypes` (опциональное поле не может быть присвоено `undefined` явно), `noUncheckedIndexedAccess` (индексация массива возвращает `T | undefined`). Оба влияют на стиль кода во всём проекте — условный spread `...(val !== undefined && { key: val })` вместо прямого присваивания.
+`exactOptionalPropertyTypes` → паттерн `...(val !== undefined && { key: val })` вместо прямого присваивания. `noUncheckedIndexedAccess` → `arr[0]` возвращает `T | undefined`, защита от необъявленных индексов.
 
-**`package.json` (корень)** — workspace-скрипты:
+### Пакетные особенности
 
-```json
-{
-  "scripts": {
-    "build": "pnpm --filter @cpmind/shared build && pnpm --filter @cpmind/tag build && pnpm --filter @cpmind/backend build",
-    "dev:backend": "pnpm --filter @cpmind/backend dev",
-    "dev:frontend": "pnpm --filter @cpmind/frontend dev",
-    "dev:tag": "pnpm --filter @cpmind/tag dev",
-    "test": "pnpm --filter @cpmind/shared test",
-    "db:generate": "pnpm --filter @cpmind/backend drizzle-kit generate",
-    "db:migrate": "pnpm --filter @cpmind/backend drizzle-kit migrate"
-  },
-  "engines": { "node": ">=20.0.0", "pnpm": ">=9.0.0" }
-}
-```
+**`@cpmind/shared`:** единственная production-зависимость — Zod. `sideEffects: false` — tree-shaking безопасен.
 
-Порядок `build` фиксирован: `shared` → `tag` → `backend`. Frontend собирается отдельно (`next build` в Docker). **Важно:** при любой правке `packages/shared/src/` нужно перезапускать `pnpm --filter @cpmind/shared build` — backend и frontend потребляют скомпилированный `dist/`, не живые исходники.
+**`@cpmind/sdk`:** компилируется через `tsc` (не esbuild), потребляется как library. `sideEffects: false`. Инлайнится в bundle-потребители при их esbuild-сборке.
 
-### Конфигурации пакетов
+**`@cpmind/tag`:** только devDependencies. Выходной бандл — браузерный IIFE, ~31 KB. Собирается через esbuild `globalName: 'CPMindTag'`.
 
-**`packages/shared/package.json`** — единственная production-зависимость Zod. `exports` обеспечивает корректный резолв и типов, и JS:
-```json
-{
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "default": "./dist/index.js" }
-  }
-}
-```
+**`@cpmind/embed`, `@cpmind/display-runtime`, `@cpmind/player`, `@cpmind/creative-bridge`:** браузерные IIFE через esbuild. `TAG_BUILD_TARGETS` из `@cpmind/shared` — Chrome 90+, Firefox 90+, Safari 14+, Edge 90+. `legalComments: 'none'`. `CDN_HOSTNAME` и версии baked-in через `define`.
 
-**`packages/backend/package.json`** — `"type": "module"` (ESM). `esbuild` — production-зависимость (runtime-сборка тега). `tsx` — devDependency (dev-запуск с `--env-file`). Drizzle Kit в devDependencies.
+**`@cpmind/backend`:** `type: module` (ESM). `esbuild` — production dependency (runtime-сборка tag bundle). Drizzle Kit в devDependencies.
 
-**`packages/frontend/package.json`** — Next.js 14, TanStack Table v8, `@cpmind/shared` как workspace-зависимость. `output: 'standalone'` в `next.config.mjs` — для Docker multi-stage build.
+**`@cpmind/media-worker`:** `tsc` (не esbuild). FFmpeg — системный бинарный (`apk add ffmpeg`). `tmpfs /tmp/cpmind-worker:size=10g` в Docker Compose.
 
-**`packages/tag/package.json`** — только devDependencies (включая `@cpmind/shared`). Нет production-зависимостей — выходной бандл содержит только браузерный JS.
-
-**`packages/tag/tsconfig.json`** — отдельный конфиг для браузерного кода: `target: ES2017`, `lib: ["ES2017", "DOM", "DOM.Iterable"]`, `moduleResolution: Bundler`. `packages/tag/tsconfig.node.json` — для `build.ts` (Node.js среда).
-
-**`packages/backend/drizzle.config.ts`** — Drizzle Kit конфиг, dialect `postgresql`, схема из `./src/db/schema.ts`, миграции в `./drizzle/migrations`.
+**`@cpmind/frontend`:** `output: standalone` в `next.config.mjs`. `NEXT_PUBLIC_BACKEND_URL=""` при production build — relative URLs через NGINX proxy.
 
 ---
 
-## Многопользовательская модель
+## Известные ограничения
 
-Две роли: `admin` и `user`. Самостоятельной регистрации нет — учётные записи создаёт администратор.
+**Один сервер — нет горизонтального масштабирования.** При текущей нагрузке запас значительный (p95 latency ~19 мс на `/api/collect`). При росте — потребуется load balancer + множество инстансов backend.
 
-**Владение данными.** Каждый пользователь получает один или несколько тегов (таблица `tags`, связь 1:N). Каждый показ привязан к тегу через `tag_uuid` в payload — backend резолвит `tag_id` и `user_id` при приёме и денормализует оба значения в `impressions`. Запросы списков аналитики не требуют JOIN.
+**Нет очереди сообщений.** `/api/collect` синхронен. Media processing — через PostgreSQL SKIP LOCKED (не Kafka/RabbitMQ). При высоком объёме загрузок — ограничение на параллельность определяется `WORKER_CONCURRENCY` одного инстанса. Горизонтальное масштабирование media-worker корректно работает с SKIP LOCKED.
 
-**`admin`:** видит все импрешены всех пользователей, управляет учётными записями/тегами, калибрует веса и константы тега, управляет жизненным циклом сигнальных моделей (S1–S7: активация, деактивация, планирование удаления), видит полный набор полей включая `signals_raw`.
+**VAST: только InLine.** Wrapper chains не поддерживаются. OMID verification scripts парсятся, не исполняются.
 
-**`user`:** только свои импрешены через единый whitelist `USER_VISIBLE_IMPRESSION_FIELDS` (определён в `@cpmind/shared`, применяется и к JSON, и к CSV). Видит `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`, `publisher_domain`. Не видит `fp_hash`, `ivt_signals` (admin-only). Нет доступа к калибровке, управлению пользователями, детальному просмотру, управлению IVT-конфигурацией.
+**Player: только progressive delivery.** HLS/DASH не поддерживаются.
 
-**IDOR-защита:** владелец данных всегда из подписанного JWT (`request.authUser`), не из URL/query. Запрос к чужому показу → 404, не 403. Детальный вид (`GET /api/impressions/:id`) — admin-only.
+**Legacy tag uuid visibility.** Принятый риск: tag_uuid виден в HTML источнике. Hosted flow лишён этой проблемы — delivery_token непредсказуем.
 
-**Деактивация вместо удаления.** `is_active=false`. `requireAuth` проверяет `isActive` из БД на каждый запрос — деактивация немедленно отзывает доступ, не при истечении 7-дневного JWT. Деактивация пользователя блокирует приём новых данных по всем его тегам.
+**DELETE 403 для staging bucket.** `storage.uploader` IAM роль не включает DELETE. Файлы удаляются lifecycle rule через 2 дня. Fix: добавить `storage.editor` в `iam.tf`.
 
----
-
-## Поток данных
-
-### Шаг 1 — Загрузка тега
-
-Браузер асинхронно загружает `cpmind-tag_v{N}.min.js`. `tag_uuid` и версия констант зашиты в файл. Тег находит `[data-cpmind-creative]`, проверяет формат `data-tag-uuid` и начинает наблюдение.
-
-### Шаг 2 — Сбор сигналов
-
-Параллельный сбор S1–S7 и F_Presence пока пользователь на странице. Параллельно — асинхронное вычисление `fp_hash` (canvas + UA + screen + timezone + language → SHA-256 → 16 байт, fire-and-forget, nullable).
-
-### Шаг 3 — Отправка
-
-Один из трёх триггеров: `click` (Mobile Safari fix — до навигации), `visibilitychange`, `pagehide`. Транспорт: `sendBeacon` (основной) → `fetch keepalive` (fallback).
-
-При простое ≥60 сек — промежуточная отправка текущего сегмента, сброс сессии, новый сегмент с тем же `session_group_id`.
-
-### Шаг 4 — Обработка на сервере (~5 мс)
-
-1. Zod-валидация → 422 при ошибке
-2. Резолв `tag_uuid` → `{tag_id, user_id}`, оба `isActive` → 422 при несоответствии
-3. Резолв `tag_constants_version` → presence-порог → 422 при деактивированной версии
-4. Загрузка активных весов из in-memory кэша
-5. Кэппинг аномальных значений
-6. Нормализация S1–S7
-7. F_Presence по presence-порогу
-8. CPMind Score
-9. Флаги подозрительности
-10. IVT-классификация (classifyIvtSync — GIVT/SIVT, шаг 8.5)
-11. INSERT в `impressions`, ON CONFLICT DO NOTHING
-12. Ответ 202 Accepted
-
-### Шаг 5 — Просмотр в панели
-
-`admin` видит таблицу всех импрешенов, фильтрует, сортирует, открывает детальный вид, экспортирует CSV, управляет пользователями/тегами, калибрует веса/константы, управляет сигнальными моделями S1–S7 на `/admin/signals`. Таблица поддерживает режим площадки: клик по «Фильтр по площадке» устанавливает `domainView=1&creativeId=X` и показывает агрегированную сводную строку над таблицей.
-`user` — только свои данные с аналогичным режимом площадки, без детального просмотра.
-
----
-
-## Pipeline расчёта Score
-
-```
-Входящий payload от тега
-        │
-        ▼
-┌─────────────────────┐
-│  Zod-валидация      │  Проверка типов, диапазонов, cross-field
-│                     │  (timestamp_end >= timestamp_start и др.)
-└────────┬────────────┘
-         │ ошибка → 422 + описание ошибок
-         │ ok ↓
-┌─────────────────────┐
-│  Резолв владельца   │  tag_uuid -> {tag_id, user_id} (tags.ts).
-│  (resolveActiveTagOwner)│ JOIN tags+users, оба isActive проверяются
-└────────┬────────────┘
-         │ не найден/неактивен → 422
-         │ ok ↓
-┌─────────────────────┐
-│  Резолв версии      │  tag_constants_version -> presence-порог
-│  констант тега      │  (tag_constants.ts). Жесткая блокировка —
-│  (resolveActiveTagConstantsVersion)│ деактивированная версия не принимается
-└────────┬────────────┘
-         │ не найдена/неактивна → 422
-         │ ok ↓
-┌─────────────────────┐
-│  Кэппинг аномалий   │  Обрезка экстремальных значений по таблице §6.3
-│  (capping.ts)       │  Не мутирует входной объект (structuredClone)
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Резолв параметров  │  Promise.all: активные параметры всех моделей
-│  моделей            │  из in-memory кэшей сервисов (с fallback на
-│  (routes/           │  DEFAULT_*). S1: WeibullParams по сегменту
-│   impressions.ts)   │  device×creative. S3: LogisticParams по сегменту.
-│                     │  S4: S4Config (λ/T_ref) по сегменту. S5: S5LogisticParams
-│                     │  по device_type. S6: S6LogisticParams по device×skippable
-│                     │  (null для баннеров). S7: S7Thresholds по device_type.
-│                     │  Каждый резолв возвращает {params, modelVersion}.
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Нормализация       │  Каждый сигнал → число [0, 100] по калиброванной
-│  S1–S7              │  модели с переданными параметрами.
-│  (normalize.ts)     │  Pure-функции без side effects.
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Загрузка весов     │  Активная конфигурация из weight_configs (БД).
-│  (weights_config.ts)│  In-memory кэш. Fallback на DEFAULT_WEIGHTS.
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Перераспределение  │  Если S3=null (cross-domain iframe) —
-│  весов              │  его вес пропорционально добавляется к остальным
-│  (weights.ts)       │  Сумма весов всегда = 1.0
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  F_Presence         │  0 если последнее событие пользователя было
-│  (score.ts)         │  > порога, резолвленного из активной версии
-│                     │  констант тега. Иначе 1
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  CPMind Score       │  Взвешенная сумма сигналов * F_Presence
-│                     │  Результат: число [0, 100]
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  Флаги              │  no_events, tab_mostly_hidden,
-│  подозрительности   │  anomaly_duration, is_suspicious
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  IVT-классификация  │  classifyIvtSync() — pure function из @cpmind/shared.
-│  (scoring.ts шаг    │  GIVT: UA-матчинг по активному ivt_list_configs.
-│   8.5)              │  SIVT: robotic_timing, synthetic_cursor,
-│                     │  impossible_event_sequence.
-│                     │  Результат: ivt_verdict, ivt_category,
-│                     │  ivt_confidence, score_reliable, ivt_signals.
-│                     │  Список и пороги — Promise.all с весами.
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  INSERT в БД        │  ON CONFLICT DO NOTHING по impression_id.
-│                     │  Включает tag_id, user_id, tag_constants_version,
-│                     │  IVT-поля, fp_hash.
-└─────────────────────┘
-```
-
-## Сигналы S1–S7 и F_Presence
-
-### S1 — Time-in-View (вес 0.30)
-
-Суммарное время, в течение которого не менее 75% пикселей баннера находилось в видимой области экрана браузера. Порог видимости: ≥75% пикселей / ≥2 секунды непрерывно (на основе Zhang & Chen 2015, Uhl et al. 2020, n=350k+, показывающих что MRC-порог 50%/1s занижает планку реального восприятия).
-
-**Модель нормализации:** Weibull CDF `F(t) = 1 − exp(−(t/λ)^k)`, параметры `{k, λ}` получены через MLE (Newton-Raphson). `S1 = min(100, F(t) × 100)`. 9 сегментов: `{desktop|mobile|tablet} × {static|animated|video}`. Параметры хранятся в `s1_weibull_configs`, пересчитываются еженедельно (cron `0 4 * * 0`). Fallback: `DEFAULT_WEIBULL_PARAMS {k:1.0, λ:5.0}`.
-
-Реализация: `IntersectionObserver` с порогами 0, 0.75 и 1.0.
-
-### S2 — Share of Screen (вес 0.20)
-
-Средняя доля видимой области экрана, которую занимал баннер во время показа. Баннер на 728×90 занимает разную долю экрана в зависимости от разрешения устройства.
-
-Реализация: сэмплирование каждые 500 мс через `getBoundingClientRect`.
-
-### S3 — Scroll Velocity (вес 0.15)
-
-Паттерн скролла в зоне ±300 пикселей от баннера. Высокая скорость без пауз — признак механического пролистывания. Медленный скролл с паузами и возвратами — признак чтения.
-
-Накапливает: среднюю скорость, максимальную скорость, стандартное отклонение, количество пауз, возвратов, серий быстрого скролла, флаг чтения, флаг momentum-скролла.
-
-Если баннер в cross-domain iframe — S3=null, вес перераспределяется.
-
-**Модель нормализации:** логистическая регрессия `S3 = min(100, sigmoid(β·x) × 100)`, 8 коэффициентов β0..β7, z-score нормализация признаков. 9 сегментов: `{device} × {creative_group}`. Параметры хранятся в `s3_logistic_configs`, пересчитываются еженедельно (cron `0 5 * * 0`). Fallback: нулевые коэффициенты → S3=50.
-
-Реализация: rAF-throttled обработчик, алгоритм Велфорда для бегущего среднего.
-
-### S4 — Tab Activity (вес 0.15)
-
-Доля времени, когда вкладка с баннером была активна (не скрыта), с учётом штрафа за частые переключения и длительность активных сессий.
-
-Флаг `tab_mostly_hidden`: если вкладка была активна менее 20% времени показа.
-
-**Модель нормализации:** нелинейная функция `S4 = clamp(activeRatio × 100 × exp(−λ×n) × min(1, avgSession/T_ref), 0, 100)`, где `n` — число переключений, `λ` — штраф за частоту, `T_ref` — эталонная длина сессии. 5 сегментов: `desktop_banner`, `mobile_banner`, `desktop_video`, `mobile_video`, `default`. Параметры хранятся в `s4_configs`, пересчитываются ежемесячно (cron `0 6 1 * *`). Fallback: `{λ:0.08, T_ref:5000ms}`.
-
-Реализация: `document.visibilitychange`, `computeActiveTimeMsInRange` пересчитывает активное время строго в границах `[timestampStart, now]` из `visibilityStateHistory`.
-
-### S5 — Interaction Events (вес 0.15)
-
-Прямое поведенческое доказательство заинтересованности пользователя в баннере.
-
-Desktop: клик, hover-длительность, число hover-событий, близость курсора.  
-Mobile/tablet: клик, zoom, tap-count, swipe-count.
-
-**Модель нормализации:** логистическая регрессия, сегментирована по device_type. 2 сегмента: `desktop`, `mobile_tablet`. Desktop: `z = β0 + β1·clicked + β2·hoverDurationNorm + β3·hoverCountNorm + β4·proximityNorm`. Mobile: `z = β0 + β1·clicked + β2·zoom + β3·tapCountNorm + β4·swipeCountNorm`. `S5 = min(100, round(sigmoid(z) × 100))`. Параметры хранятся в `s5_logistic_configs`, пересчитываются еженедельно (cron `0 6 * * 0`). Fallback: экспертные prior-коэффициенты.
-
-Прокси-метка обучения: `y=1` если clicked=true ИЛИ hoverDurationMaxMs ≥ p75 по сегменту.
-
-### S6 — Video Engagement + Audibility (вес 0.40 для video, 0.00 для banner)
-
-Измеряет вовлечённость пользователя в видео-креатив: глубину просмотра и условия прослушивания (IAB/MRC Attention Measurement Guidelines, Nov 2025).
-
-**Video Engagement (9 полей):** `play_initiated`, `quartile_25/50/75`, `completion`, `completion_rate_pct` (числовой % досмотра), `pause_initiated`, `skipped`, `replay_count`.
-
-**Audibility (10 полей):** `muted_status` (muted/unmuted/mixed), `volume_level` (0–100), `audio_connection` (speaker/headphones/bluetooth/unknown), `audible_time_sec`, `duration_sec`, `audible_quartile_25/50/75/100`, `muted_throughout`, `unmuted_by_user`.
-
-Сегментация по `skippable` (из `TagConfig`): skippable и non-skippable видео — принципиально разные пользовательские сценарии.
-
-**Модель нормализации:** логистическая регрессия с 9 коэффициентами β0..β8, включая терм взаимодействия `completionZ × audibleZ`. 6 сегментов: `{desktop|mobile|tablet} × {skippable|non_skippable}`. Z-score нормализация по сегменту для `completionRate`, `quartileOrdinal`, `audibleRatio = audible_time_sec/duration_sec`, `replayLog`. `S6 = min(100, sigmoid(z) × 100)`. Параметры хранятся в `s6_logistic_configs`, пересчитываются еженедельно (cron `0 7 * * 0`). Fallback: нулевые коэффициенты → S6=50.
-
-Прокси-метка обучения: `y=1` если `completion=true` И `(unmuted_by_user ИЛИ NOT muted_throughout)`.
-
-Для баннерных креативов: S6=null, S6 не участвует в формуле, вес перераспределяется. Инвариант: при активации banner-конфига весов `weights.s6` обязан быть 0 (enforced в `activateWeightsConfig`).
-
-Реализация: event listeners на `<video>` элементе внутри `[data-cpmind-creative]`. Skip-кнопка: `[data-cpmind-skip]`. Audio connection: `navigator.mediaDevices.enumerateDevices()` при наличии разрешения, fallback `'unknown'`.
-
-### S7 — Page Context (вес 0.05)
-
-Контекст размещения баннера на странице: позиция (выше/ниже fold), высота страницы, количество конкурирующих баннеров в viewport, persistence видимости.
-
-**Модель нормализации:** квантильная калибровка (не MLE — вес сигнала 0.05 не оправдывает ML-инфраструктуру). Формула: `positionScore` (ATF: relativeY < relativeYLow → 55, иначе 45; BTF: relativeY < relativeYMid → 30, иначе 15) + `clutterPenalty` (≤clutterMid→0, ≤clutterHigh→-12, иначе-25) + `persistenceBonus` (>80%→+5, <20%→-5, иначе 0), clamp [0,100]. Пороги `relativeYLow` (p33 ATF), `relativeYMid` (p67 BTF), `clutterMid` (p50), `clutterHigh` (p80) — квантили реального трафика. 3 сегмента: `desktop`, `mobile`, `tablet`. Параметры хранятся в `s7_quantile_configs`, пересчитываются ежемесячно (cron `0 8 1 * *`). Fallback: `DEFAULT_S7_THRESHOLDS` per device_type.
-
-Реализация: статические поля при инициализации + динамический сэмплинг каждые 1000 мс.
-
-### F_Presence — мультипликатор присутствия
-
-Бинарный множитель (0 или 1). Обнуляет Score если последнее событие пользователя было более N секунд назад на момент финализации показа (сегмента), где N — `PRESENCE_IDLE_TIMEOUT_MS` активной версии констант тега (дефолт 60 секунд) — скользящее окно, без учета количества событий до простоя. Защищает от накрутки показами на открытых но заброшенных вкладках. Значение синхронизировано между тегом (таймер разрыва сегмента, см. "Сегментация показа") и backend (расчет F_Presence) через одну и ту же версию констант — не два независимо поддерживаемых значения.
-
-### Сегментация показа при простое (P-15)
-
-Если в середине показа происходит непрерывный простой ≥60 секунд (пользователь отвлекся, не закрывая вкладку и не переключаясь), показ разрывается на отдельные сегменты вместо того, чтобы засчитывать простой как часть единого непрерывного просмотра.
-
-При обнаружении простоя: текущий сегмент финализируется и отправляется (с собственным F_Presence и Score), сессия в браузере сбрасывается на месте — накопители S1, S2, S4, S5, S7 обнуляются, IntersectionObserver для S1 пересоздается. Новый сегмент получает новый `impression_id`, тот же `session_group_id` и `segment_index + 1`. `is_above_the_fold` (S7) не сбрасывается — свойство загрузки страницы, не сегмента.
-
-Если вкладка хотя бы раз была свернута — сегментация по простою для этой страницы отключается, остается только финальная отправка при закрытии.
-
----
-
-## Формула CPMind Score
-
-```
-Banner:
-CPMind_Score = (S1×0.30 + S2×0.20 + S3×0.15 + S4×0.15 + S5×0.15 + S6×0.00 + S7×0.05) × F_Presence
-
-Video:
-CPMind_Score = (S1×0.15 + S2×0.10 + S3×0.10 + S4×0.10 + S5×0.10 + S6×0.40 + S7×0.05) × F_Presence
-
-S6=null для баннерных креативов — вес перераспределяется между остальными сигналами по правилу §6.2.
-```
-
-Результат: `[0, 100]`. При F_Presence = 0 — итог всегда 0.
-
-**Веса** хранятся в `weight_configs`. Каждая конфигурация имеет `config_type: 'banner' | 'video'`. Активная версия определяется по `creative_type` входящего payload — `video_creative` → video-конфиг, остальные → banner-конфиг. Database-enforced инвариант: не более одной активной версии на тип (`partial unique index WHERE is_active = true`). Banner и video конфиги активируются независимо. Исторические данные не пересчитываются автоматически при смене активной версии — только через явную калибровку.
-
-**Перераспределение:** если S3=null (cross-domain iframe) — его вес пропорционально добавляется к остальным. Сумма весов всегда 1.0.
-
-| Score | Интерпретация |
-|---|---|
-| 0–20 | Некачественный показ |
-| 20–40 | Слабый показ |
-| 40–60 | Средний показ |
-| 60–80 | Хороший показ |
-| 80–100 | Отличный показ |
-
----
-
-## Калибровка: пересчёт исторических импрешенов
-
-**Что пересчитывается.** Только `score_final` и `weights_version`. Сырые и нормализованные сигналы, F_Presence, флаги — не зависят от весов и не пересчитываются.
-
-**Выбор данных.** Discriminated union трёх режимов: конкретные импрешены по `id`, целые сегменты по `session_group_id`, произвольный фильтр (те же параметры, что в основном списке, включая диапазоны сигналов). Ownership принудительно AND'ится во всех трёх режимах — нельзя пересчитать чужие данные независимо от переданных id.
-
-**Асинхронная обработка.** `POST /api/calibrations` создаёт батч (статус `processing`) и немедленно возвращает `202`. Расчёт — в фоновой функции, чанками по 500. Статус опрашивается отдельно (`GET /api/calibrations/:batchId`).
-
-**Черновик + подтверждение.** Результат расчёта — `calibration_items (pending)`, не изменение `impressions`. Каждый элемент — снимок "было/будет". Только явное подтверждение переносит значения в `impressions`.
-
-**Optimistic concurrency.** Перед записью проверяется, что `score_final` не изменился с момента черновика. При расхождении — 409, без перезаписи.
-
-**Отмена и TTL.** Явная отмена (`DELETE`, удаляет только `pending`) или автоистечение по `CALIBRATION_DRAFT_TTL_MINUTES` (default 60 мин, cleanup job каждые 15 минут). Подтверждённые элементы хранятся как аудит вечно.
-
-**UI-флоу** (страница `/admin/weights/recalculate`): выбор версии весов → выбор импрешенов (ручной или "Выбрать все" = фильтр) → "Пересчитать" → превью с таймером и пунктирной рамкой → "Сохранить" или "Отменить". Открывается в новой вкладке из Danger Zone на `/admin/weights`. Кнопки "Отменить"/"Сохранить" видны всегда, активны только при статусе `ready`.
-
----
-
-## Версионирование констант тега
-
-19 пороговых констант (`SCROLL_ZONE_PX`, `SWIPE_MIN_DISTANCE_PX`, `PRESENCE_IDLE_TIMEOUT_MS` и др.) вынесены из захардкоженного кода в `tag_constants_configs`. Включает `S1_VIEWPORT_THRESHOLDS: [0, 0.75, 1.0]` — порог видимости для S1. `EVENT_TYPES` и `AD_SELECTORS` — не калибруются.
-
-**Отличие от модели весов.** `weight_configs` — ровно одна активная версия. `tag_constants_configs` — множество активных версий одновременно (разные клиенты используют разные параллельно).
-
-**Создание.** `POST /api/tag-constants` — полный набор 19 значений, автоматическая версия через Postgres sequence (`v0`, `v1`, ...), немедленная esbuild-сборка артефакта. Провал сборки откатывает запись.
-
-**Деактивация — жёсткая блокировка.** Удаляет физический файл, 422 для любого показа с этой версией без grace-периода. Реактивация пересобирает файл из сохранённых значений.
-
-**Синхронизация с backend.** `PRESENCE_IDLE_TIMEOUT_MS` — общее значение для тега (таймер сегментации) и backend (порог F_Presence). Backend резолвит из заявленной в payload версии констант — не два независимых значения.
-
----
-
-## IVT — детекция невалидного трафика
-
-Модуль классифицирует каждый входящий показ как валидный или невалидный трафик по двум классам: GIVT и SIVT. Вердикт записывается в `impressions` вместе с показом — отдельного pipeline нет, классификация синхронна и не добавляет латентность сверх одного `Promise.all` с загрузкой весов.
-
-### Классы трафика
-
-**GIVT (General Invalid Traffic)** — заведомо невалидный трафик: известные боты, краулеры, датацентровые IP. Детектируется по спискам UA-паттернов (`ivt_list_configs`). При совпадении — немедленный early return, SIVT-правила не проверяются.
-
-**SIVT (Sophisticated Invalid Traffic)** — изощрённый невалидный трафик, имитирующий поведение человека. Детектируется по поведенческим аномалиям в собранных сигналах.
-
-### Вердикты
-
-| Вердикт | Значение |
-|---|---|
-| `valid` | Трафик прошёл все проверки |
-| `givt` | Совпадение с UA-списком |
-| `sivt_suspected` | Одно или несколько SIVT-правил сработали, уверенность < порога |
-| `sivt_confirmed` | Агрегированная уверенность ≥ `confidence_confirm` |
-
-### SIVT-правила (pure functions, `@cpmind/shared`)
-
-| Правило | Сигнал | Категория |
-|---|---|---|
-| Тайминговая регулярность | std_dev `event_intervals_ms` < `timing_variance_min_ms` | `robotic_timing` |
-| Энтропия курсора | `cursor_trajectory_entropy` < `cursor_entropy_min` при движениях | `synthetic_cursor` |
-| Невозможные события | клик без hover/move (desktop), time_in_view > 3s при tab_active = 0 (порог 3s исключает ложные срабатывания на первый рендер IntersectionObserver при document.hidden=true) | `impossible_event_sequence` |
-
-Все пороги nullable — правило отключено при null. До Фазы 0 (накопление baseline) пороги не задаются.
-
-### Confidence-агрегация
-
-Вероятностное объединение (не сумма): `P(A∪B) = 1 − (1−P(A)) × (1−P(B))`. Исключает выход за [0,1] при нескольких сигналах. Апгрейд до `sivt_confirmed` при `confidence >= confidence_confirm` (default 0.85).
-
-### Batch-job частотного анализа
-
-`jobs/ivt_frequency.ts` — cron каждые 30 минут. Группирует показы по `fp_hash` в окне `repeat_fp_window_min`. При превышении `repeat_fp_max_creatives` уникальных креативов от одного `fp_hash` — обновляет `ivt_verdict` до `sivt_suspected`/`sivt_confirmed`, категория `botnet_frequency`. Не блокирует приём показов — асинхронный анализ.
-
-### Device fingerprint (`fp_hash`)
-
-16 байт (128 бит), SHA-256 от canvas + UA + screen + timezone + language. Вычисляется в теге асинхронно (fire-and-forget), nullable. Юридически чист по 152-ФЗ/GDPR — необратимый хэш, не PII. Используется исключительно для частотного анализа, не для таргетинга.
-
-### Конфигурация (версионированные конфиги, паттерн `tag_constants_configs`)
-
-**`ivt_list_configs`** — GIVT-списки паттернов. CSV-формат: `type,pattern,match_type,category,reason,source`. IP — только CIDR. UA — `exact`/`substring`/`regex` (с валидацией regex при загрузке). Одна активная версия (partial unique index). Обновление без передеплоя — горячая замена через активацию новой версии.
-
-**`ivt_thresholds_configs`** — пороги SIVT-правил. 6 полей: `timing_variance_min_ms`, `cursor_entropy_min`, `click_without_hover`, `repeat_fp_window_min`, `repeat_fp_max_creatives`, `confidence_confirm`. Все nullable. Одна активная версия.
-
-### `score_reliable`
-
-`false` при любом `ivt_verdict != 'valid'`. Отображается в панели и CSV для рекламодателя как явный индикатор недостоверности Score — не обнуляет Score, но помечает его.
-
-### Стратегическая развилка §7
-
-Текущая реализация — Path A: поведенческая детекция + fp_hash, без серверного IP-слоя. IP-записи в `ivt_list_configs` заведены в схему, но не активируются. Path B (серверный `X-Real-IP` → CIDR-матчинг, UA vs device_type mismatch) — деферред до накопления baseline данных Фазы 0.
-
----
-
-## База данных
-
-### Таблица `impressions`
-
-Основная единица хранения. Один показ = одна строка, или несколько при разрыве по простою.
-
-| Группа | Колонки | Назначение |
-|---|---|---|
-| Идентификаторы | `id` (PK), `impression_id` (UNIQUE) | Первичный ключ и дедупликация |
-| Владение | `tag_id`, `user_id` (NOT NULL, FK) | Денормализовано при приёме по `tag_uuid` |
-| Версия констант | `tag_constants_version` (nullable) | Nullable навсегда для данных до версионирования |
-| Сегментация | `session_group_id`, `segment_index` | Связывает сегменты разорванного показа |
-| Метаданные | `campaign_id`, `creative_id`, `creative_type`, `device_type`, `skippable`, `publisher_domain`, `timestamp_start`, `timestamp_end` | `skippable` — атрибут размещения видео; `publisher_domain` — домен площадки для аналитики по сайтам |
-| Сырые сигналы | `signals_raw` (JSONB) | Полный payload включая presence |
-| Нормализованные | `signals_normalized` (JSONB) | S1–S7 нормализованные |
-| Raw для таблицы | `s1_raw_time_in_view`, `s2_raw_share_of_screen`, `s3_raw_scroll_speed`, `s4_raw_active_time_pct`, `s5_raw_top_event`, `s7_raw_persistence` | Отображение в панели |
-| Нормализованные (колонки) | `s1_normalized`...`s7_normalized` (real) | Сортировка и диапазонная фильтрация |
-| S6 raw | `s6_raw_completion_rate`, `s6_audible_time_sec`, `s6_duration_sec`, `s6_skippable` (nullable) | Отображение в панели; NULL для баннеров |
-| Model versions | `s1_model_version`, `s3_model_version`, `s4_model_version`, `s5_model_version`, `s6_model_version`, `s7_model_version` (nullable text) | UUID активной конфигурации модели на момент показа; `'default'` при fallback на DEFAULT_* |
-| Score | `f_presence`, `score_final`, `weights_version` | |
-| Флаги | `no_events`, `tab_mostly_hidden`, `anomaly_duration`, `is_suspicious` | |
-| IVT | `ivt_verdict` (DEFAULT 'valid'), `ivt_category`, `ivt_confidence`, `score_reliable`, `fp_hash`, `ivt_signals` (JSONB, admin-only) | CHECK constraint на ivt_verdict |
-| Системное | `created_at` | Retention |
-
-### Таблица `weight_configs`
-
-| Колонка | Тип | Назначение |
-|---|---|---|
-| `id` | uuid PK | |
-| `version` | text UNIQUE | например `v1.1_calibrated` |
-| `config_type` | text | `'banner'` или `'video'` |
-| `weights` | jsonb | `{s1, s2, s3, s4, s5, s6, s7}` |
-| `is_active` | boolean | ровно одна `true` на каждый `config_type` одновременно |
-| `description` | text | комментарий |
-| `is_active` | boolean | ровно одна `true` в любой момент |
-| `created_at` | timestamptz | |
-
-### Таблицы `users` и `tags`
-
-| Таблица | Колонка | Назначение |
-|---|---|---|
-| `users` | `id` (bigserial PK) | FK внутри backend, не покидает сервер |
-| `users` | `uuid` (UNIQUE) | внешний идентификатор — API, URL, JWT |
-| `users` | `login`, `password_hash`, `role`, `is_active` | |
-| `tags` | `id`, `uuid`, `user_id` (FK), `label`, `is_active` | 1:N к пользователю |
-
-### Таблицы `calibration_batches` и `calibration_items`
-
-| Таблица | Колонка | Назначение |
-|---|---|---|
-| `calibration_batches` | `id`, `target_weights_config_id` (FK), `selection` (jsonb) | снимок выбора данных |
-| `calibration_batches` | `status` (processing/ready/expired/failed/discarded) | |
-| `calibration_batches` | `created_by` (FK → users.id) | владелец батча |
-| `calibration_items` | `batch_id` (FK), `impression_id` (FK, ON DELETE CASCADE) | |
-| `calibration_items` | `previous_score_final`, `new_score_final` | снимок "было/будет" |
-| `calibration_items` | `status` (pending/approved) | approved хранится как аудит вечно |
-
-### Таблица `tag_constants_configs`
-
-| Колонка | Тип | Назначение |
-|---|---|---|
-| `id` | uuid PK | |
-| `version` | text UNIQUE | `v0`, `v1`, ... — из Postgres sequence |
-| `constants` | jsonb | 19 калибруемых полей |
-| `is_active` | boolean | не "одна активная" — множество одновременно |
-| `script_path`, `file_size_bytes` | text, integer (nullable) | путь к файлу, null без артефакта |
-
-### Таблицы конфигураций сигнальных моделей
-
-Все таблицы следуют единому паттерну: `id` (uuid PK), `segment_key`/`device_type`, параметры модели, `sample_size`, `fitted_at`/`computed_at`, `is_active` (partial unique index по сегменту WHERE is_active=true), `deletion_scheduled_at` (TTL 60 мин через `scheduled_deletion.ts`).
-
-| Таблица | Сегментация | Параметры | Cron | День и время |
-|---|---|---|---|---|
-| `s1_weibull_configs` | 9 сегментов `device×creative_group` | `k`, `lambda` | `0 4 * * 0` (weekly) | Каждое воскресенье, 04:00 UTC |
-| `s3_logistic_configs` | 9 сегментов `device×creative_group` | `coefficients` (β0..β7), `feature_means`, `feature_stds` | `0 5 * * 0` (weekly) | Каждое воскресенье, 05:00 UTC |
-| `s4_configs` | 5 сегментов `device_creative` | `lambda`, `t_ref_ms` | `0 6 1 * *` (monthly) | Каждый 1й день месяца, 06:00 UTC |
-| `s5_logistic_configs` | 2 сегмента `desktop`, `mobile_tablet` | `coefficients` (β0..β4) | `0 6 * * 0` (weekly) | Каждое воскресенье, 06:00 UTC |
-| `s6_logistic_configs` | 6 сегментов `device×skippable` | `coefficients` (β0..β8), `feature_means`, `feature_stds` | `0 7 * * 0` (weekly) | Каждое воскресенье, 07:00 UTC |
-| `s7_quantile_configs` | 3 сегмента `desktop`, `mobile`, `tablet` | `relative_y_low`, `relative_y_mid`, `clutter_mid`, `clutter_high` | `0 8 1 * *` (monthly) | Каждый 1й день месяца, 08:00 UTC |
-
-### Индексы
-
-`impressions`: `impression_id` (UNIQUE), `session_group_id`, `created_at`, `campaign_id`, `creative_id`, `device_type`, `is_suspicious`, `score_final`, `s6_normalized`, `publisher_domain`, `tag_id`, `user_id`, составной `(user_id, created_at)`, `tag_constants_version`, `ivt_verdict`, `fp_hash`.
-
-`calibration_batches`: составной `(status, created_at)`, `created_by`. `calibration_items`: уникальный составной `(batch_id, impression_id)`, составной `(batch_id, status)`, `impression_id`.
-
-`weight_configs`: `is_active`, partial unique `(config_type) WHERE is_active = true`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`. Каждая таблица сигнальных конфигураций имеет partial unique index `(segment_key/device_type) WHERE is_active = true` и индекс по `deletion_scheduled_at`.
-
-### Retention
-
-- `impressions`: 90 дней, job 03:00 UTC. Связанные `calibration_items` — ON DELETE CASCADE.
-- `calibration_items (pending)`: TTL-cleanup каждые 15 минут (`CALIBRATION_DRAFT_TTL_MINUTES`).
-- `s1/s3/s4/s5/s6/s7_*_configs` (неактивные): мягкое удаление через `deletion_scheduled_at` — 60 минут после планирования. Job `scheduled_deletion.ts` каждые 15 минут. Активные конфиги не удаляются.
-- `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически.
-- pg_dump бэкапы: 02:00 UTC, ротация 30 дней.
-
----
-
-## Инфраструктура
-
-### Docker Compose (production)
-
-5 контейнеров в изолированной Docker-сети `internal`. Сервис `tag-builder` упразднён — сборка тега перенесена в runtime backend-контейнера:
-
-```
-postgres   → БД (volume: postgres_data)
-backend    → API + runtime-сборка тега esbuild
-             (volume: tag_dist, read-write)
-             зависит от postgres: healthy
-frontend   → панель
-             зависит от backend: healthy
-nginx      → SSL, роутинг, раздача тега
-             (volume: tag_dist, read-only)
-             зависит от backend, frontend: healthy
-backup     → pg_dump по crontab
-             зависит от postgres: healthy
-```
-
-Healthcheck-цепочка: nginx стартует только когда backend и frontend прошли healthcheck. Точка монтирования `/tag_dist` в backend-образе создаётся с владельцем `cpmind:cpmind` заранее (`Dockerfile`) — Docker named volume иначе монтируется с владельцем `root`, runtime-пользователь не может писать.
-
-### SSL
-
-Let's Encrypt для `app.cpmind.tech`. Автообновление: systemd timer (certbot) + `scripts/renew-certs.sh` (03:30 UTC) копирует сертификаты в `nginx/certs/` и перезагружает nginx.
-
-### Бэкапы
-
-`backup/crontab` → `pg_dump` → `/opt/cpmind/backups/`. Ротация 30 дней. Полные SQL-файлы, восстанавливаемые через `psql`.
-
----
-
-## Безопасность
-
-**JWT:** httpOnly cookie `cpmind_token`, 7 дней. Payload `{uuid, id, role}`. `requireAuth` проверяет `isActive` из БД на каждый запрос.
-
-**Пароли:** bcrypt (rounds=10). Constant-time `bcrypt.compare` даже при несуществующем логине (dummy-хэш) — защита от timing-атаки user enumeration.
-
-**CORS:** wildcard `Access-Control-Allow-Origin: *` только для `POST /api/collect`. Все остальные эндпоинты — reflect origin + credentials.
-
-**Rate limiting:** 100 req/s с одного IP на `/api/collect`, burst 200, статус 429 (NGINX).
-
-**Security headers:** HSTS (`max-age=31536000`), X-Content-Type-Options, X-Frame-Options (DENY), Referrer-Policy, CSP — через NGINX. `@fastify/helmet` на уровне backend.
-
-**Изоляция сети:** backend и frontend не доступны напрямую снаружи. Весь внешний трафик через NGINX.
-
-**Данные пользователей:** тег не собирает персональных данных, не использует cookie, не хранит IP, не идентифицирует пользователей. `fp_hash` — необратимый хэш (SHA-256, 16 байт), компоненты не передаются и не хранятся, используется исключительно для fraud detection. Не является персональными данными по 152-ФЗ/GDPR.
-
-**IDOR:** владелец данных из JWT. Чужой ресурс → 404.
-
-**Известный непокрытый риск (MVP):** `tag_uuid` виден в HTML страницы клиента. Отправка показов под чужим `tag_uuid` физически возможна — засоряет данные владельца, не даёт доступа к чтению. Принятый риск MVP.
-
----
-
-## Ограничения MVP
-
-**Многопользовательская модель без полной мультитенантности.** Ролевое разграничение реализовано. Изолированных инстансов/доменов на клиента — нет. Один сервер, одна база данных.
-
-**Один сервер.** Нет горизонтального масштабирования. При текущей нагрузке (тестирование + несколько клиентов) — запас по производительности значительный (latency 2–19 мс p95 на `/api/collect`).
-
-**Нет очереди сообщений.** `/api/collect` обрабатывается синхронно. Калибровка — асинхронна, но без очереди (фоновая функция в процессе backend, чанками). При росте объёма данных или одновременных батчей — потребуется Kafka или аналог.
-
-**Защита от подмены `tag_uuid` не реализована.** Принятый риск, задокументирован выше.
+**Node.js ≥22 requirement.** AWS SDK v3 после января 2027 требует Node 22. Базовые образы используют `node:20-alpine`. Необходимо обновление до 2027.

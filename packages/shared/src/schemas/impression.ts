@@ -1,5 +1,14 @@
 import { z } from 'zod';
 import { TagUuidSchema } from './tag.js';
+import { CreativeTypeSchema } from './creative.js';
+import { AudioConnectionSchema } from './asset.js';
+import {
+  AdSessionIdSchema,
+  DeliveryModeSchema,
+  MeasurementModeSchema,
+  MeasurementFinalizationReasonSchema,
+  DeliveryTimingSchema,
+} from './delivery.js';
 
 const SAFE_ID_REGEX = /^[A-Za-zА-Яа-яЁё0-9_-]+$/u;
 const FP_HASH_REGEX = /^[0-9a-f]+$/;
@@ -88,7 +97,7 @@ export const SignalsS6Schema = z.object({
   // Audibility
   muted_status: z.enum(['muted', 'unmuted', 'mixed']),
   volume_level: z.number().int().min(0).max(100),
-  audio_connection: z.enum(['speaker', 'headphones', 'bluetooth', 'unknown']),
+  audio_connection: AudioConnectionSchema,
   audible_time_sec: z.number().min(0),
   duration_sec: z.number().min(0).nullable(),
   audible_quartile_25: z.boolean(),
@@ -116,12 +125,7 @@ export const ImpressionPayloadSchema = z
     tag_constants_version: z.string().min(1),
     campaign_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
     creative_id: z.string().min(1).max(255).regex(SAFE_ID_REGEX),
-    creative_type: z.enum([
-      'banner_static',
-      'banner_gif',
-      'banner_html5',
-      'video_creative'
-    ]),
+    creative_type: CreativeTypeSchema,
     skippable: z.boolean().default(false),
     device_type: z.enum(['desktop', 'mobile', 'tablet']),
     publisher_domain: z.string().min(1).max(253),
@@ -138,11 +142,18 @@ export const ImpressionPayloadSchema = z
     }),
     presence: PresenceSchema,
     fp_hash: z.string().length(32).regex(FP_HASH_REGEX).optional(),
+    ad_session_id: AdSessionIdSchema.optional(),
+    placement_uuid: z.string().uuid().optional(),
+    creative_version_uuid: z.string().uuid().optional(),
+    delivery_mode: DeliveryModeSchema.optional(),
+    measurement_mode: MeasurementModeSchema.optional(),
+    delivery_timing: DeliveryTimingSchema.optional(),
+    finalization_reason: MeasurementFinalizationReasonSchema.optional(),
   })
   .refine(
     (data) => data.timestamp_end >= data.timestamp_start,
     {
-      path:    ['timestamp_end'],
+      path: ['timestamp_end'],
       message: 'timestamp_end must be greater than or equal to timestamp_start',
     },
   );

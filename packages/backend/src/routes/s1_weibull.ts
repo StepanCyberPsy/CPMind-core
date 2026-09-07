@@ -7,7 +7,7 @@ import {
   deactivateS1WeibullConfig,
   scheduleS1WeibullConfigDeletion,
   cancelS1WeibullConfigDeletion,
-} from '../services/weibull_config.js';
+} from '../services/configs/weibull_config.js';
 
 export const s1WeibullRoute: FastifyPluginAsync = async (app) => {
 

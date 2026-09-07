@@ -2,6 +2,12 @@ import type {
   ImpressionListResponse,
   ImpressionDetail,
   WeightConfigRow,
+  CreateUploadPayload,
+  UploadSessionResponse,
+  CompleteMultipartPart,
+  UploadSessionStatus,
+  CreatePlacementPayload,
+  UpdatePlacementPayload,
   UserStatsListResponse,
   TagConstantsConfigListResponse,
   TagConstantsConfig,
@@ -137,6 +143,99 @@ export interface S7QuantileConfigRow {
   computedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;
+}
+
+// Campaigns
+
+export interface CampaignRow {
+  uuid: string;
+  campaignKey: string;
+  name: string;
+  status: 'active' | 'archived';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Creatives
+
+export interface AssetView {
+  id: string;
+  role: string;
+  priority: number;
+  assetClass: string;
+  mimeType: string;
+  extension: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  codec: string | null;
+  cdnUrl: string;
+}
+
+export interface CreativeVersionView {
+  uuid: string;
+  version: number;
+  status: string;
+  processingError: string | null;
+  createdAt: string;
+  readyAt: string | null;
+  assets: AssetView[];
+}
+
+export interface CreativeListItem {
+  uuid: string;
+  name: string;
+  creativeType: string;
+  clickUrl: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreativeDetail extends CreativeListItem {
+  campaignUuid: string;
+  versions: CreativeVersionView[];
+}
+
+// Placements
+
+export interface PlacementListItem {
+  uuid: string;
+  mode: string;
+  isActive: boolean;
+  creativeUuid: string;
+  creativeName: string;
+  creativeType: string;
+  deliveryToken: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlacementDetail {
+  uuid: string;
+  campaignUuid: string;
+  creativeUuid: string;
+  creativeName: string;
+  creativeType: string;
+  mode: string;
+  plcmt: number | null;
+  width: number | null;
+  height: number | null;
+  autoplayMode: string | null;
+  initialMuted: boolean;
+  skippable: boolean;
+  skipOffsetSec: number | null;
+  allowedDomains: string[] | null;
+  clickUrl: string | null;
+  isActive: boolean;
+  deliveryToken: string;
+  createdAt: string;
+  updatedAt: string;
+  embedCode: string | null;
+  vastUrl: string | null;
+  currentVersionStatus: string | null;
+  currentVersionError: string | null;
 }
 
 function toBackendDateTime(
@@ -942,6 +1041,202 @@ export async function scheduleS7QuantileDelete(id: string): Promise<void> {
 
 export async function cancelS7QuantileDelete(id: string): Promise<void> {
   const res = await fetch(`${CLIENT_BACKEND}/api/s7-quantile/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// Upload sessions
+
+export async function createUploadSession(
+  payload: CreateUploadPayload,
+): Promise<UploadSessionResponse> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/creative-uploads`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function completeUploadSession(
+  uploadId: string,
+  parts?: CompleteMultipartPart[],
+): Promise<void> {
+  const body = parts !== undefined ? { parts } : {};
+  const res = await fetch(`${CLIENT_BACKEND}/api/creative-uploads/${uploadId}/complete`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function getUploadSessionStatus(
+  uploadId: string,
+): Promise<UploadSessionStatus> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/creative-uploads/${uploadId}`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCampaigns(
+  cookie?: string,
+): Promise<CampaignRow[]> {
+  const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/campaigns`, {
+    cache: 'no-store',
+    ...(cookie
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createCampaign(
+  name: string,
+): Promise<CampaignRow> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/campaigns`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchCreatives(
+  cookie?: string,
+): Promise<CreativeListItem[]> {
+  const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/creatives`, {
+    cache: 'no-store',
+    ...(cookie
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchCreativeDetail(
+  uuid: string,
+  cookie?: string,
+): Promise<CreativeDetail | null> {
+  const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/creatives/${uuid}`, {
+    cache: 'no-store',
+    ...(cookie
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function archiveCreative(uuid: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/creatives/${uuid}/archive`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function fetchPlacements(
+  cookie?: string,
+): Promise<PlacementListItem[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/placements`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPlacementDetail(
+  uuid: string,
+  cookie?: string,
+): Promise<PlacementDetail | null> {
+  const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+  const res = await fetch(`${backend}/api/placements/${uuid}`, {
+    cache: 'no-store',
+    ...(cookie
+      ? { headers: { Cookie: cookie } }
+      : { credentials: 'include' }),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function createPlacement(
+  payload: CreatePlacementPayload,
+): Promise<PlacementDetail> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/placements`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updatePlacement(
+  uuid: string,
+  payload: UpdatePlacementPayload,
+): Promise<PlacementDetail> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/placements/${uuid}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function setPlacementActive(
+  uuid: string,
+  isActive: boolean,
+): Promise<void> {
+  const action = isActive ? 'activate' : 'deactivate';
+  const res = await fetch(`${CLIENT_BACKEND}/api/placements/${uuid}/${action}`, {
     method: 'POST',
     credentials: 'include',
   });

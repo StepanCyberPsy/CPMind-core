@@ -6,6 +6,7 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/backend/package.json ./packages/backend/
+COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/tag/package.json ./packages/tag/
 
 RUN pnpm install --frozen-lockfile --filter @cpmind/backend... --filter @cpmind/tag
@@ -19,9 +20,11 @@ COPY --from=deps /app ./
 COPY tsconfig.base.json ./
 COPY packages/shared ./packages/shared
 COPY packages/backend ./packages/backend
+COPY packages/sdk ./packages/sdk
 COPY packages/tag ./packages/tag
 
 RUN pnpm --filter @cpmind/shared build
+RUN pnpm --filter @cpmind/sdk build
 RUN pnpm --filter @cpmind/backend build
 
 # Stage 3: runner
@@ -38,6 +41,8 @@ COPY --from=builder --chown=cpmind:cpmind /app/packages/backend/dist ./packages/
 COPY --from=builder --chown=cpmind:cpmind /app/packages/backend/node_modules ./packages/backend/node_modules
 COPY --from=builder --chown=cpmind:cpmind /app/packages/backend/drizzle ./packages/backend/drizzle
 COPY --from=builder --chown=cpmind:cpmind /app/packages/backend/package.json ./packages/backend/package.json
+COPY --from=builder --chown=cpmind:cpmind /app/packages/sdk/dist ./packages/sdk/dist
+COPY --from=builder --chown=cpmind:cpmind /app/packages/sdk/package.json ./packages/sdk/package.json
 COPY --from=builder --chown=cpmind:cpmind /app/packages/tag/src ./packages/tag/src
 COPY --from=builder --chown=cpmind:cpmind /app/packages/tag/node_modules ./packages/tag/node_modules
 

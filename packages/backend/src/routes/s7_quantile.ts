@@ -7,7 +7,7 @@ import {
   deactivateS7QuantileConfig,
   scheduleS7QuantileConfigDeletion,
   cancelS7QuantileConfigDeletion,
-} from '../services/s7_quantile_config.js';
+} from '../services/configs/s7_quantile_config.js';
 
 export const s7QuantileRoute: FastifyPluginAsync = async (app) => {
 

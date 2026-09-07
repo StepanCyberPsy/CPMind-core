@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { and, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions } from '../db/schema.js';
-import { getActiveIvtThresholds } from '../services/ivt_thresholds.js';
+import { getActiveIvtThresholds } from '../services/ivt/ivt_thresholds.js';
 import pino from 'pino';
 
 const logger = pino({ name: 'ivt-frequency-job' });

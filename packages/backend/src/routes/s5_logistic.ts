@@ -7,7 +7,7 @@ import {
   deactivateS5LogisticConfig,
   scheduleS5LogisticConfigDeletion,
   cancelS5LogisticConfigDeletion,
-} from '../services/s5_logistic_config.js';
+} from '../services/configs/s5_logistic_config.js';
 
 export const s5LogisticRoute: FastifyPluginAsync = async (app) => {
 

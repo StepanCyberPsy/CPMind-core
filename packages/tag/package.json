@@ -6,6 +6,9 @@
     "build": "tsx build.ts",
     "dev": "tsx build.ts --watch"
   },
+  "dependencies": {
+    "@cpmind/sdk": "workspace:*"
+  },
   "devDependencies": {
     "@cpmind/shared": "workspace:*",
     "@types/node": "^20.0.0",

@@ -1,0 +1,100 @@
+import type { Session, SdkSignalConfig } from '../types.js';
+
+export interface PresenceHandle {
+    cleanup: () => void;
+    resetSegment: () => void;
+}
+
+const EVENT_TYPES = [
+    'mousemove',
+    'mousedown',
+    'mouseup',
+    'touchstart',
+    'touchend',
+    'touchmove',
+    'keydown',
+    'keyup',
+    'scroll',
+    'click',
+] as const;
+
+type PresenceEventType = typeof EVENT_TYPES[number];
+
+function useCapture(eventType: PresenceEventType): boolean {
+    return eventType === 'click';
+}
+
+export function initPresence(
+    session: Session,
+    config: SdkSignalConfig,
+    onIdle: () => void,
+): PresenceHandle {
+    let lastUpdateTime = 0;
+    const THROTTLE_MS = 100;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function armIdleTimer(): void {
+        if (idleTimer !== null) clearTimeout(idleTimer);
+        idleTimer = setTimeout(onIdle, config.constants.PRESENCE_IDLE_TIMEOUT_MS);
+    }
+
+    function onUserEvent(): void {
+        const now = Date.now();
+
+        armIdleTimer();
+        session.eventsDuringImpression++;
+
+        if (now - lastUpdateTime >= THROTTLE_MS) {
+            if (session.lastThrottledEventTimestamp !== null) {
+                const interval = now - session.lastThrottledEventTimestamp;
+                session.eventIntervals.push(interval);
+                if (session.eventIntervals.length > 50) {
+                    session.eventIntervals.shift();
+                }
+            }
+            session.lastUserEventTimestamp = now;
+            session.lastThrottledEventTimestamp = now;
+            lastUpdateTime = now;
+
+            if (config.debug) {
+                console.log('[CPMind Presence] User event:', {
+                    eventsCount: session.eventsDuringImpression,
+                    lastUserEventTimestamp: now,
+                });
+            }
+        }
+    }
+
+    for (const eventType of EVENT_TYPES) {
+        document.addEventListener(eventType, onUserEvent, {
+            passive: true,
+            capture: useCapture(eventType),
+        });
+    }
+
+    armIdleTimer();
+
+    if (config.debug) {
+        console.log('[CPMind Presence] Initialized, tracking:', EVENT_TYPES.join(', '));
+    }
+
+    function cleanup(): void {
+        if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
+        for (const eventType of EVENT_TYPES) {
+            document.removeEventListener(eventType, onUserEvent, {
+                capture: useCapture(eventType),
+            });
+        }
+    }
+
+    function resetSegment(): void {
+        lastUpdateTime = 0;
+        session.lastUserEventTimestamp = null;
+        session.lastThrottledEventTimestamp = null;
+        session.eventsDuringImpression = 0;
+        session.eventIntervals = [];
+        armIdleTimer();
+    }
+
+    return { cleanup, resetSegment };
+}

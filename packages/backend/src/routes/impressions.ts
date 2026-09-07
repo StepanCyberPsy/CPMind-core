@@ -8,17 +8,17 @@ import {
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import { processImpression } from '../services/scoring.js';
-import { getActiveWeightsConfig } from '../services/weights_config.js';
-import { getActiveWeibullParams } from '../services/weibull_config.js';
-import { getActiveS3LogisticParams } from '../services/logistic_config.js';
-import { getActiveS4Config } from '../services/s4_config.js';
-import { getActiveS5LogisticParams } from '../services/s5_logistic_config.js';
-import { getActiveS6LogisticParams } from '../services/s6_logistic_config.js';
-import { getActiveS7Thresholds } from '../services/s7_quantile_config.js';
-import { getActiveIvtList } from '../services/ivt_list.js';
-import { getActiveIvtThresholds } from '../services/ivt_thresholds.js';
-import { resolveActiveTagOwner } from '../services/tags.js';
-import { resolveActiveTagConstantsVersion } from '../services/tag_constants.js';
+import { getActiveWeightsConfig } from '../services/configs/weights_config.js';
+import { getActiveWeibullParams } from '../services/configs/weibull_config.js';
+import { getActiveS3LogisticParams } from '../services/configs/logistic_config.js';
+import { getActiveS4Config } from '../services/configs/s4_config.js';
+import { getActiveS5LogisticParams } from '../services/configs/s5_logistic_config.js';
+import { getActiveS6LogisticParams } from '../services/configs/s6_logistic_config.js';
+import { getActiveS7Thresholds } from '../services/configs/s7_quantile_config.js';
+import { getActiveIvtList } from '../services/ivt/ivt_list.js';
+import { getActiveIvtThresholds } from '../services/ivt/ivt_thresholds.js';
+import { resolveActiveTagOwner } from '../services/tag/tags.js';
+import { resolveActiveTagConstantsVersion } from '../services/tag/tag_constants.js';
 import {
   listImpressionsForAdmin,
   listImpressionsForUser,

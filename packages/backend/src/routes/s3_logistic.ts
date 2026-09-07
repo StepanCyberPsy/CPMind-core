@@ -7,7 +7,7 @@ import {
   deactivateS3LogisticConfig,
   scheduleS3LogisticConfigDeletion,
   cancelS3LogisticConfigDeletion,
-} from '../services/logistic_config.js';
+} from '../services/configs/logistic_config.js';
 
 export const s3LogisticRoute: FastifyPluginAsync = async (app) => {
 

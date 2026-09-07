@@ -1,10 +1,10 @@
 import cron from 'node-cron';
-import { deleteScheduledS1WeibullConfigs } from '../services/weibull_config.js';
-import { deleteScheduledS3LogisticConfigs } from '../services/logistic_config.js';
-import { deleteScheduledS4Configs } from '../services/s4_config.js';
-import { deleteScheduledS5LogisticConfigs } from '../services/s5_logistic_config.js';
-import { deleteScheduledS6LogisticConfigs } from '../services/s6_logistic_config.js';
-import { deleteScheduledS7QuantileConfigs } from '../services/s7_quantile_config.js';
+import { deleteScheduledS1WeibullConfigs } from '../services/configs/weibull_config.js';
+import { deleteScheduledS3LogisticConfigs } from '../services/configs/logistic_config.js';
+import { deleteScheduledS4Configs } from '../services/configs/s4_config.js';
+import { deleteScheduledS5LogisticConfigs } from '../services/configs/s5_logistic_config.js';
+import { deleteScheduledS6LogisticConfigs } from '../services/configs/s6_logistic_config.js';
+import { deleteScheduledS7QuantileConfigs } from '../services/configs/s7_quantile_config.js';
 import pino from 'pino';
 
 const logger = pino({ name: 'scheduled-deletion-job' });

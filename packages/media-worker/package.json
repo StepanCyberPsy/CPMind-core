@@ -1,0 +1,33 @@
+{
+  "name": "@cpmind/media-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "start": "node --env-file=../../.env dist/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@cpmind/shared": "workspace:*",
+    "archiver": "^7.0.1",
+    "fast-xml-parser": "^4.4.0",
+    "file-type": "^19.0.0",
+    "pg": "^8.12.0",
+    "pino": "^9.3.0",
+    "sharp": "^0.33.0",
+    "unzipper": "^0.12.3"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/sharp": "^0.31.0",
+    "@types/unzipper": "^0.10.10",
+    "pino-pretty": "^11.2.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.0"
+  }
+}

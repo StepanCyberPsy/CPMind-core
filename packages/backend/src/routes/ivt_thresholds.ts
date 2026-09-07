@@ -8,7 +8,7 @@ import {
   createIvtThresholdsConfig,
   activateIvtThresholdsConfig,
   deactivateIvtThresholdsConfig,
-} from '../services/ivt_thresholds.js';
+} from '../services/ivt/ivt_thresholds.js';
 
 const CreateIvtThresholdsSchema = z.object({
   version: z.string().min(1).max(100),

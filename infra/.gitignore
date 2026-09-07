@@ -1,0 +1,24 @@
+# Локальный state — используем remote backend в Yandex Object Storage
+*.tfstate
+*.tfstate.*
+
+# Файлы с секретами — никогда не коммитить
+*.tfvars
+*.tfvars.json
+
+# Кэш провайдеров и модулей — скачивается через terraform init
+.terraform/
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override-файлы — локальные переопределения
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Личная конфигурация CLI
+.terraformrc
+terraform.rc

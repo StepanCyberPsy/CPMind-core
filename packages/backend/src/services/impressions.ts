@@ -24,7 +24,7 @@ import type {
   IvtVerdict,
 } from '@cpmind/shared';
 
-import { getLatestApprovedCalibrationForImpression } from './calibrations.js';
+import { getLatestApprovedCalibrationForImpression } from './calibration/calibrations.js';
 
 export const NUMERIC_RANGE_COLUMNS = {
   score: impressions.scoreFinal,

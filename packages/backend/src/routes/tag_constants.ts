@@ -11,7 +11,7 @@ import {
   getTagConstantsConfig,
   activateTagConstantsConfig,
   deactivateTagConstantsConfig,
-} from '../services/tag_constants.js';
+} from '../services/tag/tag_constants.js';
 
 export const tagConstantsRoute: FastifyPluginAsync = async (app) => {
 

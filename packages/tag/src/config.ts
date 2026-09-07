@@ -1,4 +1,5 @@
-import type { TagConfig, CreativeType } from './types.js';
+import type { CreativeType } from '@cpmind/shared';
+import type { TagConfig } from './types.js';
 import { TAG_CONSTANTS_VERSION } from './constants.js';
 
 const VALID_CREATIVE_TYPES: CreativeType[] = [

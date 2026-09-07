@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { and, eq, gte } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s7QuantileConfigs } from '../db/schema.js';
-import { fitS7Quantiles, type S7RawObservation } from '../services/s7_quantile_fit.js';
+import { fitS7Quantiles, type S7RawObservation } from '../services/configs/s7_quantile_fit.js';
 import pino from 'pino';
 
 const logger = pino({ name: 's7-quantile-recalibration-job' });

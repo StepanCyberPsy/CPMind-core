@@ -23,155 +23,159 @@
 ## Структура пакета
 
 ```
-packages/frontend/
-├── package.json
-├── tsconfig.json               # exactOptionalPropertyTypes, noUncheckedIndexedAccess
-├── next.config.mjs             # output: standalone для Docker
-├── Dockerfile                  # multi-stage build, Next.js standalone output
-└── src/
-    ├── middleware.ts            # edge middleware: ролевые редиректы
-    ├── app/
-    │   ├── layout.tsx           # root layout; импортирует katex/dist/katex.min.css (глобальный CSS)
-    │   ├── page.tsx             # redirect по роли; export const dynamic = 'force-dynamic'
-    │   │                        # предотвращает кэширование redirect-ответа при повторном
-    │   │                        # открытии домена после закрытия вкладки
-    │   ├── login/page.tsx       # страница логина
-    │   ├── admin/
-    │   │   ├── layout.tsx       # guard роли admin
-    │   │   ├── users_panel/page.tsx
-    │   │   ├── impressions/
-    │   │   │   ├── page.tsx     # обновлён: domainView-режим площадки, агрегат
-    │   │   │   └── [id]/page.tsx # обновлён: searchParams.back для возврата
-    │   │   ├── weights/
-    │   │   │   ├── page.tsx
-    │   │   │   └── recalculate/page.tsx
-    │   │   ├── tag_constants/
-    │   │   │   └── page.tsx
-    │   │   ├── signals/
-    │   │   │   └── page.tsx     # NEW: управление сигнальными моделями S1–S7
-    │   │   └── ivt/
-    │   │       └── page.tsx     # IVT — управление GIVT-списками и SIVT-порогами
-    │   └── user/
-    │       ├── layout.tsx
-    │       ├── panel/
-    │       │   ├── page.tsx
-    │       └── impressions/
-    │       │   └── page.tsx     # обновлён: domainView-режим площадки, агрегат
-    ├── components/
-    │   ├── shared/
-    │   │   ├── LoginForm.tsx
-    │   │   ├── Combobox.tsx
-    │   │   ├── ComboboxDatePicker.tsx
-    │   │   └── ConfirmDialog.tsx    # NEW: переиспользуемый модальный диалог подтверждения;
-    │   │                            # ReactDOM.createPortal в document.body; принимает
-    │   │                            # message, confirmLabel, cancelLabel, isLoading,
-    │   │                            # onConfirm, onCancel
-    │   ├── admin/
-    │   │   ├── Filters.tsx      # обновлён: domainView-баннер с Combobox площадок,
-    │   │   │                    # exitDomainView(), onDomainChange()
-    │   │   ├── ImpressionsTable.tsx  # обновлён: колонка Actions с меню ⋮,
-    │   │   │                         # ImpressionActionsMenu, PublisherDomainAggregateRow,
-    │   │   │                         # isDomainView, back-параметр навигации
-    │   │   ├── SignalFilterModal.tsx
-    │   │   ├── ImpressionDetail.tsx  # обновлён: поле "Площадка размещения"
-    │   │   │                         # в секции Метаданные
-    │   │   ├── ExportButton.tsx
-    │   │   ├── WeightsConfigPanel.tsx
-    │   │   ├── SignalModelsPanel.tsx # NEW: управление жизненным циклом конфигов
-    │   │   │                        # S1/S3/S4/S5/S6/S7 (6 табов, таблицы по сегментам,
-    │   │   │                        # accordion параметров, TTL-таймер, меню ⋮);
-    │   │   │                        # рендерит FormulaCard между табами и таблицей
-    │   │   ├── FormulaCard.tsx  # NEW: KaTeX-рендеринг формулы нормализации активного сигнала;
-    │   │   │                    # три секции: формула (display mode), таблица переменных,
-    │   │   │                    # описание логики; collapsible через useState(expanded);
-    │   │   │                    # данные из SIGNAL_FORMULAS[signal]
-    │   │   ├── LogoutButton.tsx # NEW: кнопка выхода для admin; открывает ConfirmDialog;
-    │   │   │                    # POST /api/auth/logout + router.push('/login');
-    │   │   │                    # размещена в toolbar UsersPanelTable левее CreateUserForm
-    │   │   ├── UsersPanelTable.tsx  # обновлён: добавлен LogoutButton в .toolbar;
-    │   │   │                        # gap и align-items добавлены в .toolbar
-    │   │   ├── UserActionsMenu.tsx
-    │   │   ├── CreateUserForm.tsx
-    │   │   ├── WeightVersionPicker.tsx
-    │   │   ├── RecalibrationWorkspace.tsx
-    │   │   ├── RecalibrationTable.tsx
-    │   │   ├── TagConstantsPanel.tsx
-    │   │   ├── RecalibrationActionBar.tsx
-    │   │   ├── IvtListEntriesModal.tsx
-    │   │   └── IvtPanel.tsx
-    │   └── user/
-    │       ├── Filters.tsx      # обновлён: domainView-баннер с Combobox площадок,
-    │       │                    # exitDomainView(), onDomainChange(), useEffect-sync creativeId
-    │       ├── ImpressionsTable.tsx  # обновлён: колонка "Площадка" с badge
-    │       │                         # "Отфильтровать", PublisherDomainAggregateRow,
-    │       │                         # isDomainView
-    │       ├── TagBuilderModal.tsx   # обновлён: поле publisherDomain (необязательное),
-    │       │                         # WordPress-fix (esc_attr вместо htmlspecialcharsbx),
-    │       │                         # data-publisher-domain во всех форматах
-    │       ├── SignalFilterModal.tsx
-    │       ├── UserCampaignsTable.tsx
-    │       └── ExportButton.tsx
-    ├── lib/
-    │   ├── shared/
-    │   │   ├── auth.ts          # decodeTokenRole(), decodeTokenUuid()
-    │   │   ├── env.ts           # requireEnv(), getBackendUrl(), getPublicBackendUrl()
-    │   │   ├── types.ts         # SortField, SortParams, PaginationProps
-    │   │   ├── date.ts          # утилиты для ComboboxDatePicker
-    │   │   ├── tag-builder.ts   # единый контракт генератора тега
-    │   │   └── use-popover.ts   # единый хук позиционирования поповеров
-    │   ├── admin/
-    │   │   ├── api.ts           # обновлён: publisherDomain в ListParams и buildQuery,
-    │   │   │                    # fetchPublisherDomainAggregate(),
-    │   │   │                    # интерфейсы и функции S1–S7 (30 функций, 6 интерфейсов)
-    │   │   ├── types.ts         # обновлён: ImpressionsTableProps +aggregate/+isDomainView,
-    │   │   │                    # FiltersProps +domainView/+domainOptions,
-    │   │   │                    # SignalModelsPanelProps, PublisherDomainAggregate
-    │   │   ├── signals-meta.ts  # SIGNALS_META, getSignalMeta()
-    │   │   ├── segment-color.ts # buildSegmentColorMap()
-    │   │   ├── signal-formulas.ts # NEW: SIGNAL_FORMULAS — статические данные формул
-    │   │   │                      # нормализации S1–S7 (LaTeX, переменные, источники,
-    │   │   │                      # описание логики); FormulaDefinition, VariableRow,
-    │   │   │                      # FormulaBlock, SignalTab — типы данных компонента
-    │   │   └── searchParams.ts  # обновлён: publisherDomain, domainView в
-    │   │                        # ImpressionsSearchParams и parseListSearchParams
-    │   └── user/
-    │   │   ├── api.ts           # обновлён: publisherDomain в UserListParams и buildQuery,
-    │   │   │                    # fetchUserPublisherDomainAggregate()
-    │   │   ├── types.ts         # обновлён: UserImpressionsTableProps +isDomainView/+aggregate,
-    │   │   │                    # UserFiltersProps +domainView/+domainOptions,
-    │   │   │                    # PublisherDomainAggregate, TagBuilderFormState +publisherDomain
-    │   │   ├── signals-meta.ts
-    │   │   └── searchParams.ts  # обновлён: publisherDomain, domainView в
-    │   │                        # UserImpressionsSearchParams и parseUserListSearchParams
-    └── styles/
-        ├── globals.css
-        ├── impressions.module.css
-        ├── detail.module.css
-        ├── detail-page.module.css
-        ├── filters.module.css   # обновлён: .sessionContextCombobox, .sessionContextClearEnd
-        ├── table.module.css     # обновлён: меню действий (.menuWrapper, .menuTrigger,
-        │                        # .menuPanel, .menuItem), .thActions/.tdActions,
-        │                        # агрегатная строка (.aggregateRow и вложенные классы),
-        │                        # .domainCell, .domainFilterBadge
-        ├── weights.module.css
-        ├── weights-panel.module.css
-        ├── signals.module.css   # NEW: стили страницы /admin/signals
-        ├── signal-models.module.css # NEW: стили компонента SignalModelsPanel
-        ├── formula-card.module.css  # NEW: стили FormulaCard — collapsible карточка,
-        │                            # KaTeX-блок с горизонтальным скроллом, таблица
-        │                            # переменных (tdSymbol/tdSource на bg-subtle),
-        │                            # адаптив ≤640px
-        ├── confirm-dialog.module.css # NEW: стили ConfirmDialog — полноэкранный оверлей
-        │                             # rgba(0,0,0,0.35), dialog 320px по центру,
-        │                             # cancelBtn (серый) + confirmBtn (accent)
-        ├── logout-button.module.css  # NEW: серая кнопка выхода (bg-subtle + border),
-        │                             # hover: bg-hover + border-strong
-        ├── users_panel.module.css    # обновлён: .toolbar добавлены align-items: center
-        │                             # и gap: 8px для размещения LogoutButton + CreateUserForm
-        ├── create-user-form.module.css
-        ├── ivt-list-entries-modal.module.css
-        ├── ivt.module.css
-        └── ivt-panel.module.css
+    ├── [DIR] frontend
+        ├── [FILE] .env.local
+        ├── [FILE] Dockerfile
+        ├── [FILE] next-env.d.ts
+        ├── [FILE] next.config.mjs
+        ├── [FILE] package.json
+        ├── [DIR] src
+            ├── [DIR] app
+                ├── [DIR] (workspace)
+                    ├── [DIR] campaigns
+                        ├── [FILE] page.tsx
+                    ├── [DIR] creatives
+                        ├── [FILE] page.tsx
+                    ├── [FILE] layout.tsx
+                    ├── [DIR] placements
+                        ├── [FILE] CreatePlacementForm.tsx
+                        ├── [DIR] [uuid]
+                            ├── [FILE] PlacementActions.tsx
+                            ├── [FILE] page.tsx
+                        ├── [FILE] page.tsx
+                    ├── [DIR] uploads
+                        ├── [FILE] page.tsx
+                ├── [DIR] admin
+                    ├── [DIR] impressions
+                        ├── [DIR] [id]
+                            ├── [FILE] page.tsx
+                        ├── [FILE] page.tsx
+                    ├── [DIR] ivt
+                        ├── [FILE] page.tsx
+                    ├── [FILE] layout.tsx
+                    ├── [DIR] signals
+                        ├── [FILE] page.tsx
+                    ├── [DIR] tag_constants
+                        ├── [FILE] page.tsx
+                    ├── [DIR] users_panel
+                        ├── [FILE] page.tsx
+                    ├── [DIR] weights
+                        ├── [FILE] page.tsx
+                        ├── [DIR] recalculate
+                            ├── [FILE] page.tsx
+                ├── [FILE] globals.css
+                ├── [FILE] layout.tsx
+                ├── [DIR] login
+                    ├── [FILE] page.tsx
+                ├── [FILE] page.tsx
+                ├── [DIR] user
+                    ├── [DIR] impressions
+                        ├── [FILE] page.tsx
+                    ├── [FILE] layout.tsx
+                    ├── [DIR] panel
+                        ├── [FILE] page.tsx
+            ├── [DIR] components
+                ├── [FILE] Pagination.tsx
+                ├── [DIR] admin
+                    ├── [FILE] CreateUserForm.tsx
+                    ├── [FILE] ExportButton.tsx
+                    ├── [FILE] Filters.tsx
+                    ├── [FILE] FormulaCard.tsx
+                    ├── [FILE] ImpressionDetail.tsx
+                    ├── [FILE] ImpressionsTable.tsx
+                    ├── [FILE] IvtListEntriesModal.tsx
+                    ├── [FILE] IvtPanel.tsx
+                    ├── [FILE] LogoutButton.tsx
+                    ├── [FILE] RecalibrationActionBar.tsx
+                    ├── [FILE] RecalibrationTable.tsx
+                    ├── [FILE] RecalibrationWorkspace.tsx
+                    ├── [FILE] SignalFilterModal.tsx
+                    ├── [FILE] SignalModelsPanel.tsx
+                    ├── [FILE] TagConstantsPanel.tsx
+                    ├── [FILE] UserActionsMenu.tsx
+                    ├── [FILE] UsersPanelTable.tsx
+                    ├── [FILE] WeightVersionPicker.tsx
+                    ├── [FILE] WeightsConfigPanel.tsx
+                ├── [DIR] shared
+                    ├── [FILE] CampaignCreateForm.tsx
+                    ├── [FILE] Combobox.tsx
+                    ├── [FILE] ComboboxDatePicker.tsx
+                    ├── [FILE] ConfirmationForm.tsx
+                    ├── [FILE] CreativeStatusBadge.tsx
+                    ├── [FILE] LoginForm.tsx
+                    ├── [FILE] PlacementEmbedModal.tsx
+                    ├── [FILE] ProcessingPoller.tsx
+                    ├── [FILE] UploadFlow.tsx
+                    ├── [FILE] WorkspaceNav.tsx
+                ├── [DIR] user
+                    ├── [FILE] ExportButton.tsx
+                    ├── [FILE] Filters.tsx
+                    ├── [FILE] ImpressionsTable.tsx
+                    ├── [FILE] SignalFilterModal.tsx
+                    ├── [FILE] TagBuilderModal.tsx
+                    ├── [FILE] UserCampaignsTable.tsx
+            ├── [DIR] lib
+                ├── [DIR] admin
+                    ├── [FILE] api.ts
+                    ├── [FILE] search-params.ts
+                    ├── [FILE] segment-color.ts
+                    ├── [FILE] signal-formulas.ts
+                    ├── [FILE] types.ts
+                    ├── [FILE] upload-api.ts
+                ├── [DIR] shared
+                    ├── [FILE] auth.ts
+                    ├── [FILE] date.ts
+                    ├── [FILE] env.ts
+                    ├── [FILE] signals-meta.ts
+                    ├── [FILE] tag-builder.ts
+                    ├── [FILE] types.ts
+                    ├── [FILE] use-popover.ts
+                ├── [DIR] user
+                    ├── [FILE] api.ts
+                    ├── [FILE] search-params.ts
+                    ├── [FILE] types.ts
+            ├── [FILE] middleware.ts
+            ├── [DIR] styles
+                ├── [FILE] campaigns.module.css
+                ├── [FILE] combobox.module.css
+                ├── [FILE] components.module.css
+                ├── [FILE] confirmation-form.module.css
+                ├── [FILE] create-user-form.module.css
+                ├── [FILE] creative-status-badge.module.css
+                ├── [FILE] creatives.module.css
+                ├── [FILE] detail-page.module.css
+                ├── [FILE] detail.module.css
+                ├── [FILE] filters.module.css
+                ├── [FILE] formula-card.module.css
+                ├── [FILE] impressions.module.css
+                ├── [FILE] ivt-list-entries-modal.module.css
+                ├── [FILE] ivt-panel.module.css
+                ├── [FILE] ivt.module.css
+                ├── [FILE] login.module.css
+                ├── [FILE] logout-button.module.css
+                ├── [FILE] pagination.module.css
+                ├── [FILE] placement-detail.module.css
+                ├── [FILE] placement-embed-modal.module.css
+                ├── [FILE] placements.module.css
+                ├── [FILE] processing-poller.module.css
+                ├── [FILE] recalibration.module.css
+                ├── [FILE] signal-filter-modal.module.css
+                ├── [FILE] signal-models.module.css
+                ├── [FILE] signals.module.css
+                ├── [FILE] table.module.css
+                ├── [FILE] tag-builder-modal.module.css
+                ├── [FILE] tag-constants.module.css
+                ├── [FILE] upload-flow.module.css
+                ├── [FILE] uploads.module.css
+                ├── [FILE] user_panel.module.css
+                ├── [FILE] users_panel.module.css
+                ├── [FILE] weights-panel.module.css
+                ├── [FILE] weights.module.css
+                ├── [FILE] workspace-nav.module.css
+            ├── [DIR] types
+                ├── [FILE] css.d.ts
+        ├── [FILE] tsconfig.json
+        ├── [FILE] tsconfig.tsbuildinfo
 ```
 
 ---
@@ -194,12 +198,21 @@ packages/frontend/
 | `/admin/ivt` | admin | реализовано |
 | `/user/panel` | user | реализован |
 | `/user/impressions` | user | реализован |
+| `/campaigns` | user + admin | реализовано |
+| `/creatives` | user + admin | реализовано |
+| `/uploads` | user + admin | реализовано |
+| `/placements` | user + admin | реализовано |
+| `/placements/[uuid]` | user + admin | реализовано |
 
 **`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`. Содержит `export const dynamic = 'force-dynamic'` — принудительный динамический рендер на каждый запрос. Без этого флага Next.js Full Route Cache может закэшировать redirect-ответ до авторизации, и повторное открытие домена в новой вкладке возвращает кэшированный `/login` даже при валидной сессии.
 
 **`src/app/admin/layout.tsx`** — серверный guard: проверяет наличие токена и роль `admin` (через `decodeTokenRole()`). При несоответствии — `redirect('/login')`.
 
 **`src/app/user/layout.tsx`** — аналогичный guard для роли `user`. Сам `/user/panel`.
+
+**`src/app/(workspace)/layout.tsx`** — layout workspace pages. В текущей реализации не содержит ролевого guard'а — авторизация обеспечивается middleware (redirect на `/login` при отсутствии `cpmind_token`). Route group не ограничивает роль — страницы доступны и `admin`, и `user`.
+
+**`(workspace)` route group** — Next.js App Router route group без сегмента URL. Все страницы внутри доступны по URL без `(workspace)/` префикса: `/campaigns`, `/creatives`, `/placements`, `/placements/[uuid]`, `/uploads`. Общий `layout.tsx` рендерит `WorkspaceNav` и `{children}`.
 
 ---
 
@@ -298,6 +311,38 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 
 **Логаут-запрос** (`POST /api/auth/logout`) не выносится в `api.ts` — выполняется inline в `LogoutButton` как единственный вызов без переиспользования: `fetch(\`${BACKEND}/api/auth/logout\`, { method: 'POST', credentials: 'include' })`.
 
+**Новые интерфейсы и функции (workspace flow):**
+
+**Интерфейсы:** `CampaignRow`, `AssetView`, `CreativeVersionView`, `CreativeListItem`, `CreativeDetail`, `PlacementListItem`, `PlacementDetail` — локальные TypeScript интерфейсы, зеркало ответов backend API. Не импортируются из `@cpmind/shared` (схемы Placement/Creative там есть, но интерфейсы ответов специфичны для frontend).
+
+**Dual-mode fetch pattern** (`fetchCampaigns`, `fetchCreatives`, `fetchCreativeDetail`, `fetchPlacementDetail`):
+```typescript
+const backend = cookie ? getBackendUrl() : CLIENT_BACKEND;
+...(cookie ? { headers: { Cookie: cookie } } : { credentials: 'include' })
+```
+Server Component передаёт `cookie` → запрос через внутреннюю Docker-сеть. Client Component не передаёт `cookie` → fetch с `credentials: 'include'` к `NEXT_PUBLIC_BACKEND_URL`.
+
+**Upload-функции:**
+- `createUploadSession(payload)` → `POST /api/creative-uploads` → `UploadSessionResponse` (presigned URL или part URLs)
+- `completeUploadSession(uploadId, parts?)` → `POST /api/creative-uploads/:uuid/complete`
+- `getUploadSessionStatus(uploadId)` → `GET /api/creative-uploads/:uuid` → `UploadSessionStatus`
+
+**Campaign-функции:**
+- `fetchCampaigns(cookie?)` — dual-mode, `GET /api/campaigns`
+- `createCampaign(name)` — client-side, `POST /api/campaigns`
+
+**Creative-функции:**
+- `fetchCreatives(cookie?)` — dual-mode, `GET /api/creatives`
+- `fetchCreativeDetail(uuid, cookie?)` — dual-mode, `GET /api/creatives/:uuid`; 404 → `null`
+- `archiveCreative(uuid)` — client-side, `POST /api/creatives/:uuid/archive`
+
+**Placement-функции:**
+- `fetchPlacements(cookie?)` — server-side only (`getBackendUrl()` без fallback)
+- `fetchPlacementDetail(uuid, cookie?)` — dual-mode; 404 → `null`
+- `createPlacement(payload)` — client-side; `CreatePlacementPayload` из `@cpmind/shared`
+- `updatePlacement(uuid, payload)` — client-side; `UpdatePlacementPayload` из `@cpmind/shared`
+- `setPlacementActive(uuid, isActive)` — client-side; `POST /api/placements/:uuid/activate` или `/deactivate`
+
 ### `src/lib/admin/searchParams.ts`
 
 **`parseListSearchParams(searchParams, forceUserUuid?)`** — единственная точка разбора URL query-параметров в `ListParams`. Используется в двух местах: `/admin/impressions/page.tsx` и `/admin/weights/recalculate/page.tsx`.
@@ -329,6 +374,24 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - Цвет получают **только** группы с более чем одним видимым сегментом. Одиночный сегмент → нейтральный серый бейдж, без цвета (нечего визуально отличать).
 - Назначение последовательное по первому вхождению в массиве `rows`, не по хэшу UUID. Гарантирует ноль коллизий, пока количество многосегментных групп не превышает размер палитры (8 цветов), вместо вероятностного распределения с неизбежными коллизиями.
 - Цвет зависит от текущего набора видимых строк — при изменении фильтра цвет группы может измениться (осознанное решение, не баг).
+
+### `src/lib/admin/upload-api.ts`
+
+Оркестратор загрузки файлов в Object Storage через presigned URLs. Весь upload выполняется с клиента напрямую в YC Object Storage — backend не проксирует бинарные данные.
+
+**Ключевые решения:**
+
+**XHR вместо fetch:** `fetch` API не предоставляет `upload.progress` событие — прогресс бар невозможен. Все PUT-запросы выполняются через `XMLHttpRequest` с обработчиком `xhr.upload.addEventListener('progress')`.
+
+**`uploadChunkXhr(url, data, onProgress, signal)`** — XHR PUT одного blob с поддержкой `AbortSignal` и возвратом ETag из ответа. Object Storage возвращает ETag в кавычках — нормализуется через `raw.replace(/^"|"$/g, '')`.
+
+**`uploadFileMultipart(parts, file, onProgress, signal)`** — параллельная загрузка частей с `PART_CONCURRENCY = 4`. Прогресс агрегируется по всем активным частям через `Map<partNumber, loaded>`. Части разбиваются через `file.slice(byteStart, byteEnd)`. Результат сортируется по `partNumber` — Object Storage требует строгого порядка при `CompleteMultipart`.
+
+**`uploadFile(session, file, onProgress, signal)`** — публичный оркестратор. Определяет стратегию из `session.strategy`:
+- `'multipart'` → `uploadFileMultipart`, возвращает `CompleteMultipartPart[]`
+- `'single'` → `uploadFileSingle`, возвращает `null`
+
+Возвращаемые части передаются в `completeUploadSession(uploadId, parts)`.
 
 ---
 
@@ -375,6 +438,34 @@ Server Component. `fetchWeightsConfigs`. Обратная ссылка: `/admin/
 ### `/admin/weights/recalculate` — `page.tsx`
 
 Server Component. Открывается в новой вкладке. Скоуп всегда = собственный UUID администратора (`forceUserUuid = ownUuid` в `parseListSearchParams`). Фетчит те же 4 источника, что `/admin/impressions`. Передаёт данные в `RecalibrationWorkspace`.
+
+---
+
+## Workspace — страницы
+
+### `/(workspace)/layout.tsx` — Workspace Layout
+
+Server Component. Рендерит `<WorkspaceNav />` и `{children}`. Применяется ко всем workspace-страницам через route group.
+
+### `/(workspace)/campaigns` — `page.tsx`
+
+Server Component. `fetchCampaigns(cookie)`. Отображает список активных кампаний. `<CampaignCreateForm />` — поповер создания кампании. После создания — `router.refresh()`.
+
+### `/(workspace)/creatives` — `page.tsx`
+
+Server Component. `fetchCreatives(cookie)`. Список creatives с `<CreativeStatusBadge>` по `status`. Ссылка на upload page для создания нового creative.
+
+### `/(workspace)/uploads` — `page.tsx`
+
+Server Component. `fetchCampaigns(cookie)` — список кампаний для выбора в форме upload. Монтирует `<UploadFlow />` — полный upload flow на клиенте.
+
+### `/(workspace)/placements` — `page.tsx`
+
+Server Component. `fetchPlacements(cookie)` + `fetchCreatives(cookie)`. Список placements с embed code badge и статусом creative version. `<CreatePlacementForm />` — форма создания placement (выбор campaign + creative + mode + параметры).
+
+### `/(workspace)/placements/[uuid]` — `page.tsx`
+
+Server Component. `fetchPlacementDetail(uuid, cookie)`. Детальный вид placement: режим, creative, embed code, VAST URL (null если version не ready). `<PlacementEmbedModal />` — модальное окно с embed кодом и copy-кнопкой. `<PlacementActions />` — Client Component для activate/deactivate/edit.
 
 ---
 
@@ -806,6 +897,39 @@ Client Component. Выбор даты через встроенный кален
 ### `LoginForm.tsx`
 
 Client Component. `POST /api/auth/login` с `credentials: 'include'`. После успеха — `router.push('/')`, роль-based redirect обрабатывает `page.tsx`. Переключатель видимости пароля.
+
+---
+
+### `WorkspaceNav.tsx`
+
+Server или Client Component. Навигационная панель workspace. Ссылки: Кампании (`/campaigns`), Креативы (`/creatives`), Загрузить (`/uploads`), Плейсменты (`/placements`). Активная ссылка определяется через `usePathname()`.
+
+### `CampaignCreateForm.tsx`
+
+Client Component. Поповер-форма создания кампании. Поле `name`. `POST /api/campaigns` через `createCampaign()`. После успеха — `router.refresh()`, поповер закрывается.
+
+### `CreativeStatusBadge.tsx`
+
+Client Component. Badge статуса creative: `processing` → amber, `ready` → зелёный, `failed` → красный, остальные → нейтральный. Используется в списке creatives и при выборе creative в форме placement.
+
+### `PlacementEmbedModal.tsx`
+
+Client Component. Модальное окно отображения embed code (`<script async src="...">`) с кнопкой «Копировать». `navigator.clipboard.writeText()` + визуальная индикация «Скопировано ✓» на 1500ms. Монтируется через `ReactDOM.createPortal` в `document.body`.
+
+### `ProcessingPoller.tsx`
+
+Client Component. Polling `GET /api/creative-uploads/:uuid` через `setInterval`. Останавливается при `status === 'ready' || status === 'failed'`. Показывает spinner во время processing. При `ready` — вызывает `onReady(creativeVersionUuid)`. При `failed` — отображает `processingError`.
+
+### `UploadFlow.tsx`
+
+Client Component. Полный upload flow:
+1. Выбор кампании и файла (drag-and-drop + file input)
+2. `createUploadSession(payload)` → получение presigned URL
+3. `uploadFile(session, file, onProgress, signal)` → прогресс-бар
+4. `completeUploadSession(uploadId, parts?)` → триггер processing job
+5. `<ProcessingPoller />` → ожидание ready/failed
+
+AbortController для отмены upload. `onProgress` callback обновляет процент (`0–100`) в локальном state. Ошибки отображаются inline без `alert()`.
 
 ---
 

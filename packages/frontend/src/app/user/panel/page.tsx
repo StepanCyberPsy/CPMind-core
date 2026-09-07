@@ -21,6 +21,9 @@ export default async function UserPanelPage() {
           Импрешены:{' '}
           <span className={styles.headerCount}>{impressionsTotal.toLocaleString('ru-RU')}</span>
         </div>
+        <a href="/campaigns" className={styles.workspaceLink}>
+          Мои размещения →
+        </a>
       </header>
 
       <div className={styles.content}>

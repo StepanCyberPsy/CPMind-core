@@ -9,7 +9,7 @@ import {
   activateIvtListConfig,
   deactivateIvtListConfig,
   parseIvtListCsv,
-} from '../services/ivt_list.js';
+} from '../services/ivt/ivt_list.js';
 
 const CreateIvtListSchema = z.object({
   version: z.string().min(1).max(100),

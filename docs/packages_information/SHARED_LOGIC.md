@@ -23,66 +23,42 @@ Production-зависимость только одна — Zod. Всё оста
 
 ## Структура пакета
 
-```
-packages/shared/
-├── package.json                  # devDependency для тега, production для backend/frontend
-├── tsconfig.json
-└── src/
-    ├── index.ts                  # единственная точка экспорта публичного API:
-    │                             # именованные Zod-схемы + export type * from ./types/index
-    ├── schemas/
-    │   ├── impression.ts         # ImpressionPayloadSchema — входящий payload от тега
-    │   │                         # (обновлен: publisher_domain, skippable,
-    │   │                         # s6_completion_rate_pct, s6_duration_sec в S6Schema)
-    │   ├── auth.ts               # LoginSchema, MePayloadSchema
-    │   ├── user.ts               # UserRoleSchema, UserUuidSchema, UserSchema,
-    │   │                         # UserStatsRowSchema, CreateUserPayloadSchema,
-    │   │                         # UpdateUserPayloadSchema
-    │   ├── tag.ts                # TagUuidSchema, TagSchema, CreateTagPayloadSchema,
-    │   │                         # UpdateTagPayloadSchema
-    │   ├── api.ts                # ImpressionRowSchema, ImpressionDetailSchema,
-    │   │                         # ImpressionListResponseSchema, WeightConfigRowSchema
-    │   │                         # (обновлен: skippable, publisher_domain, s6 raw поля,
-    │   │                         # все *_model_version поля в ImpressionRowSchema)
-    │   ├── calibration.ts        # CalibrationSelectionSchema (discriminated union),
-    │   │                         # CalibrationBatchSchema, CalibrationItemSchema,
-    │   │                         # ApproveCalibrationResultSchema и сопутствующие
-    │   ├── tag-constants.ts      # TagConstantsValuesSchema (19 полей),
-    │   │                         # TagConstantsConfigSchema, DEFAULT_TAG_CONSTANTS
-    │   │                         # (обновлен: S1_VIEWPORT_THRESHOLDS [0,0.75,1.0]),
-    │   │                         # TAG_BUILD_TARGETS
-    │   └── ivt.ts                # IvtVerdictSchema, IvtListEntrySchema,
-    │                             # IvtThresholdsSchema, DEFAULT_IVT_THRESHOLDS,
-    │                             # IvtListConfigRowSchema
-    ├── scoring/
-    │   ├── signal_defaults.ts    # NEW: интерфейсы и DEFAULT_* для всех параметрических
-    │   │                         # моделей сигналов (WeibullParams, LogisticParams,
-    │   │                         # S4Config, S5LogisticParams, S6LogisticParams,
-    │   │                         # S7Thresholds + все DEFAULT_*)
-    │   ├── weibull_mle_fit.ts    # NEW: fitWeibullMLE(samples) — Newton-Raphson MLE
-    │   │                         # для S1 (используется backend recalibration jobs)
-    │   ├── logistic_mle_fit.ts   # NEW: fitLogisticMLE(X, y) — IRLS алгоритм
-    │   │                         # для S3/S5/S6 (используется backend recalibration jobs)
-    │   ├── capping.ts            # applyAnomalyCapping()
-    │   │                         # (обновлен: volume_level [0,100] для S6,
-    │   │                         # s6_completion_rate_pct, s6_duration_sec cappings)
-    │   ├── normalize.ts          # normalizeS1–S7(), normalizeAll(), getS5TopEventLabel()
-    │   │                         # (полная замена формул S1,S3,S4,S5,S6,S7 на
-    │   │                         # параметрические модели с инъекцией параметров)
-    │   ├── weights.ts            # DEFAULT_WEIGHTS, WeightsValues, computeEffectiveWeights(),
-    │   │                         # detectNullSignals()
-    │   ├── score.ts              # computeScore(), recomputeScoreFromNormalized()
-    │   │                         # (обновлен: принимает model params через normalizeAll,
-    │   │                         # null-safe S6 обработка)
-    │   └── ivt.ts                # classifyIvtSync() — GIVT/SIVT pure function
-    │                             # (обновлен: viewWithoutActiveTab порог >0 → >3)
-    ├── access/
-    │   └── impression-fields.ts  # USER_VISIBLE_IMPRESSION_FIELDS, UserImpressionRowSchema
-    └── types/
-        └── index.ts              # re-export всех TypeScript-типов (export type)
-                                  # (обновлен: WeibullParams, LogisticParams, S4Config,
-                                  # S5LogisticParams, S6LogisticParams, S7Thresholds,
-                                  # NormalizeAllParams + производные типы)
+```txt
+    ├── [DIR] shared
+        ├── [FILE] package.json
+        ├── [DIR] src
+            ├── [DIR] access
+                ├── [FILE] impression-fields.ts
+            ├── [FILE] index.ts
+            ├── [DIR] schemas
+                ├── [FILE] ad_session.ts
+                ├── [FILE] api.ts
+                ├── [FILE] asset.ts
+                ├── [FILE] auth.ts
+                ├── [FILE] calibration.ts
+                ├── [FILE] creative.ts
+                ├── [FILE] delivery.ts
+                ├── [FILE] impression.ts
+                ├── [FILE] ivt.ts
+                ├── [FILE] placement.ts
+                ├── [FILE] player.ts
+                ├── [FILE] tag-constants.ts
+                ├── [FILE] tag.ts
+                ├── [FILE] upload.ts
+                ├── [FILE] user.ts
+                ├── [FILE] vast.ts
+            ├── [DIR] scoring
+                ├── [FILE] capping.ts
+                ├── [FILE] ivt.ts
+                ├── [FILE] logistic_mle_fit.ts
+                ├── [FILE] normalize.ts
+                ├── [FILE] score.ts
+                ├── [FILE] signal_defaults.ts
+                ├── [FILE] weibull_mle_fit.ts
+                ├── [FILE] weights.ts
+            ├── [DIR] types
+                ├── [FILE] index.ts
+        ├── [FILE] tsconfig.json
 ```
 
 ---
@@ -784,6 +760,177 @@ Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
 
 **`IvtListConfigRowSchema`** / **`IvtThresholdsConfigRowSchema`** — контракты ответов API для frontend (без поля `entries` в списке — только метаданные версии).
 
+### `schemas/creative.ts`
+
+Перечисления типов creative-объектов. Используются как общие зависимости для `impression.ts`, `delivery.ts`, `placement.ts`, `upload.ts`.
+
+**`CreativeTypeSchema`** — `z.enum(['banner_static', 'banner_gif', 'banner_html5', 'video_creative'])`. Единственный источник истины для типов — используется в DB enum, Zod-валидации и TypeScript типизации.
+
+**`CreativeStatusSchema`** — `z.enum(['draft', 'processing', 'ready', 'active', 'archived', 'failed'])`.
+
+**`DeviceTypeSchema`** — `z.enum(['desktop', 'mobile', 'tablet'])`.
+
+---
+
+### `schemas/asset.ts`
+
+Типы и схемы ассетов (обработанных медиафайлов).
+
+**`AssetClassSchema`** — `z.enum(['source', 'image', 'animated_image', 'video', 'video_poster', 'html_file', 'svg'])`. Используется media-worker для классификации выходных файлов при обработке.
+
+**`AssetStatusSchema`** — `z.enum(['pending', 'ready', 'failed'])`.
+
+**`AudioConnectionSchema`** — `z.enum(['bluetooth', 'wired_headphones', 'built_in_speaker', 'external_speaker', 'unknown', 'none'])`. Используется в S6 accumulator для фиксации типа аудиовыхода. Детектируется через `navigator.mediaDevices.enumerateDevices()` в player и tag.
+
+**`AssetRowSchema`** — полная схема ассета для API-ответа. Ключевые поля: `sha256` (char 64, content-addressed), `storage_key` (path в Object Storage), `asset_class`, `width/height/duration_sec/codec/bitrate_bps` (null для нерелевантных типов).
+
+---
+
+### `schemas/delivery.ts`
+
+Контракты delivery-контура: режимы, идентификаторы, конфигурация runtime.
+
+**`DeliveryModeSchema`** — `z.enum(['display', 'instream_preroll', 'instream_midroll', 'instream_postroll', 'outstream', 'standalone_video'])`. Соответствует полю `mode` в `placements`.
+
+**`MeasurementModeSchema`** — `z.enum(['full_direct_display', 'full_cpmind_player', 'partial_embedded_iframe', 'vast_only', 'legacy_tag'])`. Определяет какой SDK-путь использовался при измерении. Устанавливается backend при генерации embed script, хранится в `ad_sessions` и `impressions`.
+
+**`MeasurementFinalizationReasonSchema`** — `z.enum(['complete', 'skip', 'close', 'timeout', 'error', 'page_unload', 'idle', 'creative_removed', 'destroyed'])`. Причина завершения SDK measurement session. Маппинг из `PlayerTerminalOutcome` выполняется в `sdk_bridge.ts`.
+
+**`AdSessionIdSchema`** — `z.string().uuid().brand<'AdSessionId'>()`. Branded type — исключает случайную подстановку обычного UUID. Генерируется сервером при каждом `GET /e/:token` или `GET /vast/:token`, включается в `DeliveryRuntimeConfig`.
+
+**`PlayerTimeoutsSchema`** — объект с 6 таймаутами (все `z.number().int().positive()`):
+
+| Поле | Default | Назначение |
+|---|---|---|
+| `configRequestMs` | 5 000 | Запрос runtime конфига |
+| `vastRequestMs` | 8 000 | VAST XML fetch |
+| `mediaStartMs` | 15 000 | Начало воспроизведения |
+| `firstFrameMs` | 10 000 | Первый video frame |
+| `contentHandoffMs` | 5 000 | Передача управления content video |
+| `adLoadTotalMs` | 30 000 | Полный цикл загрузки ad |
+
+Defaults совпадают с seed `delivery_runtime_configs v1.0` в БД и с `DEFAULT_PLAYER_TIMEOUTS` в `@cpmind/sdk`.
+
+**`DeliveryRuntimeConfigSchema`** — полная конфигурация, передаваемая от backend через embed script в `window.__CPMIND_QUEUE__`. Используется display-runtime, player и embed loader. Ключевые поля:
+
+- `adSessionId` — branded `AdSessionId`
+- `placementUuid`, `deliveryToken`, `creativeVersionUuid`, `creativeType`, `deliveryMode`
+- `tagUuid`, `tagConstantsVersion`, `tagConstants` — для impression payload и S1–S7
+- `collectEndpoint`, `deliveryEventEndpoint` — эндпоинты для транспорта
+- `vastUrl` — URL для VAST fetch (null для display)
+- `clickUrl`, `width`, `height`, `plcmt`, `autoplay`, `initialMuted`, `skippable`, `skipOffsetSec`
+- `timeouts` — `PlayerTimeoutsSchema`
+
+**`DeliveryTimingSchema`** — диагностические тайминги доставки (опционально в `ImpressionPayloadSchema`): `requested_at`, `creative_ready_at`, `render_confirmed_at`, `load_duration_ms`.
+
+---
+
+### `schemas/placement.ts`
+
+Схемы для управления placement'ами через панель.
+
+**`PlcmtSchema`** — `z.number().int().min(1).max(5)`. IAB OpenRTB значения: 1=In-Stream, 2=In-Banner, 3=In-Article, 4=In-Feed, 5=Interstitial.
+
+**`AutoplayModeSchema`** — `z.enum(['autoplay', 'click_to_play'])`.
+
+**`CreatePlacementPayloadSchema`** — обязательные: `campaignUuid`, `creativeUuid`, `mode`. Опциональные с дефолтами: `initialMuted: true`, `skippable: false`. `allowedDomains` — массив доменов с DOMAIN_REGEX валидацией (max 253 символа).
+
+**`UpdatePlacementPayloadSchema`** — все поля опциональны; refine: хотя бы одно поле должно быть предоставлено.
+
+**`PlacementRowSchema`** — контракт детального ответа API. Включает `deliveryToken` (min 32), `embedCode`/`vastUrl` генерируются на сервере и не входят в схему (добавляются сервисом `placements.ts`).
+
+---
+
+### `schemas/upload.ts`
+
+Схемы upload pipeline: создание сессии, presigned URLs, завершение.
+
+**`MAX_UPLOAD_SIZE_BYTES`** — `2 * 1024 * 1024 * 1024` (2 GB). Константа — граница валидации `sizeBytes` при создании сессии и максимальный размер файла принимаемый media-worker.
+
+**`CreateUploadPayloadSchema`** — `campaignUuid`, `creativeType`, `filename` (без путей, FILENAME_REGEX), `sizeBytes` (max `MAX_UPLOAD_SIZE_BYTES`), `mimeType` (MIME_TYPE_REGEX).
+
+**`UploadSessionResponseSchema`** — discriminated union по `strategy`:
+- `'single'`: `uploadId`, `uploadUrl`, `expiresAt`
+- `'multipart'`: `uploadId`, `parts: UploadPartPresignedUrlSchema[]`, `expiresAt`
+
+Порог переключения на multipart: `MULTIPART_THRESHOLD_BYTES = 100 MB` (определён в `services/storage/presign.ts`).
+
+**`CompleteUploadPayloadSchema`** — `parts: CompleteMultipartPartSchema[]` (min 1). Для single upload тело пустое — валидация в route.
+
+**`UploadSessionStatusSchema`** — ответ polling endpoint. `creativeVersionUuid` возвращается только при `status = 'ready' | 'failed'`.
+
+---
+
+### `schemas/ad_session.ts`
+
+Схемы рекламных сессий (ad_sessions в БД) и delivery events.
+
+**`AdSessionIdentitySchema`** — контекст идентификации сессии для SDK. Передаётся в `adSessionIdentity` поле `SessionPayloadMeta`. Поля: `adSessionId` (branded), `placementUuid`, `creativeVersionUuid` (nullable), `creativeType`, `deliveryMode`, `measurementMode`.
+
+**`AdSessionPlayerErrorCodeSchema`** — enum кодов диагностики player:
+```
+CONFIG_FETCH_FAILED, VAST_FETCH_FAILED, VAST_XML_INVALID, VAST_STRUCTURE_UNSUPPORTED,
+NO_SUPPORTED_MEDIA, MEDIA_LOAD_FAILED, MEDIA_PLAYBACK_BLOCKED, MEDIA_START_TIMEOUT,
+FIRST_FRAME_TIMEOUT, CONTENT_BRIDGE_FAILED, CONTENT_RESUME_FAILED, PLAYER_DESTROYED
+```
+
+**`AdSessionDeliveryEventTypeSchema`** — `z.enum(['requested', 'asset_load_started', 'creative_ready', 'render_confirmed', 'creative_error', 'player_error', 'closed'])`. Lifecycle события SDK.
+
+**`DeliveryEventPayloadSchema`** — payload `POST /api/delivery/event`: `adSessionId`, `eventType`, `errorCode` (optional), `timestampMs` (int, positive).
+
+**`AdSessionPlaybackQualitySchema`** — `{ dropped_frames, total_frames }` с refine `dropped_frames <= total_frames`. Хранится в `ad_sessions.playback_quality` (JSONB).
+
+**`AdSessionRowSchema`** — полная схема строки `ad_sessions` для API-ответа. Включает все timestamp-поля (`requestedAt`, `assetLoadStartedAt`, `creativeReadyAt`, `renderConfirmedAt`, `measurementStartedAt`, `measurementEndedAt`, VAST-тайминги, `errorAt`), `autoplayOutcome`, `publisherDomain`, `playerRuntimeVersion`, `sdkRuntimeVersion`.
+
+---
+
+### `schemas/player.ts`
+
+Схемы для типизации Player и SDK measurement events. Используются в `@cpmind/player`, `@cpmind/sdk`, `@cpmind/display-runtime`.
+
+**`PlayerActionSourceSchema`** — `z.enum(['user', 'player', 'browser', 'programmatic', 'unknown'])`. Источник действия для атрибуции в S6 accumulator.
+
+**`PlayerLifecycleStateSchema`** — `z.enum(['idle', 'preparing', 'requesting_vast', 'loading_media', 'ready', 'playing', 'paused', 'completed', 'skipped', 'errored', 'handing_off', 'destroyed'])`.
+
+**`PlayerTerminalOutcomeSchema`** — discriminated union по `type`:
+
+| `type` | Доп. поля | Причина |
+|---|---|---|
+| `completed` | — | Видео досмотрено |
+| `skipped` | `source` | Нажата skip кнопка |
+| `closed` | `source` | Нажат close |
+| `failed` | `errorCode` | Ошибка загрузки/воспроизведения |
+| `timed_out` | `errorCode` | Timeout |
+| `page_unloaded` | — | pagehide event |
+| `creative_removed` | — | MutationObserver: creative удалён из DOM |
+| `destroyed` | — | Явный вызов destroy() |
+
+Все варианты `.strict()` — исключает лишние поля.
+
+**`VideoMeasurementEventSchema`** — discriminated union по `type` для SDK `reportVideoEvent()`. Типы: `play`, `pause`, `resume`, `progress`, `seek`, `mute`, `unmute`, `volume`, `skip`, `complete`, `replay`, `duration_known`, `quartile`, `audio_connection`. Все с полем `timestampMs` (`performance.now()`, не `Date.now()`). Refine на `progress`: `currentTimeSec <= durationSec + 0.5`.
+
+---
+
+### `schemas/vast.ts`
+
+Полный набор схем для VAST 4.3 InLine. Используется в player (парсинг), backend (генерация), frontend (типизация).
+
+**Ключевые схемы:**
+
+**`VastTrackingRequestSchema`** — нормализованный запрос к CPMind VAST tracking endpoint (`GET /t/vast/:event`): `event`, `sid` (branded `AdSessionId`), `code` (только для `error`). Refine: `code` обязателен для `error`, запрещён для остальных.
+
+**`VastLinearTrackingEventTypeSchema`** — полный VAST 4.3 enum: `creativeView`, `start`, `firstQuartile`, `midpoint`, `thirdQuartile`, `complete`, `progress`, `pause`, `resume`, `rewind`, `mute`, `unmute`, `skip`, `closeLinear`, `fullscreen`, `exitFullscreen`, `playerExpand`, `playerCollapse`, `acceptInvitationLinear`, `otherAdInteraction`, `notUsed`.
+
+**`VastErrorCodeSchema`** — IAB VAST 4.3 numeric error codes (100–901).
+
+**`VastTimeOffsetSchema`** — discriminated union: `{ kind: 'seconds', value }` или `{ kind: 'percent', value }`. Используется для `skipoffset` и `progress` tracking offset.
+
+**`VastTrackingResourceSchema`** — tracking event с refine: `progress` требует `offset !== null`, остальные требуют `offset === null`.
+
+**`VastMediaFileSchema`** — полная схема MediaFile с refine: `minBitrateKbps` и `maxBitrateKbps` должны быть предоставлены вместе, `min <= max`.
+
+**`VastParsedAdSchema`** — нормализованный InLine ad: `vastVersion: '4.3'`, `format: 'inline'`, `adType: 'video'`. Включает `adVerifications` (OMID, parsed but not executed in v1). Все поля `.strict()`.
+
 ---
 
 ## Изменения, внесённые в сессию bug-fixing / signal modifications
@@ -826,6 +973,15 @@ Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
 | `access/impression-fields.ts` | `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable` в `USER_VISIBLE_IMPRESSION_FIELDS` |
 | `types/index.ts` | Реэкспорт `IvtVerdict`, `IvtListEntry`, `IvtThresholds`, `IvtListConfigRow`, `IvtListConfigListResponse`, `IvtThresholdsConfigRow`, `IvtThresholdsConfigListResponse`, `IvtSignal`, `IvtClassification` |
 | `index.ts` | `IvtVerdictSchema`, `IvtListEntrySchema`, `IvtThresholdsSchema`, `IvtListConfigRowSchema`, `IvtListConfigListResponseSchema`, `IvtThresholdsConfigRowSchema`, `IvtThresholdsConfigListResponseSchema`, `DEFAULT_IVT_THRESHOLDS`, `classifyIvtSync` |
+| `ad_session_id` | `AdSessionIdSchema.optional()` | Ссылка на `ad_sessions` для hosted creative flow |
+| `placement_uuid` | `z.string().uuid().optional()` | UUID placement для cross-referencing |
+| `creative_version_uuid` | `z.string().uuid().optional()` | UUID creative version |
+| `delivery_mode` | `DeliveryModeSchema.optional()` | Режим доставки |
+| `measurement_mode` | `MeasurementModeSchema.optional()` | Режим измерения SDK |
+| `delivery_timing` | `DeliveryTimingSchema.optional()` | Диагностические тайминги |
+| `finalization_reason` | `MeasurementFinalizationReasonSchema.optional()` | Причина завершения сессии |
+
+Все поля опциональны — backward совместимость с legacy tag payload (без hosted delivery контекста).
 
 ## Изменения, внесённые в текущую сессию (frontend + publisher domain)
 
@@ -847,3 +1003,41 @@ Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
 | `schemas/calibration.ts` | `CalibrationItemSchema` — добавлены `deviceType`, `s1Normalized`...`s7Normalized` |
 | `schemas/calibration.ts` | Экспортирован тип `CalibrationFilters` в `types/index.ts` |
 | `types/index.ts` | Добавлен реэкспорт `CalibrationFilters`, `UserStatsRow` (с `tagUuid`), `UserCampaignStatsRow`, `UserCampaignStatsListResponse` |
+
+## Изменения, внесённые в сессию hosted creative delivery
+
+| Файл | Изменение |
+|---|---|
+| `schemas/creative.ts` | **NEW** — `CreativeTypeSchema` (перенесён из impression.ts, добавлен как отдельный модуль), `CreativeStatusSchema`, `DeviceTypeSchema` |
+| `schemas/asset.ts` | **NEW** — `AssetClassSchema`, `AssetStatusSchema`, `AudioConnectionSchema` (перенесён из scoring), `AssetRowSchema` |
+| `schemas/delivery.ts` | **NEW** — `DeliveryModeSchema`, `MeasurementModeSchema`, `MeasurementFinalizationReasonSchema`, `AdSessionIdSchema` (branded UUID), `PlayerTimeoutsSchema`, `DeliveryRuntimeConfigSchema`, `DeliveryTimingSchema` |
+| `schemas/placement.ts` | **NEW** — `PlcmtSchema`, `AutoplayModeSchema`, `PlacementRowSchema`, `CreatePlacementPayloadSchema` (defaults: `initialMuted=true`, `skippable=false`), `UpdatePlacementPayloadSchema` (refine: min 1 поле), `PlacementListResponseSchema`, `PlacementUuidParamSchema` |
+| `schemas/upload.ts` | **NEW** — `MAX_UPLOAD_SIZE_BYTES` (2 GB), `UploadStatusSchema`, `UploadStrategySchema`, `CreateUploadPayloadSchema`, `UploadSessionResponseSchema` (discriminated union single/multipart), `CompleteMultipartPartSchema`, `CompleteUploadPayloadSchema`, `UploadSessionStatusSchema` |
+| `schemas/ad_session.ts` | **NEW** — `AdSessionIdentitySchema`, `AdSessionAutoplayOutcomeSchema`, `AdSessionPlayerErrorCodeSchema`, `AdSessionPlaybackQualitySchema` (refine: dropped≤total), `AdSessionDeliveryEventTypeSchema`, `DeliveryEventPayloadSchema`, `AdSessionRowSchema` |
+| `schemas/player.ts` | **NEW** — `PlayerActionSourceSchema`, `PlayerLifecycleStateSchema`, `PlayerTerminalOutcomeSchema` (discriminated union, 8 вариантов, все `.strict()`), `VideoMeasurementEventSchema` (discriminated union, 14 событий, refine на progress) |
+| `schemas/vast.ts` | **NEW** — полный набор VAST 4.3 схем: `VastTrackingRequestSchema` (refine: code только для error), `VastTrackingResourceSchema` (refine: offset только для progress), `VastMediaFileSchema` (refine: min/maxBitrate парные), `VastTimeOffsetSchema` (seconds/percent), `VastParsedAdSchema`, `VastVerificationSchema` (OMID), `VastErrorCodeSchema` (IAB коды 100–901) |
+| `schemas/impression.ts` | Добавлены опциональные поля hosted delivery context: `ad_session_id` (branded), `placement_uuid`, `creative_version_uuid`, `delivery_mode`, `measurement_mode`, `delivery_timing`, `finalization_reason` — backward совместимы (legacy tag payload проходит без них) |
+| `types/index.ts` | Реэкспорт всех типов из новых 7 schema файлов + VAST типы |
+| `index.ts` | Экспорт всех схем и констант из новых файлов, включая `MAX_UPLOAD_SIZE_BYTES` (не Zod-схема, но публичная константа) |
+
+**Новые блоки экспорта из `index.ts`:**
+
+- `schemas/creative.ts` → `CreativeTypeSchema`, `CreativeStatusSchema`, `DeviceTypeSchema`
+- `schemas/asset.ts` → `AssetClassSchema`, `AssetStatusSchema`, `AudioConnectionSchema`, `AssetRowSchema`
+- `schemas/delivery.ts` → `DeliveryModeSchema`, `MeasurementModeSchema`, `MeasurementFinalizationReasonSchema`, `AdSessionIdSchema`, `PlayerTimeoutsSchema`, `DeliveryRuntimeConfigSchema`, `DeliveryTimingSchema`
+- `schemas/placement.ts` → `PlcmtSchema`, `AutoplayModeSchema`, `PlacementRowSchema`, `CreatePlacementPayloadSchema`, `UpdatePlacementPayloadSchema`, `PlacementListResponseSchema`, `PlacementUuidParamSchema`
+- `schemas/upload.ts` → `MAX_UPLOAD_SIZE_BYTES`, `UploadStatusSchema`, `UploadStrategySchema`, `CreateUploadPayloadSchema`, `UploadPartPresignedUrlSchema`, `UploadSessionResponseSchema`, `CompleteMultipartPartSchema`, `CompleteUploadPayloadSchema`, `UploadSessionStatusSchema`
+- `schemas/ad_session.ts` → `AdSessionIdentitySchema`, `AdSessionAutoplayOutcomeSchema`, `AdSessionPlayerErrorCodeSchema`, `AdSessionPlaybackQualitySchema`, `AdSessionDeliveryEventTypeSchema`, `DeliveryEventPayloadSchema`, `AdSessionRowSchema`
+- `schemas/player.ts` → `PlayerActionSourceSchema`, `PlayerLifecycleStateSchema`, `PlayerTerminalOutcomeSchema`, `VideoMeasurementEventSchema`
+- `schemas/vast.ts` → все VAST схемы (см. структуру пакета)
+
+**Новые типы в `types/index.ts`:**
+
+- `CreativeType`, `CreativeStatus`, `DeviceType` из `schemas/creative.ts`
+- `AssetClass`, `AssetStatus`, `AudioConnection`, `AssetRow` из `schemas/asset.ts`
+- `DeliveryMode`, `MeasurementMode`, `MeasurementFinalizationReason`, `AdSessionId`, `PlayerTimeouts`, `DeliveryRuntimeConfig`, `DeliveryTiming` из `schemas/delivery.ts`
+- `Plcmt`, `AutoplayMode`, `PlacementRow`, `CreatePlacementPayload`, `UpdatePlacementPayload`, `PlacementListResponse`, `PlacementUuidParam` из `schemas/placement.ts`
+- `UploadStatus`, `UploadStrategy`, `CreateUploadPayload`, `UploadPartPresignedUrl`, `UploadSessionResponse`, `CompleteMultipartPart`, `CompleteUploadPayload`, `UploadSessionStatus` из `schemas/upload.ts`
+- `AdSessionIdentity`, `AdSessionAutoplayOutcome`, `AdSessionPlayerErrorCode`, `AdSessionPlaybackQuality`, `AdSessionDeliveryEventType`, `DeliveryEventPayload`, `AdSessionRow` из `schemas/ad_session.ts`
+- `PlayerActionSource`, `PlayerLifecycleState`, `PlayerTerminalOutcome`, `VideoMeasurementEvent` из `schemas/player.ts`
+- Все VAST типы из `schemas/vast.ts`

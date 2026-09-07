@@ -1,61 +1,144 @@
+import type {
+  SdkSignalConfig,
+  SessionPayloadMeta,
+  PresenceHandle,
+} from '@cpmind/sdk';
+import {
+  createSession,
+  initS1,
+  initS2,
+  initS3,
+  initS4,
+  initS5,
+  initS7,
+  initPresence,
+  collectFpHash,
+  attachUnloadHandlers,
+  startNewSegment,
+  DebugOverlay,
+} from '@cpmind/sdk';
+import {
+  initS6Legacy,
+  resetSegmentS6Legacy,
+} from './signals/s6_legacy.js';
+import {
+  PRESENCE_IDLE_TIMEOUT_MS,
+  S1_VIEWPORT_THRESHOLDS,
+  S2_SAMPLE_INTERVAL_MS,
+  SCROLL_ZONE_PX,
+  PAUSE_THRESHOLD_MS,
+  STREAK_WINDOW_MS,
+  STREAK_MIN_EVENTS,
+  STREAK_MIN_SPEED,
+  READING_SPEED_MAX,
+  READING_TIME_MIN,
+  SWIPE_MIN_DISTANCE_PX,
+  ENTROPY_ANGLE_THRESHOLD,
+  PROXIMITY_TRACK_ZONE_PX,
+  PINCH_DELTA_MIN_PX,
+  GESTURE_SCALE_DELTA_MIN,
+  TAP_MAX_OFFSET_PX,
+  TAP_MAX_DURATION_MS,
+  MOUSE_MOVE_DEDUP_PX,
+  S7_SAMPLE_INTERVAL_MS,
+} from './constants.js';
 import { parseConfig } from './config.js';
-import { createSession } from './session.js';
-import { collectFpHash } from './signals/headless.js';
-import { initS1 } from './signals/s1.js';
-import { initS2 } from './signals/s2.js';
-import { initS3 } from './signals/s3.js';
-import { initS4 } from './signals/s4.js';
-import { initS5 } from './signals/s5.js';
-import { initS6 } from './signals/s6.js';
-import { initS7 } from './signals/s7.js';
-import { initPresence } from './signals/presence.js';
-import type { PresenceHandle } from './signals/presence.js';
-import { attachUnloadHandlers } from './transport/send.js';
-import { startNewSegment } from './segment.js';
-import { DebugOverlay } from './debug/overlay.js';
+import type { TagConfig } from './types.js';
 
-(function (win: Window, doc: Document) {
+(function (doc: Document) {
   'use strict';
 
   const CREATIVE_SELECTOR = '[data-cpmind-creative]';
-
   const initializedContainers = new WeakSet<HTMLElement>();
+
+  // Мост между baked-in esbuild-константами и SdkSignalConfig
+  function createSdkConfig(debug: boolean): SdkSignalConfig {
+    return {
+      debug,
+      constants: {
+        PRESENCE_IDLE_TIMEOUT_MS,
+        S1_VIEWPORT_THRESHOLDS,
+        S2_SAMPLE_INTERVAL_MS,
+        SCROLL_ZONE_PX,
+        PAUSE_THRESHOLD_MS,
+        STREAK_WINDOW_MS,
+        STREAK_MIN_EVENTS,
+        STREAK_MIN_SPEED,
+        READING_SPEED_MAX,
+        READING_TIME_MIN,
+        SWIPE_MIN_DISTANCE_PX,
+        ENTROPY_ANGLE_THRESHOLD,
+        PROXIMITY_TRACK_ZONE_PX,
+        PINCH_DELTA_MIN_PX,
+        GESTURE_SCALE_DELTA_MIN,
+        TAP_MAX_OFFSET_PX,
+        TAP_MAX_DURATION_MS,
+        MOUSE_MOVE_DEDUP_PX,
+        S7_SAMPLE_INTERVAL_MS,
+      },
+    };
+  }
+
+  function createMeta(cfg: TagConfig): SessionPayloadMeta {
+    return {
+      tagUuid: cfg.tagUuid,
+      tagConstantsVersion: cfg.tagConstantsVersion,
+      campaignId: cfg.campaignId,
+      creativeId: cfg.creativeId,
+      creativeType: cfg.creativeType,
+      skippable: cfg.skippable,
+      endpoint: cfg.endpoint,
+    };
+  }
 
   function initializeContainer(container: HTMLElement): void {
     if (initializedContainers.has(container)) return;
 
     const cfg = parseConfig(container);
     if (!cfg) {
-      console.warn('[CPMind] Missing required data attributes on [data-cpmind-creative]:', container);
+      console.warn(
+        '[CPMind] Missing required data attributes on [data-cpmind-creative]:',
+        container,
+      );
       return;
     }
 
     initializedContainers.add(container);
 
     try {
-      const session = createSession(cfg);
-
+      const sdkConfig = createSdkConfig(cfg.debug);
+      const meta = createMeta(cfg);
+      const session = createSession(
+        cfg.publisherDomain !== undefined
+          ? { publisherDomain: cfg.publisherDomain }
+          : {},
+      );
       void collectFpHash().then((hash) => {
         session.fpHash = hash;
       });
 
-      initS1(container, session, cfg);
-      initS2(container, session, cfg);
-      initS3(container, session, cfg);
-      initS4(session, cfg);
-      initS5(container, session, cfg);
-      initS6(container, session);
-      initS7(container, session, cfg);
+      initS1(container, session, sdkConfig);
+      initS2(container, session, sdkConfig);
+      initS3(container, session, sdkConfig);
+      initS4(session, sdkConfig);
+      initS5(container, session, sdkConfig);
+      initS6Legacy(container, session);
+      initS7(container, session, sdkConfig);
 
-      const presenceHandle = initPresence(session, cfg, () => {
-        startNewSegment(container, session, cfg, presenceHandle);
-      });
+      const presenceHandle: PresenceHandle = initPresence(
+        session,
+        sdkConfig,
+        () => {
+          resetSegmentS6Legacy(container);
+          startNewSegment(container, session, sdkConfig, meta, presenceHandle);
+        },
+      );
 
       if (cfg.debug) {
         new DebugOverlay(container, session);
       }
 
-      attachUnloadHandlers(container, session, cfg, presenceHandle.cleanup);
+      attachUnloadHandlers(container, session, meta, sdkConfig, presenceHandle.cleanup);
     } catch (e) {
       console.warn('[CPMind] Creative initialization error:', e);
     }
@@ -69,7 +152,6 @@ import { DebugOverlay } from './debug/overlay.js';
     }
 
     const containers = node.querySelectorAll<HTMLElement>(CREATIVE_SELECTOR);
-
     for (const container of containers) {
       initializeContainer(container);
     }
@@ -85,10 +167,8 @@ import { DebugOverlay } from './debug/overlay.js';
           ) {
             initializeContainer(mutation.target);
           }
-
           continue;
         }
-
         for (const node of mutation.addedNodes) {
           initializeFromNode(node);
         }
@@ -110,7 +190,6 @@ import { DebugOverlay } from './debug/overlay.js';
     });
 
     const containers = doc.querySelectorAll<HTMLElement>(CREATIVE_SELECTOR);
-
     for (const container of containers) {
       initializeContainer(container);
     }
@@ -122,4 +201,4 @@ import { DebugOverlay } from './debug/overlay.js';
     console.warn('[CPMind] Initialization error:', e);
   }
 
-})(window, document);
+})(document);

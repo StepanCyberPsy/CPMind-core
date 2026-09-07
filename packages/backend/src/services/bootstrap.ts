@@ -25,7 +25,7 @@ import {
   s6LogisticConfigs,
   s7QuantileConfigs,
 } from '../db/schema.js';
-import { createTagConstantsConfig } from './tag_constants.js';
+import { createTagConstantsConfig } from './tag/tag_constants.js';
 
 const LEGACY_TAG_LABEL = 'legacy_default';
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;

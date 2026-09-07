@@ -7,7 +7,7 @@ import {
     createWeightsConfig,
     activateWeightsConfig,
     deleteWeightsConfig,
-} from '../services/weights_config.js';
+} from '../services/configs/weights_config.js';
 
 const CreateWeightsConfigSchema = z.object({
     version: z.string().min(1).max(100),

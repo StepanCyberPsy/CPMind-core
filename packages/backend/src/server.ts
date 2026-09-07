@@ -29,6 +29,13 @@ import { startS4CalibrationJob } from './jobs/s4_calibration.js';
 import { startS5LogisticRecalibrationJob } from './jobs/s5_logistic_recalibration.js';
 import { startS6LogisticRecalibrationJob } from './jobs/s6_logistic_recalibration.js';
 import { startS7QuantileRecalibrationJob } from './jobs/s7_quantile_recalibration.js';
+import { startAssetGcJob } from './jobs/asset_gc.js';
+import { campaignsRoute } from './routes/campaigns.js';
+import { creativesRoute } from './routes/creatives.js';
+import { uploadsRoute } from './routes/uploads.js';
+import { placementsRoute } from './routes/placements.js';
+import { deliveryRoute } from './routes/delivery.js';
+import { vastRoute } from './routes/vast.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({
@@ -55,7 +62,21 @@ export function buildServer(): FastifyInstance {
     hook: 'onRequest',
     delegator: (req, callback) => {
       const origin = req.headers.origin;
-      const path = req.url?.split('?')[0];
+      const path = req.url?.split('?')[0] ?? '';
+
+      if (
+        path.startsWith('/e/') ||
+        path.startsWith('/vast/') ||
+        path.startsWith('/t/') ||
+        path.startsWith('/api/delivery/')
+      ) {
+        return callback(null, {
+          origin: '*',
+          methods: ['GET', 'POST', 'OPTIONS'],
+          allowedHeaders: ['Content-Type'],
+          credentials: false,
+        });
+      }
 
       if (path === '/api/collect') {
         return callback(null, {
@@ -97,6 +118,12 @@ export function buildServer(): FastifyInstance {
   app.register(s5LogisticRoute, { prefix: '/api' });
   app.register(s6LogisticRoute, { prefix: '/api' });
   app.register(s7QuantileRoute, { prefix: '/api' });
+  app.register(campaignsRoute, { prefix: '/api' });
+  app.register(creativesRoute, { prefix: '/api' });
+  app.register(uploadsRoute, { prefix: '/api' });
+  app.register(placementsRoute, { prefix: '/api' });
+  app.register(deliveryRoute);
+  app.register(vastRoute);
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, 'Unhandled error');
@@ -111,6 +138,7 @@ export function buildServer(): FastifyInstance {
     startCalibrationCleanupJob();
     startIvtFrequencyJob();
     startScheduledDeletionJob();
+    startAssetGcJob();
     startS1WeibullRecalibrationJob();
     startS3LogisticRecalibrationJob();
     startS4CalibrationJob();

@@ -7,7 +7,15 @@ import type { UserCampaignStatsRow } from '@cpmind/shared';
 import type { UserCampaignsTableProps } from '@/lib/user/types';
 import styles from '@/styles/user_panel.module.css';
 
-type SortColumn = 'latest' | 'campaign' | 'creatives' | 'impressions' | 'avgScore' | 'desktop' | 'mobile' | 'tablet';
+type SortColumn =
+  | 'latest'
+  | 'campaign'
+  | 'creatives'
+  | 'impressions'
+  | 'avgScore'
+  | 'desktop'
+  | 'mobile'
+  | 'tablet';
 
 interface SortState {
   column: SortColumn;

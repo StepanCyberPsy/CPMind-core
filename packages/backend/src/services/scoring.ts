@@ -14,7 +14,7 @@ import type {
   S7Thresholds,
 } from '@cpmind/shared';
 import type { ImpressionInsert } from '../db/schema.js';
-import type { ActiveTagOwner } from './tags.js';
+import type { ActiveTagOwner } from './tag/tags.js';
 import type { IvtListEntry, IvtThresholds } from '@cpmind/shared';
 
 /**

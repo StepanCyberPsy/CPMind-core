@@ -24,173 +24,163 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 
 ## Структура пакета
 
-```
-packages/backend/
-├── package.json
-├── tsconfig.json
-├── Dockerfile                        # multi-stage build, Node 20 LTS
-└── src/
-    ├── index.ts                      # точка входа: регистрация плагинов, маршрутов,
-    │                                 # автоприменение миграций, запуск фоновых jobs,
-    │                                 # вызов bootstrapAll() при старте
-    ├── db/
-    │   ├── index.ts                  # Drizzle + pg-pool соединение
-    │   ├── schema.ts                 # Drizzle-схема всех таблиц (обновлена: +6 таблиц
-    │   │                             # сигнальных конфигов, +model_version колонки,
-    │   │                             # +s6 raw поля, +publisher_domain, +skippable)
-    │   └── migrations/               # SQL-файлы Drizzle Kit (0000–0017)
-    │       ├── 0000_sharp_mauler.sql        # CREATE TABLE impressions
-    │       ├── 0001_secret_whiplash.sql     # weight_configs
-    │       ├── 0002_elite_puppet_master.sql # session_group_id, segment_index
-    │       ├── 0003_f_presence_check_guarded.sql
-    │       ├── 0004_public_thunderbolts.sql # users, tags
-    │       ├── 0005_familiar_zodiak.sql     # NOT NULL на tag_id, user_id
-    │       ├── 0006_thick_robin_chapel.sql  # calibration_batches, calibration_items
-    │       ├── 0007_workable_rachel_grey.sql # tag_constants_configs
-    │       ├── 0008_fair_chimera.sql        # s6_raw_completion_rate, config_type
-    │       ├── 0009_slippery_marten_broadcloak.sql # ivt_list_configs, ivt_thresholds_configs
-    │       ├── 0010_sloppy_luke_cage.sql    # s1_weibull_configs, s1_model_version
-    │       ├── 0011_green_kitty_pryde.sql   # s3_logistic_configs, s3_model_version
-    │       ├── 0012_seed_s1_s3_defaults.sql # bootstrap seed данных
-    │       ├── 0013_pretty_xorn.sql         # s4_configs
-    │       ├── 0014_dapper_purifiers.sql    # s5_logistic_configs, s4_model_version,
-    │       │                                # s5_model_version
-    │       ├── 0015_many_peter_quill.sql    # s6_logistic_configs, s6_model_version,
-    │       │                                # s6_completion_rate_pct, s6_audible_time_sec,
-    │       │                                # s6_duration_sec, s6_skippable
-    │       ├── 0016_wild_goblin_queen.sql   # s7_quantile_configs, s7_model_version
-    │       └── 0017_dear_jubilee.sql        # publisher_domain, idx_publisher_domain
-    ├── middleware/
-    │   ├── requireAuth.ts            # JWT из httpOnly cookie -> request.authUser.
-    │   │                             # Проверяет isActive пользователя из БД на
-    │   │                             # каждый запрос — деактивация отзывает доступ
-    │   │                             # немедленно, не при истечении токена
-    │   └── requireAdmin.ts           # проверяет role === 'admin'
-    ├── routes/
-    │   ├── collect.ts                # POST /api/collect — публичный прием показов
-    │   ├── auth.ts                   # POST /api/auth/login, /logout, GET /auth/me
-    │   ├── impressions.ts            # GET /api/impressions, /export/csv, /:id
-    │   │                             # (обновлен: Promise.all с 6 model resolutions,
-    │   │                             # skippable, publisher_domain)
-    │   ├── users.ts                  # GET/POST /api/users, PATCH /:userUuid,
-    │   │                             # GET /api/users/stats
-    │   ├── tags.ts                   # GET/POST /api/tags, PATCH /:tagUuid
-    │   ├── weights_config.ts         # GET/POST /api/weights-config,
-    │   │                             # POST /:id/activate, DELETE /:id
-    │   ├── calibrations.ts           # POST/GET /api/calibrations,
-    │   │                             # GET/POST /:batchId/approve,
-    │   │                             # GET /:batchId/items,
-    │   │                             # POST /:batchId/items/:itemId/approve,
-    │   │                             # DELETE /:batchId
-    │   ├── tag_constants.ts          # GET/POST /api/tag-constants,
-    │   │                             # POST /:configId/activate, /deactivate
-    │   ├── ivt_lists.ts              # GET/POST /api/ivt-lists,
-    │   │                             # POST /:id/activate, GET /:id
-    │   ├── ivt_thresholds.ts         # GET/POST /api/ivt-thresholds,
-    │   │                             # POST /:id/activate
-    │   ├── s1_weibull.ts             # GET /api/s1-weibull
-    │   │                             # POST /:id/activate, /deactivate,
-    │   │                             # /schedule-delete, /cancel-delete
-    │   ├── s3_logistic.ts            # GET /api/s3-logistic (те же 5 эндпоинтов)
-    │   ├── s4_config.ts              # GET /api/s4-config (те же 5 эндпоинтов)
-    │   ├── s5_logistic.ts            # GET /api/s5-logistic (те же 5 эндпоинтов)
-    │   ├── s6_logistic.ts            # GET /api/s6-logistic (те же 5 эндпоинтов)
-    │   └── s7_quantile.ts            # GET /api/s7-quantile (те же 5 эндпоинтов)
-    ├── services/
-    │   ├── scoring.ts                # processImpression(): полный pipeline
-    │   │                             # (обновлен: Promise.all model params,
-    │   │                             # publisher_domain, все model_version в INSERT)
-    │   ├── impressions.ts            # listImpressionsForAdmin/User(),
-    │   │                             # getImpressionForAdmin(),
-    │   │                             # buildWhereFromFilters(),
-    │   │                             # NUMERIC_RANGE_COLUMNS, RangeFieldKey,
-    │   │                             # JoinedImpressionRow (обновлен: +publisher_domain,
-    │   │                             # +skippable, +s6 raw поля, +model_version поля),
-    │   │                             # ADMIN_ONLY_COLUMNS (обновлен аналогично),
-    │   │                             # toAdminImpressionRow (обновлен)
-    │   ├── csv.ts                    # buildCsvResponse() — экспорт CSV
-    │   │                             # (обновлен: CSV_BATCH_SIZE 500→10000,
-    │   │                             # ADMIN_CSV_HEADER +publisher_domain, +skippable,
-    │   │                             # +model_versions, +s6 raw поля)
-    │   ├── auth.ts                   # verifyCredentials(), generateToken(),
-    │   │                             # constant-time bcrypt.compare
-    │   ├── users.ts                  # createUser() — транзакция user + tag,
-    │   │                             # updateUserStatus(), bootstrapAdmin()
-    │   ├── users_stats.ts            # getUsersWithStats() — LEFT JOIN +
-    │   │                             # subquery primary tag
-    │   ├── tags.ts                   # CRUD тегов, resolveActiveTagOwner()
-    │   ├── bootstrap.ts              # bootstrapAdmin() +
-    │   │                             # bootstrapTagConstants() +
-    │   │                             # bootstrapDefaultWeights() +
-    │   │                             # bootstrapS1WeibullDefault() +
-    │   │                             # bootstrapS3LogisticDefault() +
-    │   │                             # bootstrapS4Default() +
-    │   │                             # bootstrapS5Default() +
-    │   │                             # bootstrapS6Default() +
-    │   │                             # bootstrapS7Default()
-    │   │                             # bootstrapAll() отсутствует — index.ts
-    │   │                             # вызывает каждую функцию напрямую
-    │   │                             # Все функции идемпотентны (skip if exists)
-    │   ├── weibull_config.ts         # S1: getActiveS1WeibullParams(segmentKey),
-    │   │                             # in-memory кэш Map<segmentKey, WeibullParams>,
-    │   │                             # CRUD + deletion timer pattern
-    │   ├── logistic_config.ts        # S3: getActiveS3LogisticParams(segmentKey),
-    │   │                             # in-memory кэш, CRUD + deletion timer
-    │   ├── s4_config.ts              # S4: getActiveS4Config(segmentKey),
-    │   │                             # returns S4ConfigResolution {config, modelVersion}
-    │   ├── s4_fit.ts                 # fitLambda(), fitTRef(), fitS4Params() —
-    │   │                             # fitting алгоритмы S4 (не в shared — только backend)
-    │   ├── s5_logistic_config.ts     # S5: getActiveS5LogisticParams(segmentKey),
-    │   │                             # in-memory кэш, CRUD + deletion timer
-    │   ├── s6_logistic_config.ts     # S6: getActiveS6LogisticParams(segmentKey | null),
-    │   │                             # null для баннеров → возвращает null (не DEFAULT),
-    │   │                             # in-memory кэш, CRUD + deletion timer
-    │   ├── s7_quantile_config.ts     # S7: getActiveS7Thresholds(deviceType),
-    │   │                             # returns S7ThresholdsResolution,
-    │   │                             # CRUD + deletion timer
-    │   ├── s7_quantile_fit.ts        # fitS7Quantiles(), percentileContinuous() —
-    │   │                             # квантильный fitting S7 (не в shared)
-    │   ├── weights_config.ts         # CRUD версий весов, getActiveWeightsConfig()
-    │   │                             # с in-memory кэшем, invalidateWeightsCache()
-    │   │                             # (обновлен: activateWeightsConfig проверяет
-    │   │                             # weights.s6 === 0 для banner → 422)
-    │   ├── calibrations.ts           # createCalibrationBatch(),
-    │   │                             # processCalibrationBatch() (фоновая),
-    │   │                             # resolveSelectionWhere() — AND с adminUserId,
-    │   │                             # approveCalibrationItems() (optimistic concurrency),
-    │   │                             # discardCalibrationBatch(),
-    │   │                             # getLatestApprovedCalibrationForImpression()
-    │   ├── tag_constants.ts          # CRUD версий констант, resolveTagConstants()
-    │   ├── tag_builder.ts            # buildTagBundle() — esbuild JS API runtime-сборка
-    │   ├── ivt_list.ts               # CRUD ivt_list_configs, parseIvtListCsv(),
-    │   │                             # getActiveIvtList() с in-memory кэшем
-    │   └── ivt_thresholds.ts         # CRUD ivt_thresholds_configs,
-    │                                 # getActiveIvtThresholds() с in-memory кэшем
-    └── jobs/
-        ├── retention.ts              # удаление impressions старше 90 дней, 03:00 UTC
-        ├── calibration_cleanup.ts    # истечение calibration_batches по TTL,
-        │                             # каждые 15 минут. Экспортирует
-        │                             # getDraftTtlMinutes() — единственный
-        │                             # источник TTL, используется также
-        │                             # services/calibrations.ts для expiresAt
-        ├── ivt_frequency.ts          # частотный анализ по fp_hash, каждые 30 минут
-        ├── scheduled_deletion.ts     # физическое удаление конфигов сигналов по
-        │                             # deletion_scheduled_at, каждые 15 минут.
-        │                             # Promise.all по всем 6 таблицам конфигов.
-        │                             # Совмещен с calibration_cleanup в одном cron-слоте
-        ├── s1_weibull_recalibration.ts  # S1 MLE пересчёт, cron 0 4 * * 0 (Sunday)
-        ├── s3_logistic_recalibration.ts # S3 IRLS пересчёт, cron 0 5 * * 0
-        ├── s4_calibration.ts            # S4 λ/T_ref пересчёт, cron 0 6 1 * * (monthly)
-        ├── s5_logistic_recalibration.ts # S5 IRLS пересчёт, cron 0 6 * * 0
-        ├── s6_logistic_recalibration.ts # S6 IRLS пересчёт, cron 0 7 * * 0
-        └── s7_quantile_recalibration.ts # S7 квантили, cron 0 8 1 * * (monthly)
+```txt
+    ├── [DIR] backend
+        ├── [FILE] Dockerfile
+        ├── [DIR] drizzle
+        ├── [FILE] drizzle.config.ts
+            ├── [DIR] migrations
+                ├── [FILE] 0000_initial.sql
+                ├── [FILE] 0000_sharp_mauler.sql
+                ├── [FILE] 0001_secret_whiplash.sql
+                ├── [FILE] 0002_elite_puppet_master.sql
+                ├── [FILE] 0003_f_presence_check_guarded.sql
+                ├── [FILE] 0004_public_thunderbolts.sql
+                ├── [FILE] 0005_familiar_zodiak.sql
+                ├── [FILE] 0006_thick_robin_chapel.sql
+                ├── [FILE] 0007_workable_rachel_grey.sql
+                ├── [FILE] 0008_fair_chimera.sql
+                ├── [FILE] 0009_slippery_marten_broadcloak.sql
+                ├── [FILE] 0010_sloppy_luke_cage.sql
+                ├── [FILE] 0011_green_kitty_pryde.sql
+                ├── [FILE] 0012_seed_s1_s3_defaults.sql
+                ├── [FILE] 0013_pretty_xorn.sql
+                ├── [FILE] 0014_dapper_purifiers.sql
+                ├── [FILE] 0015_many_peter_quill.sql
+                ├── [FILE] 0016_wild_goblin_queen.sql
+                ├── [FILE] 0017_dear_jubilee.sql
+                ├── [FILE] 0018_dapper_karnak.sql
+                ├── [FILE] 0019_seed_default_weights.sql
+                ├── [FILE] 0020_wide_marauders.sql
+                ├── [FILE] 0021_aromatic_silver_samurai.sql
+                ├── [DIR] meta
+                    ├── [FILE] 0000_snapshot.json
+                    ├── [FILE] 0001_snapshot.json
+                    ├── [FILE] 0002_snapshot.json
+                    ├── [FILE] 0003_snapshot.json
+                    ├── [FILE] 0004_snapshot.json
+                    ├── [FILE] 0005_snapshot.json
+                    ├── [FILE] 0006_snapshot.json
+                    ├── [FILE] 0007_snapshot.json
+                    ├── [FILE] 0008_snapshot.json
+                    ├── [FILE] 0009_snapshot.json
+                    ├── [FILE] 0010_snapshot.json
+                    ├── [FILE] 0011_snapshot.json
+                    ├── [FILE] 0013_snapshot.json
+                    ├── [FILE] 0014_snapshot.json
+                    ├── [FILE] 0015_snapshot.json
+                    ├── [FILE] 0016_snapshot.json
+                    ├── [FILE] 0017_snapshot.json
+                    ├── [FILE] 0018_snapshot.json
+                    ├── [FILE] 0020_snapshot.json
+                    ├── [FILE] 0021_snapshot.json
+                    ├── [FILE] _journal.json
+        ├── [FILE] package.json
+        ├── [DIR] src
+            ├── [DIR] db
+                ├── [FILE] index.ts
+                ├── [FILE] schema.ts
+            ├── [FILE] index.ts
+            ├── [DIR] jobs
+                ├── [FILE] asset_gc.ts
+                ├── [FILE] calibration_cleanup.ts
+                ├── [FILE] ivt_frequency.ts
+                ├── [FILE] retention.ts
+                ├── [FILE] s1_weibull_recalibration.ts
+                ├── [FILE] s3_logistic_recalibration.ts
+                ├── [FILE] s4_calibration.ts
+                ├── [FILE] s5_logistic_recalibration.ts
+                ├── [FILE] s6_logistic_recalibration.ts
+                ├── [FILE] s7_quantile_recalibration.ts
+                ├── [FILE] scheduled_deletion.ts
+            ├── [DIR] lib
+                ├── [FILE] env.ts
+            ├── [DIR] middleware
+                ├── [FILE] requireAdmin.ts
+                ├── [FILE] requireAuth.ts
+            ├── [DIR] routes
+                ├── [FILE] auth.ts
+                ├── [FILE] calibrations.ts
+                ├── [FILE] campaigns.ts
+                ├── [FILE] creatives.ts
+                ├── [FILE] delivery.ts
+                ├── [FILE] health.ts
+                ├── [FILE] impressions.ts
+                ├── [FILE] ivt_lists.ts
+                ├── [FILE] ivt_thresholds.ts
+                ├── [FILE] placements.ts
+                ├── [FILE] s1_weibull.ts
+                ├── [FILE] s3_logistic.ts
+                ├── [FILE] s4_config.ts
+                ├── [FILE] s5_logistic.ts
+                ├── [FILE] s6_logistic.ts
+                ├── [FILE] s7_quantile.ts
+                ├── [FILE] tag_constants.ts
+                ├── [FILE] tags.ts
+                ├── [FILE] uploads.ts
+                ├── [FILE] users.ts
+                ├── [FILE] vast.ts
+                ├── [FILE] weights_config.ts
+            ├── [FILE] server.ts
+            ├── [DIR] services
+                ├── [FILE] auth.ts
+                ├── [FILE] bootstrap.ts
+                ├── [DIR] calibration
+                    ├── [FILE] calibrate_signals.ts
+                    ├── [FILE] calibrations.ts
+                ├── [FILE] campaigns.ts
+                ├── [DIR] configs
+                    ├── [FILE] logistic_config.ts
+                    ├── [FILE] s4_config.ts
+                    ├── [FILE] s4_fit.ts
+                    ├── [FILE] s5_logistic_config.ts
+                    ├── [FILE] s6_logistic_config.ts
+                    ├── [FILE] s7_quantile_config.ts
+                    ├── [FILE] s7_quantile_fit.ts
+                    ├── [FILE] weibull_config.ts
+                    ├── [FILE] weights_config.ts
+                ├── [FILE] creatives.ts
+                ├── [FILE] csv.ts
+                ├── [DIR] delivery
+                    ├── [FILE] embed.ts
+                    ├── [FILE] events.ts
+                    ├── [FILE] publisher.ts
+                    ├── [FILE] sessions.ts
+                ├── [FILE] impressions.ts
+                ├── [DIR] ivt
+                    ├── [FILE] ivt_list.ts
+                    ├── [FILE] ivt_thresholds.ts
+                ├── [FILE] placements.ts
+                ├── [FILE] scoring.ts
+                ├── [DIR] storage
+                    ├── [FILE] client.ts
+                    ├── [FILE] keys.ts
+                    ├── [FILE] multipart.ts
+                    ├── [FILE] presign.ts
+                ├── [DIR] tag
+                    ├── [FILE] tag_builder.ts
+                    ├── [FILE] tag_constants.ts
+                    ├── [FILE] tags.ts
+                ├── [DIR] uploads
+                    ├── [FILE] multipart.ts
+                    ├── [FILE] presign.ts
+                    ├── [FILE] service.ts
+                ├── [DIR] users
+                    ├── [FILE] users.ts
+                    ├── [FILE] users_stats.ts
+                ├── [DIR] vast
+                    ├── [FILE] inline.ts
+                    ├── [FILE] tracking.ts
+                    ├── [FILE] validator.ts
+                    ├── [FILE] xml.ts
+        ├── [FILE] tsconfig.json
 ```
 
 ---
 
 ## API — публичные эндпоинты
 
-Доступны тегу с любого сайта, без авторизации.
+> Доступны без авторизации. Delivery-эндпоинты доступны с любого origin (`CORS: *`); `/api/collect` разрешает все origins с credentials.
 
 ### `POST /api/collect`
 
@@ -207,6 +197,117 @@ packages/backend/
 
 Проверка работоспособности. Возвращает `200` если база данных доступна. Используется Docker healthcheck-цепочкой для правильного порядка старта контейнеров.
 
+### `GET /e/:token`
+
+Генерация embed script для placement. Основной delivery-эндпоинт для hosted creative flow.
+
+- `token` — `delivery_token` из таблицы `placements` (base64url 32 символа)
+- `Cache-Control: no-store` — каждый запрос уникален (`adSessionId` генерируется при каждом вызове)
+- CORS: `Access-Control-Allow-Origin: *`, `credentials: false`
+- Возвращает пустую строку (не ошибку) при: неизвестном token, неактивном placement, отсутствии ready creative version, отсутствии primary asset
+
+**Логика резолвинга версии:** используется закреплённая (`creativeVersionId` в placement) если она в статусе `ready`; иначе — последняя `ready` версия по `version DESC`. Если ни одной нет — пустая строка.
+
+**Структура генерируемого JS:**
+```javascript
+(function() {
+  'use strict';
+  var el = document.createElement('div');
+  el.style.width = '{width}px'; el.style.height = '{height}px';
+  el.style.overflow = 'hidden';
+  document.body.appendChild(el);
+  window.__CPMIND_QUEUE__ = window.__CPMIND_QUEUE__ || [];
+  var cfg = { /* DeliveryRuntimeConfig + displayRuntimeVersion + playerRuntimeVersion */ };
+  cfg.container = el;
+  window.__CPMIND_QUEUE__.push(cfg);
+  if (!window.__CPMIND_LOADER__) {
+    window.__CPMIND_LOADER__ = true;
+    var s = document.createElement('script');
+    s.src = '{CDN_BASE_URL}/runtime/cpmind-loader_v1.min.js';
+    s.async = true;
+    document.head.appendChild(s);
+  }
+})();
+```
+
+Контейнер `div` создаётся и монтируется в `document.body` embed script'ом — издатель вставляет только `<script>` тег. `__CPMIND_LOADER__` guard — один loader на страницу при нескольких placement'ах.
+
+**`assetUrl`:** для `banner_html5` — `buildCreativeUrl(storageKey)` (`creative.cpmind.tech`), для всех остальных — `buildCdnUrl(storageKey)` (`cdn.cpmind.tech`).
+
+**`measurementMode`** вычисляется на backend:
+
+| `creativeType` | `measurementMode` |
+|---|---|
+| `video_creative` | `full_cpmind_player` |
+| `banner_html5` | `partial_embedded_iframe` |
+| остальные | `full_direct_display` |
+
+**Создание `ad_session`:** вызов `createAdSession()` происходит при каждом `GET /e/:token` — до первого клиентского события. `adSessionId` генерируется сервером (`randomUUID()`), включается в `DeliveryRuntimeConfig` и передаётся в SDK через queue entry. Последующие delivery events от SDK приходят с этим id.
+
+---
+
+### `POST /api/delivery/event`
+
+Приём SDK lifecycle событий. Обновляет временны́е метки в `ad_sessions`.
+
+- Zod-валидация `DeliveryEventPayloadSchema` — 422 при ошибке
+- 204 немедленно, запись в БД fire-and-forget
+- CORS: `Access-Control-Allow-Origin: *`, `credentials: false`
+- Идемпотентность через `COALESCE` — первое событие каждого типа авторитетно, повторные игнорируются
+
+**Маппинг `eventType` → поле `ad_sessions`:**
+
+| `eventType` | Поле |
+|---|---|
+| `asset_load_started` | `assetLoadStartedAt` |
+| `creative_ready` | `creativeReadyAt` |
+| `render_confirmed` | `renderConfirmedAt` |
+| `creative_error`, `player_error` | `errorAt`, `errorCode` |
+| `closed` | `measurementEndedAt` |
+| `requested` | только `lastSeenAt` |
+
+---
+
+### `GET /vast/:token`
+
+VAST 4.3 InLine XML для видео placement'а.
+
+- `Cache-Control: no-store`
+- `Content-Type: application/xml; charset=utf-8`
+- CORS: `Access-Control-Allow-Origin: *`, `credentials: false`
+- При неизвестном token, не-video creative, отсутствии renditions или невалидной длительности — возвращает `<VAST version="4.3" />` (empty VAST), HTTP 200. Никогда не 4xx — VAST-совместимые плееры ожидают XML, не ошибки
+
+**Валидация медиа URL:** `assertTrustedMediaUrl` проверяет `protocol === 'https:'` и `hostname === CDN_HOSTNAME` (из `getCdnBaseUrl()`). Несовпадение → исключение → empty VAST. Предотвращает подстановку внешних URL в VAST.
+
+**Tracking URLs** генерируются с паттерном `{DELIVERY_BASE_URL}/t/vast/{event}?sid={adSessionId}`. Для `error` — дополнительный параметр `&code=[ERRORCODE]` (IAB macro, заменяется плеером).
+
+**Создание `ad_session`:** аналогично embed endpoint — новая сессия при каждом запросе.
+
+---
+
+### `GET /t/vast/:event`
+
+VAST tracking pixel. Обновляет временны́е метки видео-событий в `ad_sessions`.
+
+- 204 немедленно, запись fire-and-forget
+- CORS: `Access-Control-Allow-Origin: *`, `credentials: false`
+- Zod-валидация `VastTrackingRequestSchema` (query params `sid`, опционально `code`) — при ошибке просто return (не 422, tracking не должен ломать воспроизведение)
+- Идемпотентность через `COALESCE` — первое событие авторитетно
+
+**Маппинг `event` → поле `ad_sessions`:**
+
+| `event` | Поле |
+|---|---|
+| `impression` | `vastImpressionAt` |
+| `start` | `videoStartedAt` |
+| `firstQuartile` | `firstQuartileAt` |
+| `midpoint` | `midpointAt` |
+| `thirdQuartile` | `thirdQuartileAt` |
+| `complete` | `completedAt` |
+| `skip` | `skippedAt` |
+| `error` | `errorAt`, `errorCode` |
+| остальные (pause, resume, mute, click...) | только `lastSeenAt` |
+
 ---
 
 ## API — панель (requireAuth)
@@ -222,6 +323,20 @@ packages/backend/
 | `GET` | `/api/impressions/domain_aggregate` | агрегат по `creativeId` + опциональный `publisherDomain`: avg Score, avg S1–S7, `impressionsCount`, `campaignsCount`. Для admin: скоуп опционально сужается через `userUuid`. Для user: автоматически ограничен `ownerId` из JWT |
 | `GET` | `/api/impressions/export/csv` | экспорт с UTF-8 BOM, батчинг 10 000 строк |
 | `GET` | `/api/tags/mine` | собственные теги текущего пользователя |
+| `POST` | `/api/campaigns` | создать кампанию (`name`); retry на коллизию `campaign_key` (max 2) |
+| `GET` | `/api/campaigns` | список активных кампаний текущего пользователя |
+| `GET` | `/api/creatives` | список creatives, фильтр `notInArray(['draft','archived'])` |
+| `GET` | `/api/creatives/:uuid` | детальный вид: версии DESC + ассеты по `priority ASC` с CDN URL |
+| `POST` | `/api/creatives/:uuid/archive` | архивировать creative (только `status='active'`) |
+| `POST` | `/api/creative-uploads` | создать upload session; возвращает presigned URL (single) или part URLs (multipart) |
+| `POST` | `/api/creative-uploads/:uuid/complete` | завершить upload → атомарная транзакция: session+version+creative→processing, insert job |
+| `GET` | `/api/creative-uploads/:uuid` | статус сессии; `creativeVersionUuid` возвращается при `ready` или `failed` |
+| `POST` | `/api/placements` | создать placement; `ensureTagForUser`, `deliveryToken = randomBytes(24).base64url` |
+| `GET` | `/api/placements` | список placements с creative info |
+| `GET` | `/api/placements/:uuid` | детальный вид: `embedCode`/`vastUrl` (null если version не ready) |
+| `PATCH` | `/api/placements/:uuid` | обновить параметры |
+| `POST` | `/api/placements/:uuid/activate` | активировать |
+| `POST` | `/api/placements/:uuid/deactivate` | деактивировать |
 
 **Ролевая фильтрация:** `admin` видит все показы всех пользователей (опциональный `?userUuid=X` для сужения до одного). `user` видит только свои, через `USER_VISIBLE_IMPRESSION_FIELDS` (единый whitelist полей для JSON и CSV).
 
@@ -427,7 +542,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 **CSV-экспорт** (`buildWhereClause`, вызывается из `/export/csv`): расширен теми же `tagConstantsVersion`, `weightsVersion`, `publisherDomain` и диапазонными параметрами через `parseNumericParam()`.
 
-### `services/impressions.ts` (обновлён)
+#### UPDATE
 
 **Новые поля в `ADMIN_ONLY_COLUMNS`:** `skippable` (из `impressions.s6Skippable`), `publisher_domain`, `s6_audible_time_sec`, `s6_duration_sec`, `s6_skippable`, `s1_model_version`, `s3_model_version`, `s4_model_version`, `s5_model_version`, `s6_model_version`, `s7_model_version`.
 
@@ -443,7 +558,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 **`getPublisherDomainAggregate(creativeId, publisherDomain?, targetUserId?)`** — новая функция. Агрегирует метрики по `creativeId` с опциональным фильтром по `publisherDomain`. При `publisherDomain = undefined` — агрегация по всем доменам для данного creative. Использует Drizzle `avg()` и `countDistinct()`. Возвращает `PublisherDomainAggregate` из `@cpmind/shared`. Используется эндпоинтом `GET /api/impressions/domain_aggregate`.
 
-### `services/csv.ts` (обновлён)
+### `services/csv.ts`
 
 `CSV_BATCH_SIZE`: 500 → **10 000**. Снижает количество round-trips к БД при больших экспортах.
 
@@ -451,39 +566,39 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 `rowToAdminCsvLine()` маппит все новые поля из `JoinedImpressionDetailRow`.
 
-### `services/users_stats.ts`
+### `services/users/users_stats.ts`
 
 `getUsersWithStats()` — одна публичная функция. LEFT JOIN impressions + подзапрос для первичного тега (через `min(tags.uuid)`), чтобы избежать декартова произведения (несколько тегов × несколько импрешенов у одного юзера). GROUP BY users.id. Возвращает `tagUuid`, `campaignsCount`, `creativesCount`, `impressionsCount`, `avgScore` (nullable при отсутствии показов).
 
-### `services/weibull_config.ts` (новый)
+### `services/configs/weibull_config.ts`
 
 `getActiveS1WeibullParams(segmentKey: string)` — in-memory кэш `Map<segmentKey, {params, modelVersion}>`. При отсутствии активного конфига для сегмента — fallback на global-сегмент, затем на `DEFAULT_WEIBULL_PARAMS {k:1.0, λ:5.0}`. `invalidateWeibullCache()` очищает весь Map. CRUD: `listS1WeibullConfigs()`, `activateS1WeibullConfig(id)`, `deactivateS1WeibullConfig(id)`, `scheduleS1WeibullDeletion(id)`, `cancelS1WeibullDeletion(id)`. Активация — транзакция: деактивировать другие конфиги того же `segment_key` → активировать целевой → инвалидировать кэш. `scheduleS1WeibullDeletion` — запрещён для активных конфигов (409 S1_WEIBULL_CONFIG_ACTIVE). `activateS1WeibullConfig` — запрещён при `deletion_scheduled_at IS NOT NULL` (409 S1_WEIBULL_CONFIG_DELETION_SCHEDULED).
 
-### `services/logistic_config.ts` (новый)
+### `services/configs/logistic_config.ts`
 
 `getActiveS3LogisticParams(segmentKey: string)` — аналогичный паттерн для S3. Параметры модели: `{beta0..beta7, featureMeans, featureStds}`. Fallback: нулевые коэффициенты → `normalizeS3` возвращает `sigmoid(0)×100 = 50`. `logistic_config.ts` — переиспользуемый паттерн кэширования; S5 и S6 имеют собственные сервисы по той же схеме.
 
-### `services/s4_config.ts` (новый)
+### `services/configs/s4_config.ts`
 
 `getActiveS4Config(segmentKey: string)` — возвращает `S4ConfigResolution { config: S4Config, modelVersion: string }`. `S4Config: {lambda: number, tRefMs: number}`. 5 сегментов: `desktop_banner`, `mobile_banner`, `desktop_video`, `mobile_video`, `default`. Определение сегмента: `${deviceType}_${creativeCategory}`, fallback на `default`.
 
-### `services/s4_fit.ts` (новый)
+### `services/configs/s4_fit.ts`
 
 `fitLambda(data)` — MLE для штрафного параметра λ (частота переключений). `fitTRef(data)` — эталонная длина сессии T_ref (медиана activeSessions). `fitS4Params(data)` — возвращает `{lambda, tRefMs}`. Живёт в backend (не shared) — fitting-логика используется только recalibration cron, не нормализацией.
 
-### `services/s5_logistic_config.ts` (новый)
+### `services/configs/s5_logistic_config.ts`
 
 `getActiveS5LogisticParams(segmentKey: string)` — 2 сегмента: `desktop`, `mobile_tablet`. Параметры: `{beta0..beta4}`. Fallback: `DEFAULT_S5_DESKTOP` / `DEFAULT_S5_MOBILE_TABLET`. Desktop prior: `{β0:-2.5, β1:3.8, β2:2.2, β3:0.8, β4:1.5}`. Mobile prior: `{β0:-2.0, β1:3.5, β2:2.8, β3:1.2, β4:0.9}`.
 
-### `services/s6_logistic_config.ts` (новый)
+### `services/configs/s6_logistic_config.ts`
 
 `getActiveS6LogisticParams(segmentKey: string | null)` — ключевая особенность: `segmentKey = null` для баннеров → возвращает `null` (не DEFAULT). Баннер не имеет S6 физически — нет смысла в параметрах. 6 сегментов: `{desktop|mobile|tablet}|{skippable|non_skippable}` (разделитель `|`). Параметры: `{beta0..beta8, featureMeans, featureStds}` — 9 коэффициентов включая терм взаимодействия `completionZ×audibleZ`.
 
-### `services/s7_quantile_config.ts` (новый)
+### `services/configs/s7_quantile_config.ts`
 
 `getActiveS7Thresholds(deviceType: string)` — возвращает `S7ThresholdsResolution { thresholds: S7Thresholds, modelVersion: string }`. `S7Thresholds: {relativeYLow, relativeYMid, clutterMid, clutterHigh}`. 3 сегмента по `device_type`. Fallback: `DEFAULT_S7_THRESHOLDS[deviceType]` (desktop/mobile/tablet — разные дефолты).
 
-### `services/s7_quantile_fit.ts` (новый)
+### `services/configs/s7_quantile_fit.ts`
 
 `fitS7Quantiles(data: S7RawObservation[])` — вычисляет квантили позиции и кластеринга из исторических данных. `percentileContinuous(sorted, p)` — линейная интерполяция (эквивалент PostgreSQL `percentile_cont`). `S7RawObservation: {relativeY, clutter, isAboveTheFold, deviceType}`. Живёт в backend — используется только `jobs/s7_quantile_recalibration.ts`.
 
@@ -502,7 +617,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 Все `bootstrapS*` функции: `INSERT ... ON CONFLICT DO NOTHING` — idempotent при повторном старте.
 
-### `services/weights_config.ts` (обновлён)
+### `services/configs/weights_config.ts`
 
 `getActiveWeightsConfig(category: CreativeCategory)` — двухключевой in-memory кэш `{ banner: WeightsValues | null, video: WeightsValues | null }`. Запрос фильтруется по `configType = category`. Fallback на `DEFAULT_BANNER_WEIGHTS` / `DEFAULT_VIDEO_WEIGHTS` по категории. `s6: w['s6'] ?? 0` — страховка для исторических строк без S6 в JSONB. `invalidateWeightsCache()` инвалидирует оба ключа.
 
@@ -510,7 +625,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 `activateWeightsConfig()` — деактивирует только конфиги того же `configType` перед активацией. **Новый guard:** если `configType === 'banner'` и `weights.s6 !== 0` → 422 `WEIGHTS_BANNER_S6_NONZERO`. Баннеры не имеют видео-сигнала — ненулевой s6 вызвал бы тихое перераспределение веса при `normalizeS6(null)=null`. Database-enforced через partial unique index.
 
-### `services/calibrations.ts`
+### `services/calibration/calibrations.ts`
 
 Ключевые архитектурные решения, принятые в этой версии:
 
@@ -524,11 +639,11 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 **`toApiBatch()`** — вычисляет `expiresAt` из `createdAt + getDraftTtlMinutes() * 60_000`. `getDraftTtlMinutes()` импортирован из `jobs/calibration_cleanup.ts` — единственный источник TTL, не дублируется.
 
-### `services/tag_builder.ts`
+### `services/tag/tag_builder.ts`
 
 `buildTagBundle(constants, version, outputPath)` — esbuild JS API. Подставляет `define: { __CPMIND_CONSTANTS__: JSON.stringify(constants), __CPMIND_TAG_VERSION__: JSON.stringify(version) }`. Пишет результат в `outputPath` (Docker volume `tag_dist`). Вызывается из `services/tag_constants.ts` при создании/активации версии. Провал сборки откатывает запись в БД — нет версии без файла.
 
-### `services/ivt_list.ts`
+### `services/ivt/ivt_list.ts`
 
 `getActiveIvtList()` — in-memory кэш активной версии `ivt_list_configs`. При отсутствии активной версии возвращает `null` (не пустой массив — различие семантически важно для `classifyIvtSync`). `invalidateIvtListCache()` инвалидирует при активации новой версии.
 
@@ -538,11 +653,85 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 `getIvtListConfig()` - список конфигурации.
 
-### `services/ivt_thresholds.ts`
+### `services/ivt/ivt_thresholds.ts`
 
 `getActiveIvtThresholds()` — in-memory кэш. Fallback на `DEFAULT_IVT_THRESHOLDS` (все поля null) при отсутствии активной версии — SIVT-правила не срабатывают до первой калибровки. Валидирует JSONB через `IvtThresholdsSchema.safeParse()`.
 
 `createIvtThresholdsConfig()` / `activateIvtThresholdsConfig()` — CRUD по тому же паттерну.
+
+### `services/campaigns.ts`
+
+`createCampaign(userId, name)` — генерирует уникальный `campaign_key` (16 hex символов из `randomUUID`). `ON CONFLICT DO NOTHING` + retry при коллизии ключа (max 2 попытки).
+
+### `services/creatives.ts`
+
+`listCreatives(userId)` — фильтрует `notInArray(creatives.status, ['draft', 'archived'])`. Возвращает `status` как строку — фронтенд отображает `processing`/`ready`/`active`/`failed`.
+
+`getCreativeDetail(uuid, userId)` — возвращает все версии с ассетами. CDN URL строится через `buildCdnUrl(storageKey) = getCdnBaseUrl() + '/' + storageKey`. Версии упорядочены по `version DESC`, ассеты по `priority ASC`.
+
+### `services/placements.ts`
+
+`ensureTagForUser(userId)` — синтетический тег создаётся автоматически при первом placement пользователя (`label: 'cpmind-hosted'`). При наличии нескольких тегов берётся наиболее ранний по `id` (детерминированный выбор). Тег необходим для scoring pipeline: resolution `tag → owner`.
+
+`createPlacement(payload, userId)` — проверяет принадлежность campaign и creative пользователю. `delivery_token = randomBytes(24).toString('base64url')`. `clickUrl: payload.clickUrl ?? creative.clickUrl ?? null` (override → creative default). `creativeVersionId` в placement = последняя ready версия на момент создания (или null).
+
+`getPlacementDetail` — всегда берёт актуальный статус последней версии, не из `pinned creative_version_id`. `embedCode` и `vastUrl` генерируются только если `latestVersion.status === 'ready'`. `vastUrl` дополнительно проверяет `VIDEO_DELIVERY_MODES.has(mode)`.
+
+### `services/delivery/embed.ts`
+
+`resolveEmbedScript(token, publisherDomain)` — по `delivery_token` загружает placement + active creative version + assets + delivery_runtime_config. Генерирует JS скрипт с `window.__CPMIND_QUEUE__` содержащим полный `DeliveryRuntimeConfig`. Создаёт `ad_session` запись. Возвращает `null` при неактивном placement или отсутствии ready версии.
+
+`resolveVastContext(token, publisherDomain)` — аналогично для VAST: загружает контекст, возвращает `VastInLineInput` или null.
+
+### `services/delivery/events.ts`
+
+`processDeliveryEvent(payload)` — маппинг `AdSessionDeliveryEventType` на timestamp-поля `ad_sessions`:
+
+| Event type | Поле |
+|---|---|
+| `requested` | `requestedAt` |
+| `asset_load_started` | `assetLoadStartedAt` |
+| `creative_ready` | `creativeReadyAt` |
+| `render_confirmed` | `renderConfirmedAt` |
+| `closed` | `measurementEndedAt`, `finalizationReason` |
+| `creative_error` | `errorAt`, `errorCode`, `finalizationReason` |
+
+### `services/delivery/publisher.ts`
+
+`extractPublisherDomain(referer)` — парсит `Referer` header через `new URL()`, возвращает hostname. При отсутствии или невалидном Referer — `null`. Используется для `publisherDomain` в `ad_sessions` и `impressions`.
+
+### `services/storage/presign.ts`
+
+| Константа | Значение | Назначение |
+|---|---|---|
+| `MULTIPART_THRESHOLD_BYTES` | 100 MB | Порог переключения на multipart |
+| `PRESIGNED_TTL_SECONDS` | 3600 (1 час) | TTL presigned URL и upload session |
+| `PART_SIZE_BYTES` | 10 MB | Размер части multipart upload |
+| `MIN_PART_SIZE_BYTES` | 5 MB | Минимальный размер части (S3-ограничение) |
+
+### `services/uploads/service.ts` — `completeUploadSession`
+
+Транзакция включает все четыре операции атомарно: `upload_session → processing`, `creative_version → processing`, `creative → processing`, `INSERT creative_processing_jobs`. Processing job создаётся с `processingProfileVersion = 'v1.0'`.
+
+`getUploadSessionStatus` возвращает `creativeVersionUuid` только при `status = 'ready' | 'failed'` — фронтенд останавливает polling в обоих случаях, не только при успехе.
+
+### `services/vast/inline.ts`
+
+`assertTrustedMediaUrl` вызывается для каждого rendition перед генерацией XML — CDN hostname берётся из `getCdnBaseUrl()` динамически. Несоответствие origin → `throw` → empty VAST в route handler. `formatDuration` конвертирует через целые миллисекунды (`Math.round(sec * 1000)`) — исключает carry-ошибку при `frac*1000 === 1000`.
+
+### `services/vast/tracking.ts`
+
+COALESCE-паттерн аналогичен `events.ts`. События без специфического поля (pause, resume, mute, unmute, rewind, click и др.) обновляют только `lastSeenAt`. `error` дополнительно записывает `errorCode` через COALESCE (первый код авторитетен).
+
+### `services/vast/validator.ts`
+
+Вызывает `xmllint --schema vast_4.2.xsd` через `execFile`. Файл записывается во временный путь с random suffix, удаляется в `finally`. Используется VAST 4.2 XSD как ближайшая доступная схема (IAB не опубликовал XSD для 4.3). Только для admin-валидации при необходимости — не вызывается автоматически при каждом `GET /vast/:token`.
+
+### `services/storage/keys.ts`
+
+Staging: `staging/{uploadSessionId}/{filename}`.
+
+Delivery: `assets/sha256/{sha256[0:2]}/{sha256[2:4]}/{sha256}.{extension}` — двухуровневый SHA-256 prefix sharding. Снижает количество объектов в одном «каталоге» Object Storage при большом числе ассетов.
 
 ---
 
@@ -599,6 +788,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 | `0 7 * * 0` | `s6_logistic_recalibration.ts` (Sunday) |
 | `0 6 1 * *` | `s4_calibration.ts` (monthly 1st) |
 | `0 8 1 * *` | `s7_quantile_recalibration.ts` (monthly 1st) |
+| `30 3 * * *` | `asset_gc.ts` — GC ассетов без FK-ссылок |
 
 ### `jobs/retention.ts`
 
@@ -658,6 +848,10 @@ Cron `0 7 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 6 сегментов `de
 
 Cron `0 8 1 * *`. Окно **60 дней** (больше чем у остальных — квантилям нужен шире разброс данных, MIN_SAMPLE_SIZE=300 на сегмент). 3 сегмента по `device_type`. `fitS7Quantiles(data)` из `services/s7_quantile_fit.ts`. Вычисляет `relativeYLow` (p33 ATF), `relativeYMid` (p67 BTF), `clutterMid` (p50), `clutterHigh` (p80).
 
+### `jobs/asset_gc.ts`
+
+Ежедневно 03:30 UTC (`30 3 * * *`). Физически удаляет ассеты из Object Storage и таблицы `assets` если они: (а) старше 45 дней (`GC_GRACE_DAYS = 45`) и (б) не имеют FK-ссылок в `creative_version_assets`. Пакетная обработка по 100 записей (`GC_BATCH_SIZE = 100`). Bucket определяется по `asset_class`: `source` → `SOURCE_BUCKET`, остальные → `DELIVERY_BUCKET`. `NoSuchKey` на DELETE не является ошибкой (идемпотентность). Credentials: `cpmind-backend-signer` IAM ключ.
+
 ---
 
 ## IVT — детекция невалидного трафика
@@ -700,6 +894,8 @@ Path A (текущая реализация): поведенческая дет�
 - **Security headers:** `@fastify/helmet` на уровне backend, дополнительные на уровне NGINX.
 - **IDOR:** владелец из JWT, не из URL. Несуществующий или чужой ресурс → 404.
 - **Нераскрытый пробел (MVP):** `tag_uuid` виден в HTML-разметке страницы клиента. Отправка показов под чужим `tag_uuid` физически возможна — засоряет данные владельца, не даёт доступа к чтению. Принятый риск, не закрыт.
+- **Delivery token:** `randomBytes(24).toString('base64url')` = 32 символа base64url = 192 бит энтропии. Непредсказуем, не является UUID (нет структурных атак). Единственный способ получить embed script или VAST — знать token, который выдаётся только аутентифицированному владельцу placement через `GET /api/placements/:uuid`.
+- **`allowedDomains`:** поле placement для whitelist доменов. В текущей реализации хранится в БД и возвращается в API, принудительная проверка при embed script resolution — в дорожной карте.
 
 ---
 
@@ -731,9 +927,42 @@ Drizzle ORM. Миграции применяются автоматически 
 - `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически
 - Бэкапы pg_dump: 02:00 UTC, ротация 30 дней
 
+### Дополнительные индексы
+
+- `campaigns` — `uuid` (UNIQUE), составной UNIQUE `(user_id, campaign_key)`
+- `creatives` — `uuid` (UNIQUE), `user_id`, `campaign_id`, составной UNIQUE `(campaign_id, creative_key)`, partial index по `status`
+- `creative_versions` — `uuid` (UNIQUE), составной UNIQUE `(creative_id, version)`
+- `creative_version_assets` — составной UNIQUE `(creative_version_id, asset_id, role)`
+- `assets` — UNIQUE `sha256`, UNIQUE `storage_key`, index по `status`
+- `upload_sessions` — `uuid` (UNIQUE), UNIQUE `staging_key`, indices по `status`, `expires_at`, `creative_id`
+- `creative_processing_jobs` — UNIQUE `upload_session_id` (один job на сессию), UNIQUE `creative_version_id` (migration 0021), partial index `(available_at, created_at) WHERE status='pending'` (SKIP LOCKED), partial index `(lease_expires_at) WHERE status='processing'` (recovery)
+- `placements` — `uuid` (UNIQUE), UNIQUE `delivery_token`, indices по `user_id`, `campaign_id`, `creative_id`
+- `delivery_runtime_configs` — UNIQUE `version`, partial UNIQUE `(is_active) WHERE is_active=true`
+- `ad_sessions` — PK `ad_session_id`, indices по `placement_id`, `user_id`, `created_at`, `measurement_mode`, `creative_version_id`, `tag_id`
+
+**Новые поля `impressions` (migration 0020):**
+
+`ad_session_id` (FK → ad_sessions, nullable), `campaign_ref_id`, `creative_ref_id`, `creative_version_id`, `placement_id`, `delivery_mode` (enum), `measurement_mode` (enum, DEFAULT `legacy_tag`), `finalization_reason`.
+
+**Новые индексы `impressions`:** `ad_session_id WHERE NOT NULL`, `measurement_mode`, `creative_version_id WHERE NOT NULL`.
+
+**Seed в migration 0020:** `delivery_runtime_configs` `v1.0` — timeout'ы совпадают с `DEFAULT_PLAYER_TIMEOUTS` из `@cpmind/sdk`.
+
+**Migration 0021:** добавляет в `creative_processing_jobs`: `creative_version_id` (NOT NULL, FK, UNIQUE), `processing_profile_version` (NOT NULL), `lease_expires_at`, `heartbeat_at`. Пересоздаёт индексы для SKIP LOCKED паттерна.
+
+**`measurement_mode` enum:**
+
+| Значение | Контекст |
+|---|---|
+| `legacy_tag` | legacy tag flow, `adSessionIdentity` отсутствует |
+| `full_direct_display` | display-runtime (banner_static/gif/html5) |
+| `full_cpmind_player` | player (video_creative) |
+| `partial_embedded_iframe` | HTML5 в iframe без полного SDK |
+| `vast_only` | только VAST без SDK measurement |
+
 ### Коды миграций
 
-0. **packages/backend/drizzle/migrations/0000_sharp_mauler.sql**
+#### 1. packages/backend/drizzle/migrations/0000_sharp_mauler.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "impressions" (
@@ -778,7 +1007,7 @@ CREATE INDEX IF NOT EXISTS "idx_is_suspicious" ON "impressions" USING btree ("is
 CREATE INDEX IF NOT EXISTS "idx_score_final" ON "impressions" USING btree ("score_final");
 ```
 
-1. **packages/backend/drizzle/migrations/0001_secret_whiplash.sql**
+#### 2. packages/backend/drizzle/migrations/0001_secret_whiplash.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "weight_configs" (
@@ -802,7 +1031,7 @@ VALUES (
 );
 ```
 
-2. **packages/backend/drizzle/migrations/0002_elite_puppet_master.sql**
+#### 3. packages/backend/drizzle/migrations/0002_elite_puppet_master.sql
 
 ```sql
 ALTER TABLE "impressions" ADD COLUMN "session_group_id" uuid DEFAULT gen_random_uuid() NOT NULL;--> statement-breakpoint
@@ -810,7 +1039,7 @@ ALTER TABLE "impressions" ADD COLUMN "segment_index" integer DEFAULT 0 NOT NULL;
 CREATE INDEX IF NOT EXISTS "idx_session_group_id" ON "impressions" USING btree ("session_group_id");
 ```
 
-3. **packages/backend/drizzle/migrations/0003_f_presence_check_guarded.sql**
+#### 4. packages/backend/drizzle/migrations/0003_f_presence_check_guarded.sql
 
 ```sql
 DO $$
@@ -823,7 +1052,7 @@ BEGIN
 END $$;
 ```
 
-4. **packages/backend/drizzle/migrations/0004_public_thunderbolts.sql**
+#### 5. packages/backend/drizzle/migrations/0004_public_thunderbolts.sql
 
 ```sql
 DO $$ BEGIN
@@ -881,14 +1110,14 @@ CREATE INDEX IF NOT EXISTS "idx_impressions_user_id" ON "impressions" USING btre
 CREATE INDEX IF NOT EXISTS "idx_impressions_user_id_created_at" ON "impressions" USING btree ("user_id","created_at");
 ```
 
-5. **packages/backend/drizzle/migrations/0005_familiar_zodiak.sql**
+#### 6. packages/backend/drizzle/migrations/0005_familiar_zodiak.sql
 
 ```sql
 ALTER TABLE "impressions" ALTER COLUMN "tag_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "impressions" ALTER COLUMN "user_id" SET NOT NULL;
 ```
 
-6. **packages/backend/drizzle/migrations/0006_thick_robin_chapel.sql**
+#### 7. packages/backend/drizzle/migrations/0006_thick_robin_chapel.sql
 
 ```sql
 DO $$ BEGIN
@@ -956,7 +1185,7 @@ CREATE INDEX IF NOT EXISTS "idx_calibration_items_batch_status" ON "calibration_
 CREATE INDEX IF NOT EXISTS "idx_calibration_items_impression_id" ON "calibration_items" USING btree ("impression_id");
 ```
 
-7. **packages/backend/drizzle/migrations/0007_workable_rachel_grey.sql**
+#### 8. packages/backend/drizzle/migrations/0007_workable_rachel_grey.sql
 
 ```sql
 CREATE SEQUENCE IF NOT EXISTS "tag_constants_version_seq" START WITH 0 MINVALUE 0 INCREMENT BY 1;
@@ -984,7 +1213,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS "idx_impressions_tag_constants_version" ON "impressions" USING btree ("tag_constants_version");
 ```
 
-8. **packages/backend/drizzle/migrations/0008_fair_chimera.sql**
+#### 9. packages/backend/drizzle/migrations/0008_fair_chimera.sql
 
 ```sql
 ALTER TABLE "impressions" ADD COLUMN "s6_raw_completion_rate" real;--> statement-breakpoint
@@ -995,7 +1224,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uidx_weight_configs_active_type" ON "weight_c
 UPDATE weight_configs SET config_type = 'banner' WHERE config_type IS NULL;
 ```
 
-9. **packages/backend/drizzle/migrations/0009_slippery_marten_broadcloak.sql**
+#### 10. packages/backend/drizzle/migrations/0009_slippery_marten_broadcloak.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "ivt_list_configs" (
@@ -1033,7 +1262,7 @@ ALTER TABLE "impressions" ADD CONSTRAINT "chk_ivt_verdict_valid"
   CHECK (ivt_verdict IN ('valid', 'givt', 'sivt_suspected', 'sivt_confirmed'))
 ```
 
-10. **packages/backend/drizzle/migrations/0010_sloppy_luke_cage.sql**
+#### 11. packages/backend/drizzle/migrations/0010_sloppy_luke_cage.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s1_weibull_configs" (
@@ -1054,7 +1283,7 @@ CREATE INDEX IF NOT EXISTS "idx_s1_weibull_deletion_scheduled_at"
     ON "s1_weibull_configs" ("deletion_scheduled_at");
 ```
 
-11. **packages/backend/drizzle/migrations/0011_green_kitty_pryde.sql**
+#### 12. packages/backend/drizzle/migrations/0011_green_kitty_pryde.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s3_logistic_configs" (
@@ -1078,11 +1307,30 @@ CREATE INDEX IF NOT EXISTS "idx_s3_logistic_deletion_scheduled_at"
     ON "s3_logistic_configs" ("deletion_scheduled_at");
 ```
 
-12. **packages/backend/drizzle/migrations/0012_seed_s1_s3_defaults.sql**
+#### 13. packages/backend/drizzle/migrations/0012_seed_s1_s3_defaults.sql
 
 Bootstrap seed данных для дефолтных конфигов S1 и S3 (9 сегментов каждый, `is_active=true`).
 
-13. **packages/backend/drizzle/migrations/0013_pretty_xorn.sql**
+```sql
+INSERT INTO s1_weibull_configs (segment_key, k, lambda, sample_size, is_active)
+VALUES ('global', 1.0, 5.0, 0, true)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO s3_logistic_configs (
+  segment_key, tag_constants_version,
+  coefficients, feature_means, feature_stds,
+  sample_size, is_active
+) VALUES (
+  'global', 'v0',
+  '{"beta0":0,"beta1":0,"beta2":0,"beta3":0,"beta4":0,"beta5":0,"beta6":0,"beta7":0}',
+  '{"speed":0,"stddev":0,"pause":0,"direction":0,"streak":0}',
+  '{"speed":1,"stddev":1,"pause":1,"direction":1,"streak":1}',
+  0, true
+)
+ON CONFLICT DO NOTHING;
+```
+
+#### 14. packages/backend/drizzle/migrations/0013_pretty_xorn.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s4_configs" (
@@ -1104,7 +1352,7 @@ CREATE INDEX IF NOT EXISTS "idx_s4_configs_deletion_scheduled_at"
     ON "s4_configs" ("deletion_scheduled_at");
 ```
 
-14. **packages/backend/drizzle/migrations/0014_dapper_purifiers.sql**
+#### 15. packages/backend/drizzle/migrations/0014_dapper_purifiers.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s5_logistic_configs" (
@@ -1127,7 +1375,7 @@ CREATE INDEX IF NOT EXISTS "idx_s5_logistic_deletion_scheduled_at"
     ON "s5_logistic_configs" ("deletion_scheduled_at");
 ```
 
-15. **packages/backend/drizzle/migrations/0015_many_peter_quill.sql**
+#### 16. packages/backend/drizzle/migrations/0015_many_peter_quill.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s6_logistic_configs" (
@@ -1155,7 +1403,7 @@ CREATE INDEX IF NOT EXISTS "idx_s6_logistic_deletion_scheduled_at"
     ON "s6_logistic_configs" ("deletion_scheduled_at");
 ```
 
-16. **packages/backend/drizzle/migrations/0016_wild_goblin_queen.sql**
+#### 17. packages/backend/drizzle/migrations/0016_wild_goblin_queen.sql
 
 ```sql
 CREATE TABLE IF NOT EXISTS "s7_quantile_configs" (
@@ -1178,7 +1426,7 @@ CREATE INDEX IF NOT EXISTS "idx_s7_quantile_deletion_scheduled_at"
     ON "s7_quantile_configs" ("deletion_scheduled_at");
 ```
 
-17. **packages/backend/drizzle/migrations/0017_dear_jubilee.sql**
+#### 18. packages/backend/drizzle/migrations/0017_dear_jubilee.sql
 
 ```sql
 ALTER TABLE "impressions" ADD COLUMN "publisher_domain" text;--> statement-breakpoint
@@ -1186,13 +1434,7 @@ CREATE INDEX IF NOT EXISTS "idx_impressions_publisher_domain"
     ON "impressions" USING btree ("publisher_domain");
 ```
 
-18. **packages/backend/drizzle/migrations/0018_dapper_karnak.sql** (фикс DEFAULT-весов для видео):
-
-```sql
-ALTER TABLE "impressions" ALTER COLUMN "weights_version" DROP DEFAULT;
-```
-
-19. **packages/backend/drizzle/migrations/0019_seed_default_weights.sql** (фикс DEFAULT-весов для видео):
+#### 19. packages/backend/drizzle/migrations/0018_dapper_karnak.sql** (фикс DEFAULT-весов для видео):
 
 ```sql
 UPDATE "weight_configs"
@@ -1213,7 +1455,474 @@ VALUES (
 ON CONFLICT ("version") DO NOTHING;
 ```
 
-20. **packages/backend/drizzle/migrations/meta/_journal.json**
+#### 20. packages/backend/drizzle/migrations/0020_wide_marauders.sql
+
+```sql
+DO $$ BEGIN
+ CREATE TYPE "public"."asset_class" AS ENUM('source', 'image', 'animated_image', 'video', 'video_poster', 'html_file', 'svg');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."asset_status" AS ENUM('pending', 'ready', 'failed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."autoplay_mode" AS ENUM('autoplay', 'click_to_play');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."autoplay_outcome" AS ENUM('started', 'blocked', 'error');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."campaign_status" AS ENUM('active', 'archived');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."creative_status" AS ENUM('draft', 'processing', 'ready', 'active', 'archived', 'failed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."creative_type" AS ENUM('banner_static', 'banner_gif', 'banner_html5', 'video_creative');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."creative_version_status" AS ENUM('draft', 'processing', 'ready', 'archived', 'failed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."delivery_mode" AS ENUM('display', 'instream_preroll', 'instream_midroll', 'instream_postroll', 'outstream', 'standalone_video');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."measurement_mode" AS ENUM('full_direct_display', 'full_cpmind_player', 'partial_embedded_iframe', 'vast_only', 'legacy_tag');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."processing_job_status" AS ENUM('pending', 'processing', 'ready', 'failed');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ CREATE TYPE "public"."upload_status" AS ENUM('created', 'uploading', 'uploaded', 'processing', 'ready', 'failed', 'expired');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "ad_sessions" (
+	"ad_session_id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"placement_id" uuid NOT NULL,
+	"creative_version_id" uuid,
+	"user_id" bigint NOT NULL,
+	"tag_id" bigint,
+	"creative_type" "creative_type" NOT NULL,
+	"delivery_mode" "delivery_mode" NOT NULL,
+	"measurement_mode" "measurement_mode" DEFAULT 'legacy_tag' NOT NULL,
+	"publisher_domain" text,
+	"player_runtime_version" text,
+	"sdk_runtime_version" text,
+	"autoplay_requested" boolean,
+	"initial_muted" boolean,
+	"autoplay_outcome" "autoplay_outcome",
+	"requested_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"asset_load_started_at" timestamp with time zone,
+	"creative_ready_at" timestamp with time zone,
+	"render_confirmed_at" timestamp with time zone,
+	"measurement_started_at" timestamp with time zone,
+	"measurement_ended_at" timestamp with time zone,
+	"vast_requested_at" timestamp with time zone,
+	"vast_impression_at" timestamp with time zone,
+	"video_started_at" timestamp with time zone,
+	"first_quartile_at" timestamp with time zone,
+	"midpoint_at" timestamp with time zone,
+	"third_quartile_at" timestamp with time zone,
+	"completed_at" timestamp with time zone,
+	"skipped_at" timestamp with time zone,
+	"error_at" timestamp with time zone,
+	"error_code" text,
+	"finalization_reason" text,
+	"playback_quality" jsonb,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "assets" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"sha256" char(64) NOT NULL,
+	"mime_type" text NOT NULL,
+	"extension" text NOT NULL,
+	"size_bytes" bigint NOT NULL,
+	"storage_key" text NOT NULL,
+	"asset_class" "asset_class" NOT NULL,
+	"width" integer,
+	"height" integer,
+	"duration_sec" real,
+	"codec" text,
+	"bitrate_bps" bigint,
+	"status" "asset_status" DEFAULT 'pending' NOT NULL,
+	"processing_profile_version" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "campaigns" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" bigint NOT NULL,
+	"campaign_key" text NOT NULL,
+	"name" text NOT NULL,
+	"status" "campaign_status" DEFAULT 'active' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "creative_processing_jobs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"upload_session_id" uuid NOT NULL,
+	"status" "processing_job_status" DEFAULT 'pending' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"max_attempts" integer DEFAULT 3 NOT NULL,
+	"locked_at" timestamp with time zone,
+	"locked_by" text,
+	"available_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"completed_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "creative_version_assets" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"creative_version_id" uuid NOT NULL,
+	"asset_id" uuid NOT NULL,
+	"role" text NOT NULL,
+	"priority" integer DEFAULT 0 NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "creative_versions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"creative_id" uuid NOT NULL,
+	"version" integer NOT NULL,
+	"source_asset_id" uuid,
+	"status" "creative_version_status" DEFAULT 'draft' NOT NULL,
+	"processing_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"ready_at" timestamp with time zone,
+	"archived_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "creatives" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" bigint NOT NULL,
+	"campaign_id" uuid NOT NULL,
+	"creative_key" text NOT NULL,
+	"creative_type" "creative_type" NOT NULL,
+	"name" text NOT NULL,
+	"click_url" text,
+	"status" "creative_status" DEFAULT 'draft' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "delivery_runtime_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"version" text NOT NULL,
+	"timeouts" jsonb NOT NULL,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "placements" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" bigint NOT NULL,
+	"campaign_id" uuid NOT NULL,
+	"creative_id" uuid NOT NULL,
+	"creative_version_id" uuid,
+	"tag_id" bigint NOT NULL,
+	"delivery_token" text NOT NULL,
+	"mode" "delivery_mode" NOT NULL,
+	"plcmt" integer,
+	"width" integer,
+	"height" integer,
+	"autoplay_mode" "autoplay_mode",
+	"initial_muted" boolean DEFAULT true NOT NULL,
+	"skippable" boolean DEFAULT false NOT NULL,
+	"skip_offset_sec" real,
+	"allowed_domains" text[],
+	"click_url" text,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "upload_sessions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"uuid" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" bigint NOT NULL,
+	"campaign_id" uuid NOT NULL,
+	"creative_id" uuid,
+	"creative_type" "creative_type" NOT NULL,
+	"staging_key" text NOT NULL,
+	"original_filename" text NOT NULL,
+	"declared_mime" text NOT NULL,
+	"size_bytes" bigint NOT NULL,
+	"status" "upload_status" DEFAULT 'created' NOT NULL,
+	"multipart_upload_id" text,
+	"processing_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"completed_at" timestamp with time zone,
+	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "ad_session_id" uuid;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "campaign_ref_id" uuid;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "creative_ref_id" uuid;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "creative_version_id" uuid;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "placement_id" uuid;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "delivery_mode" "delivery_mode";--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "measurement_mode" "measurement_mode" DEFAULT 'legacy_tag' NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "finalization_reason" text;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "ad_sessions" ADD CONSTRAINT "ad_sessions_placement_id_placements_id_fk" FOREIGN KEY ("placement_id") REFERENCES "public"."placements"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "ad_sessions" ADD CONSTRAINT "ad_sessions_creative_version_id_creative_versions_id_fk" FOREIGN KEY ("creative_version_id") REFERENCES "public"."creative_versions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "ad_sessions" ADD CONSTRAINT "ad_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "ad_sessions" ADD CONSTRAINT "ad_sessions_tag_id_tags_id_fk" FOREIGN KEY ("tag_id") REFERENCES "public"."tags"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "campaigns" ADD CONSTRAINT "campaigns_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_processing_jobs" ADD CONSTRAINT "creative_processing_jobs_upload_session_id_upload_sessions_id_fk" FOREIGN KEY ("upload_session_id") REFERENCES "public"."upload_sessions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_version_assets" ADD CONSTRAINT "creative_version_assets_creative_version_id_creative_versions_id_fk" FOREIGN KEY ("creative_version_id") REFERENCES "public"."creative_versions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_version_assets" ADD CONSTRAINT "creative_version_assets_asset_id_assets_id_fk" FOREIGN KEY ("asset_id") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_versions" ADD CONSTRAINT "creative_versions_creative_id_creatives_id_fk" FOREIGN KEY ("creative_id") REFERENCES "public"."creatives"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_versions" ADD CONSTRAINT "creative_versions_source_asset_id_assets_id_fk" FOREIGN KEY ("source_asset_id") REFERENCES "public"."assets"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creatives" ADD CONSTRAINT "creatives_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creatives" ADD CONSTRAINT "creatives_campaign_id_campaigns_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."campaigns"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_campaign_id_campaigns_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."campaigns"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_creative_id_creatives_id_fk" FOREIGN KEY ("creative_id") REFERENCES "public"."creatives"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_creative_version_id_creative_versions_id_fk" FOREIGN KEY ("creative_version_id") REFERENCES "public"."creative_versions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_tag_id_tags_id_fk" FOREIGN KEY ("tag_id") REFERENCES "public"."tags"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "upload_sessions" ADD CONSTRAINT "upload_sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "upload_sessions" ADD CONSTRAINT "upload_sessions_campaign_id_campaigns_id_fk" FOREIGN KEY ("campaign_id") REFERENCES "public"."campaigns"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "upload_sessions" ADD CONSTRAINT "upload_sessions_creative_id_creatives_id_fk" FOREIGN KEY ("creative_id") REFERENCES "public"."creatives"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_placement_id" ON "ad_sessions" USING btree ("placement_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_user_id" ON "ad_sessions" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_created_at" ON "ad_sessions" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_measurement_mode" ON "ad_sessions" USING btree ("measurement_mode");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_creative_version_id" ON "ad_sessions" USING btree ("creative_version_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ad_sessions_tag_id" ON "ad_sessions" USING btree ("tag_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_assets_sha256" ON "assets" USING btree ("sha256");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_assets_storage_key" ON "assets" USING btree ("storage_key");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_assets_status" ON "assets" USING btree ("status");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_campaigns_uuid" ON "campaigns" USING btree ("uuid");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_campaigns_user_id" ON "campaigns" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_campaigns_user_campaign_key" ON "campaigns" USING btree ("user_id","campaign_key");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_cpj_upload_session_id" ON "creative_processing_jobs" USING btree ("upload_session_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cpj_status_available" ON "creative_processing_jobs" USING btree ("status","available_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cpj_locked_at" ON "creative_processing_jobs" USING btree ("locked_at") WHERE "creative_processing_jobs"."locked_at" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_cva_creative_version_asset_role" ON "creative_version_assets" USING btree ("creative_version_id","asset_id","role");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cva_creative_version_id" ON "creative_version_assets" USING btree ("creative_version_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cva_asset_id" ON "creative_version_assets" USING btree ("asset_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_creative_versions_uuid" ON "creative_versions" USING btree ("uuid");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_creative_versions_creative_version" ON "creative_versions" USING btree ("creative_id","version");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_creatives_uuid" ON "creatives" USING btree ("uuid");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_creatives_user_id" ON "creatives" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_creatives_campaign_id" ON "creatives" USING btree ("campaign_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_creatives_campaign_creative_key" ON "creatives" USING btree ("campaign_id","creative_key");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_delivery_runtime_configs_version" ON "delivery_runtime_configs" USING btree ("version");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_delivery_runtime_configs_active" ON "delivery_runtime_configs" USING btree ("is_active") WHERE "delivery_runtime_configs"."is_active" = true;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_placements_uuid" ON "placements" USING btree ("uuid");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_placements_delivery_token" ON "placements" USING btree ("delivery_token");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_placements_user_id" ON "placements" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_placements_campaign_id" ON "placements" USING btree ("campaign_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_placements_creative_id" ON "placements" USING btree ("creative_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_upload_sessions_uuid" ON "upload_sessions" USING btree ("uuid");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_upload_sessions_staging_key" ON "upload_sessions" USING btree ("staging_key");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_upload_sessions_user_id" ON "upload_sessions" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_upload_sessions_status" ON "upload_sessions" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_upload_sessions_expires_at" ON "upload_sessions" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_upload_sessions_creative_id" ON "upload_sessions" USING btree ("creative_id");--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_ad_session_id_ad_sessions_ad_session_id_fk" FOREIGN KEY ("ad_session_id") REFERENCES "public"."ad_sessions"("ad_session_id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_campaign_ref_id_campaigns_id_fk" FOREIGN KEY ("campaign_ref_id") REFERENCES "public"."campaigns"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_creative_ref_id_creatives_id_fk" FOREIGN KEY ("creative_ref_id") REFERENCES "public"."creatives"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_creative_version_id_creative_versions_id_fk" FOREIGN KEY ("creative_version_id") REFERENCES "public"."creative_versions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_placement_id_placements_id_fk" FOREIGN KEY ("placement_id") REFERENCES "public"."placements"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_ad_session_id" ON "impressions" USING btree ("ad_session_id") WHERE "impressions"."ad_session_id" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_measurement_mode" ON "impressions" USING btree ("measurement_mode");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_creative_version_id" ON "impressions" USING btree ("creative_version_id") WHERE "impressions"."creative_version_id" IS NOT NULL;
+--> statement-breakpoint
+INSERT INTO "delivery_runtime_configs" ("version", "timeouts", "is_active") VALUES (
+    'v1.0',
+    '{"configRequestMs":5000,"vastRequestMs":8000,"mediaStartMs":15000,"firstFrameMs":10000,"contentHandoffMs":5000,"adLoadTotalMs":30000}',
+    true
+);
+```
+
+#### 21. packages/backend/drizzle/migrations/meta/0021_aromatic_silver_samurai.json
+
+```sql
+DROP INDEX IF EXISTS "idx_cpj_status_available";--> statement-breakpoint
+DROP INDEX IF EXISTS "idx_cpj_locked_at";--> statement-breakpoint
+ALTER TABLE "creative_processing_jobs" ADD COLUMN "creative_version_id" uuid NOT NULL;--> statement-breakpoint
+ALTER TABLE "creative_processing_jobs" ADD COLUMN "processing_profile_version" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "creative_processing_jobs" ADD COLUMN "lease_expires_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "creative_processing_jobs" ADD COLUMN "heartbeat_at" timestamp with time zone;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "creative_processing_jobs" ADD CONSTRAINT "creative_processing_jobs_creative_version_id_creative_versions_id_fk" FOREIGN KEY ("creative_version_id") REFERENCES "public"."creative_versions"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_cpj_creative_version_id" ON "creative_processing_jobs" USING btree ("creative_version_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cpj_pending_available" ON "creative_processing_jobs" USING btree ("available_at","created_at") WHERE "creative_processing_jobs"."status" = 'pending';--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_cpj_processing_lease_expires_at" ON "creative_processing_jobs" USING btree ("lease_expires_at") WHERE "creative_processing_jobs"."status" = 'processing' AND "creative_processing_jobs"."lease_expires_at" IS NOT NULL;
+```
+
+#### Журнал миграций packages/backend/drizzle/migrations/meta/_journal.json
 
 ```json
 {
@@ -1293,56 +2002,56 @@ ON CONFLICT ("version") DO NOTHING;
     {
       "idx": 10,
       "version": "7",
-      "when": 1783530000000,
+      "when": 1783515963280,
       "tag": "0010_sloppy_luke_cage",
       "breakpoints": true
     },
     {
       "idx": 11,
       "version": "7",
-      "when": 1783530060000,
+      "when": 1783527609563,
       "tag": "0011_green_kitty_pryde",
       "breakpoints": true
     },
     {
       "idx": 12,
       "version": "7",
-      "when": 1783530120000,
+      "when": 1783530000000,
       "tag": "0012_seed_s1_s3_defaults",
       "breakpoints": true
     },
     {
       "idx": 13,
       "version": "7",
-      "when": 1783530180000,
+      "when": 1783587836500,
       "tag": "0013_pretty_xorn",
       "breakpoints": true
     },
     {
       "idx": 14,
       "version": "7",
-      "when": 1783530240000,
+      "when": 1783598462390,
       "tag": "0014_dapper_purifiers",
       "breakpoints": true
     },
     {
       "idx": 15,
       "version": "7",
-      "when": 1783530300000,
+      "when": 1783676126460,
       "tag": "0015_many_peter_quill",
       "breakpoints": true
     },
     {
       "idx": 16,
       "version": "7",
-      "when": 1783530360000,
+      "when": 1783683150582,
       "tag": "0016_wild_goblin_queen",
       "breakpoints": true
     },
     {
       "idx": 17,
       "version": "7",
-      "when": 1783530420000,
+      "when": 1783692693514,
       "tag": "0017_dear_jubilee",
       "breakpoints": true
     },
@@ -1358,6 +2067,20 @@ ON CONFLICT ("version") DO NOTHING;
       "version": "7",
       "when": 1784200000000,
       "tag": "0019_seed_default_weights",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788016731935,
+      "tag": "0020_wide_marauders",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788083944523,
+      "tag": "0021_aromatic_silver_samurai",
       "breakpoints": true
     }
   ]
