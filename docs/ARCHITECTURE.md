@@ -499,10 +499,6 @@ sequenceDiagram
 
     UI->>API: GET /api/creative-uploads/{uuid}
     API-->>UI: {status: ready, creativeVersionUuid}
-
-    style MW fill:#fce4ec,stroke:#e53935
-    style S3S fill:#f5f5f5,stroke:#757575
-    style S3D fill:#f5f5f5,stroke:#757575
 ```
 
 ### Media Worker: обработка по типу
