@@ -10,7 +10,7 @@ COPY packages/frontend/package.json ./packages/frontend/
 RUN pnpm install --frozen-lockfile --filter @cpmind/frontend...
 
 # Stage 2: builder
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@9.15.2 --activate
 WORKDIR /app
 
@@ -27,7 +27,7 @@ RUN pnpm --filter @cpmind/shared build
 RUN pnpm --filter @cpmind/frontend build
 
 # Stage 3: runner
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
