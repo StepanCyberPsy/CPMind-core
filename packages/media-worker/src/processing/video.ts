@@ -9,9 +9,9 @@ import {
     MAX_VIDEO_HEIGHT_PX,
 } from '../security/limits.js';
 import {
-  ProcessingError,
-  type ProcessedFile,
-  type ProcessingResult,
+    ProcessingError,
+    type ProcessedFile,
+    type ProcessingResult,
 } from '../types.js';
 
 async function getPosterMetadata(
@@ -61,7 +61,8 @@ export async function processVideo(
     const files: ProcessedFile[] = [];
 
     // Транскодируем каждый профиль последовательно
-    for (const profile of renditions) {
+    for (const [index, profile] of renditions.entries()) {
+
         signal.throwIfAborted();
 
         const outputPath = join(tempDir, `${profile.name}.mp4`);
@@ -83,7 +84,7 @@ export async function processVideo(
             assetClass: 'video',
             mimeType: 'video/mp4',
             extension: 'mp4',
-            role: profile.role,
+            role: index === 0 ? 'source' : profile.role,
             priority: profile.priority,
             width: profile.width,
             height: renditionHeight % 2 === 0 ? renditionHeight : renditionHeight + 1,

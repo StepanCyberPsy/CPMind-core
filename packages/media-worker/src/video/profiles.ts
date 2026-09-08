@@ -15,7 +15,7 @@ export const VIDEO_PROFILES: readonly VideoProfile[] = [
         width: 1920,
         crf: 22,
         preset: 'medium',
-        role: 'source',
+        role: 'rendition_1080p',
         priority: 0,
     },
     {
