@@ -2,17 +2,8 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { fetchCreatives } from '@/lib/admin/api';
 import { CreativeStatusBadge } from '@/components/shared/CreativeStatusBadge';
+import { formatDateTime, formatCreativeType } from '@/lib/config';
 import styles from '@/styles/creatives.module.css';
-
-function formatCreativeType(type: string): string {
-    switch (type) {
-        case 'banner_static': return 'Статичный баннер';
-        case 'banner_gif': return 'GIF-баннер';
-        case 'banner_html5': return 'HTML5-баннер';
-        case 'video_creative': return 'Видео';
-        default: return type;
-    }
-}
 
 export default async function CreativesPage(): Promise<React.ReactElement> {
     const cookieStore = cookies();
@@ -24,15 +15,10 @@ export default async function CreativesPage(): Promise<React.ReactElement> {
     return (
         <div className={styles.page}>
             <header className={styles.header}>
-                <span className={styles.headerTitle}>Креативы</span>
-                <div className={styles.headerActions}>
-                    <Link href="/campaigns" className={styles.navLink}>
-                        ← Кампании
-                    </Link>
-                    <Link href="/uploads" className={styles.primaryLink}>
-                        Загрузить
-                    </Link>
-                </div>
+                <span className={styles.headerTitle}>Все креативы</span>
+                <Link href="/campaigns" className={styles.navLink}>
+                    ← Кампании
+                </Link>
             </header>
 
             <div className={styles.content}>
@@ -40,8 +26,8 @@ export default async function CreativesPage(): Promise<React.ReactElement> {
                     <div className={styles.empty}>
                         <div>Нет загруженных креативов.</div>
                         <div className={styles.emptyHint}>
-                            <Link href="/uploads" className={styles.navLink}>
-                                Загрузите первый файл →
+                            <Link href="/campaigns" className={styles.navLink}>
+                                Выберите кампанию для загрузки →
                             </Link>
                         </div>
                     </div>
@@ -50,20 +36,18 @@ export default async function CreativesPage(): Promise<React.ReactElement> {
                         {creatives.map((c) => (
                             <Link
                                 key={c.uuid}
-                                href={`/placements?creativeUuid=${c.uuid}`}
+                                href={`/creatives/${c.uuid}`}
                                 className={styles.card}
                             >
                                 <div className={styles.cardMain}>
                                     <span className={styles.cardName}>{c.name}</span>
-                                    <div className={styles.cardMeta}>
-                                        <span className={styles.cardType}>
-                                            {formatCreativeType(c.creativeType)}
-                                        </span>
-                                    </div>
+                                    <span className={styles.cardType}>
+                                        {formatCreativeType(c.creativeType)}
+                                    </span>
                                 </div>
                                 <CreativeStatusBadge status={c.status} />
                                 <span className={styles.cardDate}>
-                                    {new Date(c.createdAt).toLocaleDateString('ru-RU')}
+                                    {formatDateTime(c.createdAt)}
                                 </span>
                             </Link>
                         ))}

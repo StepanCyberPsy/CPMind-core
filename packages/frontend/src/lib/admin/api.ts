@@ -147,6 +147,14 @@ export interface S7QuantileConfigRow {
 
 // Campaigns
 
+export interface CampaignCreativeCounts {
+  banner_static: number;
+  banner_gif: number;
+  banner_html5: number;
+  video_creative: number;
+  total: number;
+}
+
 export interface CampaignRow {
   uuid: string;
   campaignKey: string;
@@ -154,8 +162,8 @@ export interface CampaignRow {
   status: 'active' | 'archived';
   createdAt: string;
   updatedAt: string;
+  creativeCounts?: CampaignCreativeCounts;
 }
-
 // Creatives
 
 export interface AssetView {
@@ -185,6 +193,7 @@ export interface CreativeVersionView {
 
 export interface CreativeListItem {
   uuid: string;
+  campaignUuid: string;
   name: string;
   creativeType: string;
   clickUrl: string | null;

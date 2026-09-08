@@ -42,6 +42,7 @@ export interface CreativeVersionView {
 
 export interface CreativeListItem {
     uuid: string;
+    campaignUuid: string;
     name: string;
     creativeType: string;
     clickUrl: string | null;
@@ -93,6 +94,7 @@ export async function listCreatives(userId: number): Promise<CreativeListItem[]>
     const rows = await db
         .select({
             uuid: creatives.uuid,
+            campaignUuid: campaigns.uuid,
             name: creatives.name,
             creativeType: creatives.creativeType,
             clickUrl: creatives.clickUrl,
@@ -101,6 +103,7 @@ export async function listCreatives(userId: number): Promise<CreativeListItem[]>
             updatedAt: creatives.updatedAt,
         })
         .from(creatives)
+        .innerJoin(campaigns, eq(creatives.campaignId, campaigns.id))
         .where(
             and(
                 eq(creatives.userId, userId),
@@ -111,6 +114,7 @@ export async function listCreatives(userId: number): Promise<CreativeListItem[]>
 
     return rows.map((row) => ({
         uuid: row.uuid,
+        campaignUuid: row.campaignUuid,
         name: row.name,
         creativeType: row.creativeType,
         clickUrl: row.clickUrl,

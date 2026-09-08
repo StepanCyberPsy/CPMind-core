@@ -23,7 +23,7 @@ export default async function UsersPanelPage() {
           <span className={styles.headerCount}>{users.length}</span>
         </div>
         <a href="/campaigns" className={styles.workspaceLink}>
-          Мои креативы →
+          Рекламные кампании →
         </a>
       </header>
 

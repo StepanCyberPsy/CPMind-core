@@ -3,6 +3,8 @@
     background-color: var(--bg-base);
 }
 
+/* Page header */
+
 .header {
     display: flex;
     align-items: center;
@@ -14,52 +16,85 @@
     position: sticky;
     top: 0;
     z-index: 100;
+    gap: var(--space-4);
+}
+
+.headerLeft {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
 }
 
 .headerTitle {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.content {
-    padding: var(--space-5) var(--space-6) var(--space-8);
-    max-width: 800px;
-}
-
-.createForm {
-    display: flex;
-    gap: var(--space-3);
-    margin-bottom: var(--space-6);
-}
-
-.createInput {
-    flex: 1;
-    padding: 8px 12px;
+.navLink {
     font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.navLink:hover {
     color: var(--text-primary);
-    background-color: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    transition: border-color 0.15s;
-    outline: none;
-    min-width: 0;
 }
 
-.createInput:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
-}
-
-.createInput::placeholder {
-    color: var(--text-muted);
-}
-
-.createBtn {
+.primaryLink {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 20px;
+    padding: 7px 16px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.primaryLink:hover {
+    background-color: var(--accent-dark);
+}
+
+/* Content */
+
+.content {
+    padding: var(--space-6) var(--space-6) var(--space-10);
+    max-width: 100vw;
+}
+
+/* Toolbar: search + create button */
+
+.toolbar {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.searchInput {
+    flex: 1;
+    min-width: 200px;
+}
+
+.createToggleBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 8px 16px;
     background-color: var(--accent);
     color: #ffffff;
     border: 1px solid var(--accent);
@@ -72,19 +107,86 @@
     flex-shrink: 0;
 }
 
-.createBtn:hover:not(:disabled) {
+.createToggleBtn:hover {
     background-color: var(--accent-dark);
     border-color: var(--accent-dark);
 }
 
-.createBtn:disabled {
+/* Inline create form */
+
+.formWrapper {
+    margin-bottom: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+.formRow {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-end;
+}
+
+.formInput {
+    flex: 1;
+    min-width: 0;
+}
+
+.formActions {
+    display: flex;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.submitBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 18px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.submitBtn:hover:not(:disabled) {
+    background-color: var(--accent-dark);
+    border-color: var(--accent-dark);
+}
+
+.submitBtn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }
 
+.cancelBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    background-color: var(--bg-subtle);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.cancelBtn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
 .errorBox {
-    margin-bottom: var(--space-4);
-    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-4);
     background-color: var(--negative-bg);
     border: 1px solid var(--negative);
     border-radius: var(--radius);
@@ -92,56 +194,99 @@
     color: var(--negative);
 }
 
-.list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-}
+/* Campaign grid */
 
-.card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-4) var(--space-5);
-    background-color: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    transition: border-color 0.15s;
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: var(--space-4);
 }
 
-.card:hover {
-    border-color: var(--border-strong);
-}
+/* Campaign card */
 
-.cardLeft {
+.campaignCard {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    min-width: 0;
+    gap: var(--space-2);
+    padding: var(--space-5);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    min-height: 200px;
+}
+
+.campaignCard:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow);
 }
 
 .cardName {
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.3;
 }
 
-.cardKey {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-muted);
+.cardUuid {
+    display: flex;
+    align-items: center;
 }
 
 .cardDate {
     font-size: 12px;
     color: var(--text-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
 }
+
+.cardCountsSection {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.countRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+}
+
+.countLabel {
+    color: var(--text-secondary);
+}
+
+.countValue {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.countTotal {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-strong);
+    margin-top: var(--space-1);
+}
+
+.noCreatives {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Empty state */
 
 .empty {
     padding: var(--space-10) var(--space-6);
@@ -153,21 +298,29 @@
     border-radius: var(--radius-md);
 }
 
-.navLink {
+.emptyHint {
+    margin-top: var(--space-3);
     font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    text-decoration: none;
-    transition: color 0.15s;
 }
 
-.navLink:hover {
-    color: var(--text-primary);
+.noResults {
+    padding: var(--space-8) var(--space-6);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+/* Responsive */
+
+@media (max-width: 1200px) {
+    .grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
 }
 
 @media (max-width: 768px) {
     .content {
-        max-width: 100%;
+        padding: var(--space-5) var(--space-4) var(--space-8);
     }
 }
 
@@ -176,20 +329,31 @@
         padding: 0 var(--space-4);
     }
 
-    .content {
-        padding: var(--space-4) var(--space-4) var(--space-8);
+    .grid {
+        grid-template-columns: 1fr;
     }
 
-    .createForm {
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .createToggleBtn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .formRow {
         flex-direction: column;
     }
 
-    .card {
-        flex-wrap: wrap;
-        gap: var(--space-2);
+    .formActions {
+        width: 100%;
     }
 
-    .cardDate {
-        width: 100%;
+    .submitBtn,
+    .cancelBtn {
+        flex: 1;
+        justify-content: center;
     }
 }

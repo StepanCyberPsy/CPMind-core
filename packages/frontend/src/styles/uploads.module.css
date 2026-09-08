@@ -3,6 +3,8 @@
     background-color: var(--bg-base);
 }
 
+/* Page header */
+
 .header {
     display: flex;
     align-items: center;
@@ -14,12 +16,23 @@
     position: sticky;
     top: 0;
     z-index: 100;
+    gap: var(--space-4);
+}
+
+.headerLeft {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
 }
 
 .headerTitle {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .navLink {
@@ -29,6 +42,7 @@
     text-decoration: none;
     transition: color 0.15s;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .navLink:hover {
@@ -37,7 +51,6 @@
 
 .content {
     padding: var(--space-5) var(--space-6) var(--space-8);
-    max-width: 680px;
 }
 
 .card {

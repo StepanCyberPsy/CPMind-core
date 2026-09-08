@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { createUploadSession, completeUploadSession } from '@/lib/admin/api';
 import { uploadFile } from '@/lib/admin/upload-api';
 import { ProcessingPoller } from './ProcessingPoller';
+import { buildDefaultCreativeName } from '@/lib/config';
 import type { CampaignRow } from '@/lib/admin/api';
 import type { CreativeType } from '@cpmind/shared';
 import styles from '@/styles/upload-flow.module.css';
@@ -63,6 +64,11 @@ function detectCreativeType(file: File): CreativeType | null {
     return null;
 }
 
+function getFileExtension(filename: string): string {
+    const lastDot = filename.lastIndexOf('.');
+    return lastDot > 0 ? filename.slice(lastDot) : '';
+}
+
 function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -78,33 +84,46 @@ type Phase =
 
 interface Props {
     campaigns: CampaignRow[];
-    onDone?: ((creativeVersionUuid: string) => void) | undefined;
-    redirectOnDone?: string | undefined;
+    onDone?: ((creativeUuid: string) => void) | undefined;
 }
 
-export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.ReactElement {
+export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
+    const router = useRouter();
+
     const [campaignUuid, setCampaignUuid] = useState<string>(
         campaigns[0]?.uuid ?? '',
     );
     const [file, setFile] = useState<File | null>(null);
+    const [creativeName, setCreativeName] = useState('');
     const [dragging, setDragging] = useState(false);
     const [phase, setPhase] = useState<Phase>('idle');
     const [uploadPct, setUploadPct] = useState(0);
     const [uploadId, setUploadId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-
     const fileInputRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef<AbortController | null>(null);
 
-    const handleFile = useCallback((incoming: File) => {
-        if (!ACCEPTED_MIME_TYPES.includes(incoming.type.toLowerCase()) &&
-            !incoming.name.toLowerCase().endsWith('.zip')) {
+    const selectedCampaign = campaigns.find((c) => c.uuid === campaignUuid);
+
+    const handleFile = useCallback((incoming: File): void => {
+        if (
+            !ACCEPTED_MIME_TYPES.includes(incoming.type.toLowerCase()) &&
+            !incoming.name.toLowerCase().endsWith('.zip')
+        ) {
             setError(`Неподдерживаемый тип файла: ${incoming.type || 'unknown'}`);
             return;
         }
+
         setFile(incoming);
         setError(null);
-    }, []);
+
+        if (creativeName === '' && selectedCampaign !== undefined) {
+            const detectedType = detectCreativeType(incoming);
+            if (detectedType !== null) {
+                setCreativeName(buildDefaultCreativeName(selectedCampaign.name, detectedType));
+            }
+        }
+    }, [creativeName, selectedCampaign]);
 
     const onDropzoneClick = (): void => fileInputRef.current?.click();
 
@@ -142,6 +161,12 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
             return;
         }
 
+        const trimmedName = creativeName.trim();
+        if (trimmedName === '') {
+            setError('Укажите название creative');
+            return;
+        }
+
         setPhase('uploading');
         setUploadPct(0);
         setError(null);
@@ -149,11 +174,15 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
         const ac = new AbortController();
         abortRef.current = ac;
 
+        // Имя передаётся через filename: backend применяет creativeNameFromFilename()
+        const ext = getFileExtension(file.name);
+        const filenameWithName = `${trimmedName}${ext}`;
+
         try {
             const session = await createUploadSession({
                 campaignUuid,
                 creativeType,
-                filename: file.name,
+                filename: filenameWithName,
                 sizeBytes: file.size,
                 mimeType: file.type || 'application/octet-stream',
             });
@@ -190,15 +219,11 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
         abortRef.current = null;
     };
 
-    const router = useRouter();
-
-    const handlePollerReady = useCallback((creativeVersionUuid: string): void => {
+    const handlePollerReady = useCallback(({ creativeUuid }: { creativeUuid: string; creativeVersionUuid: string }): void => {
         setPhase('done');
-        onDone?.(creativeVersionUuid);
-        if (redirectOnDone !== undefined) {
-            router.push(`${redirectOnDone}${creativeVersionUuid}`);
-        }
-    }, [onDone, redirectOnDone, router]);
+        onDone?.(creativeUuid);
+        router.push(`/creatives/${creativeUuid}`);
+    }, [onDone, router]);
 
     const handlePollerFailed = useCallback((processingError: string | null): void => {
         setPhase('error');
@@ -211,6 +236,7 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
         setUploadId(null);
         setUploadPct(0);
         setError(null);
+        setCreativeName('');
     };
 
     if (campaigns.length === 0) {
@@ -226,21 +252,28 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
             {phase === 'idle' || phase === 'error' ? (
                 <>
                     <div className={styles.section}>
-                        <label className={styles.label} htmlFor="upload-campaign">
-                            Кампания
-                        </label>
-                        <select
-                            id="upload-campaign"
-                            className={styles.select}
-                            value={campaignUuid}
-                            onChange={(e) => setCampaignUuid(e.target.value)}
-                        >
-                            {campaigns.map((c) => (
-                                <option key={c.uuid} value={c.uuid}>
-                                    {c.name}
-                                </option>
-                            ))}
-                        </select>
+                        <span className={styles.label}>Кампания</span>
+                        {campaigns.length === 1 ? (
+                            <div className={styles.campaignDisplay}>
+                                <span className={styles.campaignName}>
+                                    {campaigns[0]?.name ?? ''}
+                                </span>
+                                <span className={styles.campaignLock}>зафиксирована</span>
+                            </div>
+                        ) : (
+                            <select
+                                id="upload-campaign"
+                                className={styles.select}
+                                value={campaignUuid}
+                                onChange={(e) => setCampaignUuid(e.target.value)}
+                            >
+                                {campaigns.map((c) => (
+                                    <option key={c.uuid} value={c.uuid}>
+                                        {c.name}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                     </div>
 
                     <div className={styles.section}>
@@ -292,6 +325,23 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
                         )}
                     </div>
 
+                    {file !== null && (
+                        <div className={styles.section}>
+                            <label className={styles.label} htmlFor="upload-name">
+                                Название creative
+                            </label>
+                            <input
+                                id="upload-name"
+                                type="text"
+                                className={styles.select}
+                                value={creativeName}
+                                onChange={(e) => setCreativeName(e.target.value)}
+                                placeholder="Название для идентификации в кабинете"
+                                maxLength={255}
+                            />
+                        </div>
+                    )}
+
                     {error !== null && (
                         <div className={styles.errorBox}>{error}</div>
                     )}
@@ -301,7 +351,7 @@ export function UploadFlow({ campaigns, onDone, redirectOnDone }: Props): React.
                             type="button"
                             className={styles.primaryBtn}
                             onClick={() => { void startUpload(); }}
-                            disabled={file === null || campaignUuid === ''}
+                            disabled={file === null || campaignUuid === '' || creativeName.trim() === ''}
                         >
                             Загрузить
                         </button>

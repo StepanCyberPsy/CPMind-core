@@ -1,0 +1,249 @@
+.page {
+    min-height: 100vh;
+    background-color: var(--bg-base);
+}
+
+/* Page header */
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-6);
+    height: 56px;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    gap: var(--space-4);
+}
+
+.headerLeft {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.navLink {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.navLink:hover {
+    color: var(--text-primary);
+}
+
+.headerTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Content */
+
+.content {
+    padding: var(--space-5) var(--space-6) var(--space-10);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Two-column grid: left (params + placement) / right (preview) */
+
+.mainGrid {
+    display: grid;
+    grid-template-columns: 2fr 3fr;
+    gap: var(--space-4);
+    align-items: start;
+}
+
+/* Left column: status+params stacked above placement */
+
+.leftColumn {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+/* Section card */
+
+.section {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-5) var(--space-6);
+}
+
+/* Section header: title + optional toggle */
+
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+}
+
+.sectionTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+/* Collapsible preview toggle button */
+
+.collapseBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background-color: var(--bg-subtle);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.collapseBtn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--border-strong);
+}
+
+/* Preview section: fills the right column height naturally */
+
+.previewSection {
+    height: fit-content;
+}
+
+.previewContent {
+    margin-top: var(--space-2);
+}
+
+/* Status row */
+
+.statusRow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.statusError {
+    font-size: 12px;
+    color: var(--negative);
+}
+
+/* Metadata grid */
+
+.metaGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4) var(--space-5);
+}
+
+.metaItem {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.metaLabel {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.metaValue {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.metaMono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Processing / error states */
+
+.processingMessage {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.errorMessage {
+    font-size: 13px;
+    color: var(--negative);
+    margin-bottom: var(--space-3);
+}
+
+.errorLink {
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.errorLink:hover {
+    color: var(--accent-dark);
+}
+
+/* Responsive */
+
+@media (max-width: 1024px) {
+    .mainGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .leftColumn {
+        order: 1;
+    }
+
+    .previewSection {
+        order: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .content {
+        padding: var(--space-5) var(--space-4) var(--space-8);
+    }
+
+    .metaGrid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .header {
+        padding: 0 var(--space-4);
+    }
+
+    .section {
+        padding: var(--space-4);
+    }
+
+    .metaGrid {
+        grid-template-columns: 1fr;
+    }
+}

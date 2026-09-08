@@ -663,9 +663,40 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 `createCampaign(userId, name)` — генерирует уникальный `campaign_key` (16 hex символов из `randomUUID`). `ON CONFLICT DO NOTHING` + retry при коллизии ключа (max 2 попытки).
 
+`listCampaigns(userId)` возвращает `CampaignListRow[]` вместо `CampaignRow[]`. Выполняет LEFT JOIN с `creatives` и GROUP BY `campaigns.id`, агрегируя количество активных (не `draft`/`archived`) креативов по типу через PostgreSQL `COUNT() FILTER (WHERE ...)`. Новые интерфейсы:
+
+```typescript
+interface CampaignCreativeCounts {
+    banner_static: number;
+    banner_gif: number;
+    banner_html5: number;
+    video_creative: number;
+    total: number;
+}
+
+interface CampaignListRow extends CampaignRow {
+    creativeCounts: CampaignCreativeCounts;
+}
+```
+
+`toCampaignRow()` — приватная helper-функция, маппит raw DB row в `CampaignRow`. Используется в `createCampaign` и `getCampaignByUuid`; `listCampaigns` возвращает `CampaignListRow` с дополнительными полями напрямую.
+
 ### `services/creatives.ts`
 
-`listCreatives(userId)` — фильтрует `notInArray(creatives.status, ['draft', 'archived'])`. Возвращает `status` как строку — фронтенд отображает `processing`/`ready`/`active`/`failed`.
+`listCreatives(userId)` — фильтрует `notInArray(creatives.status, ['draft', 'archived'])`. Выполняет INNER JOIN с `campaigns` для получения `campaigns.uuid` → поле `campaignUuid` в `CreativeListItem`. Необходимо для иерархической навигации Campaign → Creatives на фронтенде без дополнительных запросов. `CreativeListItem` расширен:
+
+```typescript
+interface CreativeListItem {
+    uuid: string;
+    campaignUuid: string;   // добавлено
+    name: string;
+    creativeType: string;
+    clickUrl: string | null;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+}
+```
 
 `getCreativeDetail(uuid, userId)` — возвращает все версии с ассетами. CDN URL строится через `buildCdnUrl(storageKey) = getCdnBaseUrl() + '/' + storageKey`. Версии упорядочены по `version DESC`, ассеты по `priority ASC`.
 
@@ -713,7 +744,18 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 Транзакция включает все четыре операции атомарно: `upload_session → processing`, `creative_version → processing`, `creative → processing`, `INSERT creative_processing_jobs`. Processing job создаётся с `processingProfileVersion = 'v1.0'`.
 
-`getUploadSessionStatus` возвращает `creativeVersionUuid` только при `status = 'ready' | 'failed'` — фронтенд останавливает polling в обоих случаях, не только при успехе.
+`getUploadSessionStatus` возвращает `creativeUuid` и `creativeVersionUuid`. `creativeUuid` разрешается через дополнительный SELECT по `creatives.uuid` (по FK `upload_sessions.creative_id`). Оба поля возвращаются только при `latestVersion.status === 'ready' || 'failed'` — frontend останавливает polling и выполняет навигацию напрямую на `/creatives/:creativeUuid`. Интерфейс:
+
+```typescript
+interface UploadSessionStatus {
+    uploadId: string;
+    status: string;
+    processingError: string | null;
+    creativeUuid: string | null;         // добавлено
+    creativeVersionUuid: string | null;
+    expiresAt: string | null;
+}
+```
 
 ### `services/vast/inline.ts`
 

@@ -1,0 +1,111 @@
+.root {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.checkRow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+}
+
+.checkInput {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+.checkLabel {
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.error {
+    font-size: 13px;
+    color: var(--negative);
+}
+
+.actions {
+    display: flex;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+}
+
+.submitBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 20px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.submitBtn:hover:not(:disabled) {
+    background-color: var(--accent-dark);
+    border-color: var(--accent-dark);
+}
+
+.submitBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.successRow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.successText {
+    font-size: 13px;
+    color: var(--positive);
+    font-weight: 500;
+}
+
+.embedBtn {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 16px;
+    background-color: var(--accent);
+    color: #ffffff;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.embedBtn:hover {
+    background-color: var(--accent-dark);
+    border-color: var(--accent-dark);
+}

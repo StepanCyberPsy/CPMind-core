@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation';
 import { createCampaign } from '@/lib/admin/api';
 import styles from '@/styles/campaigns.module.css';
 
-export function CampaignCreateForm(): React.ReactElement {
+interface Props {
+    onSuccess: () => void;
+    onCancel: () => void;
+}
+
+export function CampaignCreateForm({ onSuccess, onCancel }: Props): React.ReactElement {
     const router = useRouter();
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(false);
@@ -21,8 +26,8 @@ export function CampaignCreateForm(): React.ReactElement {
 
         try {
             await createCampaign(trimmed);
-            setName('');
             router.refresh();
+            onSuccess();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Ошибка создания кампании');
         } finally {
@@ -31,29 +36,43 @@ export function CampaignCreateForm(): React.ReactElement {
     };
 
     return (
-        <>
-            {error !== null && (
-                <div className={styles.errorBox}>{error}</div>
-            )}
-            <form onSubmit={(e) => { void handleSubmit(e); }} className={styles.createForm}>
-                <input
-                    className={styles.createInput}
-                    type="text"
-                    placeholder="Название кампании"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    maxLength={255}
-                    disabled={loading}
-                    aria-label="Название кампании"
-                />
-                <button
-                    type="submit"
-                    className={styles.createBtn}
-                    disabled={loading || name.trim() === ''}
-                >
-                    {loading ? 'Создание…' : 'Создать'}
-                </button>
+        <div className={styles.formWrapper}>
+            <form onSubmit={(e) => { void handleSubmit(e); }}>
+                <div className={styles.formRow}>
+                    <div className={styles.formInput}>
+                        <input
+                            type="text"
+                            placeholder="Название кампании"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            maxLength={255}
+                            disabled={loading}
+                            aria-label="Название кампании"
+                            autoFocus
+                        />
+                    </div>
+                    <div className={styles.formActions}>
+                        <button
+                            type="submit"
+                            className={styles.submitBtn}
+                            disabled={loading || name.trim() === ''}
+                        >
+                            {loading ? 'Создание…' : 'Создать'}
+                        </button>
+                        <button
+                            type="button"
+                            className={styles.cancelBtn}
+                            onClick={onCancel}
+                            disabled={loading}
+                        >
+                            Отмена
+                        </button>
+                    </div>
+                </div>
+                {error !== null && (
+                    <div className={styles.errorBox}>{error}</div>
+                )}
             </form>
-        </>
+        </div>
     );
 }

@@ -40,6 +40,7 @@ export interface UploadSessionStatus {
     uploadId: string;
     status: string;
     processingError: string | null;
+    creativeUuid: string | null;
     creativeVersionUuid: string | null;
     expiresAt: string | null;
 }
@@ -276,9 +277,20 @@ export async function getUploadSessionStatus(
 
     if (!session) return null;
 
+    let creativeUuid: string | null = null;
     let creativeVersionUuid: string | null = null;
 
     if (session.creativeId) {
+        const [creativeRow] = await db
+            .select({ uuid: creatives.uuid })
+            .from(creatives)
+            .where(eq(creatives.id, session.creativeId))
+            .limit(1);
+
+        if (creativeRow) {
+            creativeUuid = creativeRow.uuid;
+        }
+
         const [latestVersion] = await db
             .select({
                 uuid: creativeVersions.uuid,
@@ -302,6 +314,7 @@ export async function getUploadSessionStatus(
         uploadId: sessionUuid,
         status: session.status,
         processingError: session.processingError,
+        creativeUuid,
         creativeVersionUuid,
         expiresAt: session.expiresAt?.toISOString() ?? null,
     };

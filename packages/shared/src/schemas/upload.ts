@@ -70,6 +70,7 @@ export const UploadSessionStatusSchema = z.object({
     uploadId: z.string().uuid(),
     status: UploadStatusSchema,
     processingError: z.string().nullable(),
+    creativeUuid: z.string().uuid().nullable(),
     creativeVersionUuid: z.string().uuid().nullable(),
     expiresAt: z.string().datetime({ offset: true }).nullable(),
 });

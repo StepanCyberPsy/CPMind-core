@@ -11,9 +11,14 @@ const POLL_MAX_MS = 10_000;
 
 const TERMINAL_STATUSES = new Set<string>(['ready', 'failed', 'expired']);
 
+interface PollerResult {
+    creativeUuid: string;
+    creativeVersionUuid: string;
+}
+
 interface Props {
     uploadId: string;
-    onReady: (creativeVersionUuid: string) => void;
+    onReady: (result: PollerResult) => void;
     onFailed: (processingError: string | null) => void;
 }
 
@@ -37,8 +42,15 @@ export function ProcessingPoller({ uploadId, onReady, onFailed }: Props): React.
                 setStatus(result);
                 setPollError(null);
 
-                if (result.status === 'ready' && result.creativeVersionUuid !== null) {
-                    onReady(result.creativeVersionUuid);
+                if (
+                    result.status === 'ready' &&
+                    result.creativeUuid !== null &&
+                    result.creativeVersionUuid !== null
+                ) {
+                    onReady({
+                        creativeUuid: result.creativeUuid,
+                        creativeVersionUuid: result.creativeVersionUuid,
+                    });
                     return;
                 }
 
@@ -60,7 +72,6 @@ export function ProcessingPoller({ uploadId, onReady, onFailed }: Props): React.
             } catch (err) {
                 if (!mountedRef.current) return;
                 setPollError(err instanceof Error ? err.message : 'Ошибка получения статуса');
-                // Retry on network error with current backoff
                 const delay = delayRef.current;
                 delayRef.current = Math.min(delay * 2, POLL_MAX_MS);
                 timerRef.current = setTimeout(() => { void poll(); }, delay);

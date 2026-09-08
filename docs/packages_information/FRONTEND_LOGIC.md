@@ -199,10 +199,13 @@
 | `/user/panel` | user | реализован |
 | `/user/impressions` | user | реализован |
 | `/campaigns` | user + admin | реализовано |
+| `/campaigns/[uuid]` | user + admin | реализовано — детальная страница кампании |
+| `/campaigns/[uuid]/upload` | user + admin | реализовано — upload wizard с предвыбранной кампанией |
 | `/creatives` | user + admin | реализовано |
-| `/uploads` | user + admin | реализовано |
-| `/placements` | user + admin | реализовано |
-| `/placements/[uuid]` | user + admin | реализовано |
+| `/creatives/[uuid]` | user + admin | реализовано — детальная страница creative |
+| `/uploads` | user + admin | redirect → `/campaigns` |
+| `/placements` | user + admin | redirect → `/campaigns` |
+| `/placements/[uuid]` | user + admin | сохранён для прямых ссылок |
 
 **`src/app/page.tsx`** — redirect по роли: `admin` → `/admin/users_panel`, `user` → `/user/panel`. Содержит `export const dynamic = 'force-dynamic'` — принудительный динамический рендер на каждый запрос. Без этого флага Next.js Full Route Cache может закэшировать redirect-ответ до авторизации, и повторное открытие домена в новой вкладке возвращает кэшированный `/login` даже при валидной сессии.
 
@@ -449,19 +452,37 @@ Server Component. Рендерит `<WorkspaceNav />` и `{children}`. Прим�
 
 ### `/(workspace)/campaigns` — `page.tsx`
 
-Server Component. `fetchCampaigns(cookie)`. Отображает список активных кампаний. `<CampaignCreateForm />` — поповер создания кампании. После создания — `router.refresh()`.
+Server Component. `fetchCampaigns(cookie)`, `decodeTokenRole(token)` → `isAdmin`. Передаёт в `<CampaignListClient>`. Не содержит интерактивности — граница Server/Client.
+
+### `/(workspace)/campaigns/[uuid]` — `page.tsx`
+
+Server Component. `Promise.all([fetchCampaigns, fetchCreatives])` → фильтр `c.campaignUuid === params.uuid`. При отсутствии кампании — `notFound()`. Отображает список креативов кампании; ссылки → `/creatives/[uuid]`. Header содержит кнопку `+ Загрузить creative` → `/campaigns/[uuid]/upload`.
+
+### `/(workspace)/campaigns/[uuid]/upload` — `page.tsx`
+
+Server Component. `fetchCampaigns(cookie)` → ищет кампанию по `params.uuid`. `notFound()` при отсутствии. Передаёт одну кампанию в `<UploadFlowClient campaign={campaign}>`. Кампания зафиксирована — dropdown не отображается.
+
+`UploadFlowClient.tsx` — Client Component-обёртка. Передаёт `campaigns={[campaign]}` в `<UploadFlow>`. После завершения `UploadFlow` выполняет навигацию на `/creatives/:creativeUuid` автоматически через `ProcessingPoller.onReady`.
 
 ### `/(workspace)/creatives` — `page.tsx`
 
 Server Component. `fetchCreatives(cookie)`. Список creatives с `<CreativeStatusBadge>` по `status`. Ссылка на upload page для создания нового creative.
 
+### `/(workspace)/creatives/[uuid]` — `page.tsx`
+
+Server Component. `Promise.all([fetchCreativeDetail, fetchCampaigns, fetchPlacements])` + `fetchPlacementDetail` при наличии placement. Layout — двухколоночный grid: левая колонка (параметры + размещение), правая (превью с коллапсом).
+
+Логика статуса: `currentStatus = latestVersion?.status ?? creative.status` — читает из `creative_versions`, не из `creatives`. Это исключает зависимость от синхронизации `creatives.status` при отображении актуального состояния.
+
+При `isProcessing = true` монтирует `<ProcessingRefresh>` — client-side auto-refresh каждые 5 секунд.
+
 ### `/(workspace)/uploads` — `page.tsx`
 
-Server Component. `fetchCampaigns(cookie)` — список кампаний для выбора в форме upload. Монтирует `<UploadFlow />` — полный upload flow на клиенте.
+`redirect('/campaigns')` — маршрут устарел. Upload инициируется из `/campaigns/[uuid]`.
 
 ### `/(workspace)/placements` — `page.tsx`
 
-Server Component. `fetchPlacements(cookie)` + `fetchCreatives(cookie)`. Список placements с embed code badge и статусом creative version. `<CreatePlacementForm />` — форма создания placement (выбор campaign + creative + mode + параметры).
+`redirect('/campaigns')` — маршрут устарел. Placements доступны из детальной страницы creative.
 
 ### `/(workspace)/placements/[uuid]` — `page.tsx`
 
@@ -898,15 +919,53 @@ Client Component. Выбор даты через встроенный кален
 
 Client Component. `POST /api/auth/login` с `credentials: 'include'`. После успеха — `router.push('/')`, роль-based redirect обрабатывает `page.tsx`. Переключатель видимости пароля.
 
----
+### `lib/config/index.ts`
+
+Централизованный конфиг-файл. Правило: константы и конфиги никогда не определяются внутри `.tsx`-компонентов — только импортируются из `config/`.
+
+Содержит: `CREATIVE_TYPE_LABELS`, `DELIVERY_MODE_LABELS`, `CREATIVE_STATUS_LABELS` — словари человекочитаемых названий. `BANNER_CREATIVE_TYPES: ReadonlySet` — типы без выбора режима доставки. `VIDEO_DELIVERY_MODES` — опции для video_creative. `INSTREAM_MODES: ReadonlySet`. `CREATIVE_TYPE_CARD_LABELS`, `CREATIVE_TYPE_KEYS` — для отображения счётчиков на карточках кампаний. Хелперы: `formatCreativeType`, `formatDeliveryMode`, `formatCreativeStatus`, `formatDateTime`, `buildDefaultCreativeName`.
+
+### `CopyableText.tsx`
+
+Client Component. Кнопка копирования в буфер. Props: `text: string`, `truncate?: boolean`. При `truncate=true` отображает `text.slice(0, 8) + '…'`. `e.stopPropagation()` + `e.preventDefault()` предотвращают всплытие к родительскому `<Link>`. Визуальный feedback: иконка `⧉` → `✓` на 1500 мс. Стиль из `copyable-text.module.css`.
+
+### `CampaignListClient.tsx`
+
+Client Component. Инкапсулирует всю интерактивность страницы `/campaigns`: поиск (client-side фильтр по названию), toggle формы создания, grid карточек. Props: `campaigns: CampaignRow[]`, `isAdmin: boolean`. UUID кампании на карточке виден только при `isAdmin`. `CampaignCreateForm` получает `onSuccess/onCancel` callbacks.
+
+### `CollapsiblePreview.tsx`
+
+Client Component. Обёртка над `CreativePreview` с кнопкой `▾ Скрыть` / `▸ Показать`. `useState(false)` — по умолчанию раскрыт. `aria-expanded` на кнопке. Стиль из `creative-detail.module.css` (`.collapseBtn`).
+
+### `CreativePreview.tsx`
+
+Client Component. Рендерит превью по `creativeType` и `assets`. `video_creative`: нативный `<video controls playsInline preload="metadata" poster={...}>` с source-ассетом. `banner_static`/`banner_gif`: `<img>` по CDN URL ассета `role='source'`. `banner_html5`: статичный placeholder с иконкой. При отсутствии ассетов — placeholder с текстом. Стиль из `creative-preview.module.css`.
+
+### `InlinePlacementForm.tsx`
+
+Client Component. Type-aware форма создания placement. Для `BANNER_CREATIVE_TYPES` — только поле `clickUrl` (опц.), `mode='display'` автоматически. Для `video_creative` — выбор режима из `VIDEO_DELIVERY_MODES`, toggles `initialMuted`/`skippable`, поле `skipOffsetSec` при `skippable=true`. После создания показывает кнопку "Показать embed-код" и открывает `PlacementEmbedModal`. Стиль из `inline-placement-form.module.css`.
+
+### `CreativePlacementPanel.tsx`
+
+Client Component. Управление существующим placement: отображение режима, delivery token (через `CopyableText`), статус активности, кнопки Embed-код / Активировать / Деактивировать. `setPlacementActive` + `router.refresh()`. Стиль из `creative-placement-panel.module.css`.
+
+### `ProcessingRefresh.tsx`
+
+Client Component. Возвращает `null`. При монтировании запускает `setInterval(() => router.refresh(), 5000)`. Монтируется на `/creatives/[uuid]` при `isProcessing=true`. Автоматически обновляет Server Component без ручного polling на фронтенде.
+
+### `ProcessingPoller.tsx`
+
+`onReady` callback изменён: теперь принимает `{ creativeUuid: string; creativeVersionUuid: string }` вместо просто строки. Срабатывает при `result.status === 'ready' && result.creativeUuid !== null && result.creativeVersionUuid !== null`.
 
 ### `WorkspaceNav.tsx`
 
 Server или Client Component. Навигационная панель workspace. Ссылки: Кампании (`/campaigns`), Креативы (`/creatives`), Загрузить (`/uploads`), Плейсменты (`/placements`). Активная ссылка определяется через `usePathname()`.
 
+Убраны: `'use client'`, `LogoutButton`, nav-табы (`NAV_LINKS`), `usePathname`, `divider`. Стал Server Component. Содержит только логотип-ссылку `/campaigns` и `backLink` вправо. Метки: `admin` → `← К пользователям` (href: `/admin/users_panel`), `user` → `← Импрешены` (href: `/user/impressions`).
+
 ### `CampaignCreateForm.tsx`
 
-Client Component. Поповер-форма создания кампании. Поле `name`. `POST /api/campaigns` через `createCampaign()`. После успеха — `router.refresh()`, поповер закрывается.
+Client Component. Добавлены props `onSuccess: () => void` и `onCancel: () => void` — компонент больше не управляет открытием/закрытием самостоятельно. После успешного создания: `router.refresh()` + `onSuccess()`.
 
 ### `CreativeStatusBadge.tsx`
 
@@ -930,6 +989,8 @@ Client Component. Полный upload flow:
 5. `<ProcessingPoller />` → ожидание ready/failed
 
 AbortController для отмены upload. `onProgress` callback обновляет процент (`0–100`) в локальном state. Ошибки отображаются inline без `alert()`.
+
+Добавлено поле **«Название creative»** — отображается после выбора файла. Дефолт вычисляется через `buildDefaultCreativeName(campaignName, detectedType)` из `config/`. Имя передаётся в backend через поле `filename` (`${trimmedName}${ext}`) — backend применяет `creativeNameFromFilename()`. При `campaigns.length === 1` dropdown кампании заменяется на read-only отображение (`.campaignDisplay`) с пометкой «зафиксирована». `onDone` callback упрощён — навигация на `/creatives/:creativeUuid` выполняется внутри `handlePollerReady` автоматически. Props: `campaigns: CampaignRow[]`, `onDone?: (creativeUuid: string) => void` (опциональный).
 
 ---
 

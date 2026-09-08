@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { eq, and, asc } from 'drizzle-orm';
+import { sql, eq, and, asc } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { campaigns } from '../db/schema.js';
+import { campaigns, creatives } from '../db/schema.js';
 
 export interface CampaignRow {
     uuid: string;
@@ -10,6 +10,18 @@ export interface CampaignRow {
     status: 'active' | 'archived';
     createdAt: string;
     updatedAt: string;
+}
+
+export interface CampaignCreativeCounts {
+    banner_static: number;
+    banner_gif: number;
+    banner_html5: number;
+    video_creative: number;
+    total: number;
+}
+
+export interface CampaignListRow extends CampaignRow {
+    creativeCounts: CampaignCreativeCounts;
 }
 
 function generateCampaignKey(): string {
@@ -65,7 +77,7 @@ export async function createCampaign(
     throw new Error('Failed to generate unique campaign key after retries');
 }
 
-export async function listCampaigns(userId: number): Promise<CampaignRow[]> {
+export async function listCampaigns(userId: number): Promise<CampaignListRow[]> {
     const rows = await db
         .select({
             uuid: campaigns.uuid,
@@ -74,17 +86,52 @@ export async function listCampaigns(userId: number): Promise<CampaignRow[]> {
             status: campaigns.status,
             createdAt: campaigns.createdAt,
             updatedAt: campaigns.updatedAt,
+            bannerStatic: sql<number>`COALESCE(COUNT(${creatives.id}) FILTER (WHERE ${creatives.creativeType} = 'banner_static' AND ${creatives.status} NOT IN ('draft', 'archived')), 0)::int`,
+            bannerGif: sql<number>`COALESCE(COUNT(${creatives.id}) FILTER (WHERE ${creatives.creativeType} = 'banner_gif' AND ${creatives.status} NOT IN ('draft', 'archived')), 0)::int`,
+            bannerHtml5: sql<number>`COALESCE(COUNT(${creatives.id}) FILTER (WHERE ${creatives.creativeType} = 'banner_html5' AND ${creatives.status} NOT IN ('draft', 'archived')), 0)::int`,
+            videoCreative: sql<number>`COALESCE(COUNT(${creatives.id}) FILTER (WHERE ${creatives.creativeType} = 'video_creative' AND ${creatives.status} NOT IN ('draft', 'archived')), 0)::int`,
         })
         .from(campaigns)
+        .leftJoin(creatives, eq(creatives.campaignId, campaigns.id))
         .where(
             and(
                 eq(campaigns.userId, userId),
                 eq(campaigns.status, 'active'),
             ),
         )
+        .groupBy(
+            campaigns.id,
+            campaigns.uuid,
+            campaigns.campaignKey,
+            campaigns.name,
+            campaigns.status,
+            campaigns.createdAt,
+            campaigns.updatedAt,
+        )
         .orderBy(asc(campaigns.createdAt));
 
-    return rows.map(toCampaignRow);
+    return rows.map((row) => {
+        const bannerStatic = row.bannerStatic;
+        const bannerGif = row.bannerGif;
+        const bannerHtml5 = row.bannerHtml5;
+        const videoCreative = row.videoCreative;
+
+        return {
+            uuid: row.uuid,
+            campaignKey: row.campaignKey,
+            name: row.name,
+            status: row.status,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+            creativeCounts: {
+                banner_static: bannerStatic,
+                banner_gif: bannerGif,
+                banner_html5: bannerHtml5,
+                video_creative: videoCreative,
+                total: bannerStatic + bannerGif + bannerHtml5 + videoCreative,
+            },
+        };
+    });
 }
 
 export async function getCampaignByUuid(

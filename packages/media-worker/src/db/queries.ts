@@ -374,6 +374,20 @@ export async function setCreativeVersionReady(
         result.rowCount,
         `Creative version cannot enter ready state: ${creativeVersionId}`,
     );
+
+    await db.query(
+        `UPDATE creatives
+        SET
+            status = 'ready',
+            updated_at = NOW()
+        WHERE id = (
+            SELECT creative_id
+            FROM creative_versions
+            WHERE id = $1
+        )
+          AND status IN ('processing', 'ready')`,
+        [creativeVersionId],
+    );
 }
 
 export async function setCreativeVersionFailed(
