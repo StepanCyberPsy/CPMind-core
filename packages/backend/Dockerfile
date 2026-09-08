@@ -9,7 +9,7 @@ COPY packages/backend/package.json ./packages/backend/
 COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/tag/package.json ./packages/tag/
 
-RUN pnpm install --frozen-lockfile --filter @cpmind/backend... --filter @cpmind/tag
+RUN pnpm install --frozen-lockfile --filter @cpmind/backend... --filter @cpmind/sdk... --filter @cpmind/tag
 
 # Stage 2: builder
 FROM node:20-alpine AS builder
