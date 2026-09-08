@@ -1,5 +1,5 @@
 # Stage 1: deps
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@9.15.2 --activate
 WORKDIR /app
 
