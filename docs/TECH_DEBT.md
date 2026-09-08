@@ -4,6 +4,14 @@
 
 Источники: `README.md`, `docs/development_history/BUG_FIXING_V1.md` (21.06.2026), `docs/development_history/BUG_FIXING_V2.md` (23.06.2026), разработка 30.06.2026, разработка 01.07.2026.
 
+## ОТКРЫТЫЙ ВОПРОС ДЛЯ СЕНТЯБРЯ
+
+**Открытый пункт — `tag_dist` пуст.**
+
+`/etc/nginx/tag/` не содержит файлов. Legacy tag endpoint (`/tag/`) вернёт 404. Это не блокирует текущий hosted delivery flow, но затронет существующих клиентов на legacy теге.
+
+Пришлите `packages/backend/src/services/tag/tag_constants.ts` — разберём механизм генерации файла и определим правильный способ восстановления без затрагивания БД.
+
 ---
 
 ## Содержание

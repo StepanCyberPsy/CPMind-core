@@ -121,14 +121,14 @@ function assertProcessingResult(
         );
     }
 
-    const sourceFiles = result.files.filter(
-        (file) => file.role === 'source',
+    const anchorFiles = result.files.filter(
+        (file) => file.role === 'source' || file.role === 'primary',
     );
 
-    if (sourceFiles.length !== 1) {
+    if (anchorFiles.length !== 1) {
         throw new ProcessingError(
             'PROCESSING_OUTPUT_INVALID',
-            'Processor must return exactly one source asset',
+            'Processor must return exactly one anchor asset (source or primary)',
         );
     }
 
@@ -317,11 +317,11 @@ async function publishProcessedFiles(
                 item.file.priority,
             );
 
-            if (item.file.role === 'source') {
+            if (item.file.role === 'source' || item.file.role === 'primary') {
                 if (sourceAssetId !== null) {
                     throw new ProcessingError(
                         'PROCESSING_OUTPUT_INVALID',
-                        'Multiple source assets detected',
+                        'Multiple anchor assets detected',
                     );
                 }
 
