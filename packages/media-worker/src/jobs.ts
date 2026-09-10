@@ -223,19 +223,29 @@ async function prepareProcessedFiles(
             );
         }
 
-        const sha256 = await computeFileSha256(
-            file.localPath,
-        );
+        // Многофайловый ассет разложен процессором самостоятельно: хеш, ключ и
+        // размер относятся к дереву целиком, повторная загрузка не требуется
+        const bundle = file.bundle;
 
-        const storageKey = deliveryAssetKey(
-            sha256,
-            file.extension,
-        );
+        const sha256 = bundle
+            ? bundle.sha256
+            : await computeFileSha256(
+                file.localPath,
+            );
+
+        const storageKey = bundle
+            ? bundle.storageKey
+            : deliveryAssetKey(
+                sha256,
+                file.extension,
+            );
 
         const item: PreparedProcessedFile = {
             file,
             sha256,
-            sizeBytes: fileStat.size,
+            sizeBytes: bundle
+                ? bundle.sizeBytes
+                : fileStat.size,
             storageKey,
         };
 
@@ -255,6 +265,11 @@ async function prepareProcessedFiles(
                 storageKey: existing.storageKey,
             });
 
+            continue;
+        }
+
+        if (bundle) {
+            prepared.push(item);
             continue;
         }
 

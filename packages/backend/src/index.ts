@@ -12,6 +12,7 @@ import {
   bootstrapS5Default,
   bootstrapS6Default,
   bootstrapS7Default,
+  reconcileTagBundles,
 } from './services/bootstrap.js';
 import { calibrationBatches } from './db/schema.js';
 import path from 'path';
@@ -52,6 +53,12 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error('[CPMind] Tag constants bootstrap failed — server will not start:', err);
     process.exit(1);
+  }
+
+  try {
+    await reconcileTagBundles();
+  } catch (err) {
+    console.error('[CPMind] Tag bundle reconciliation failed — continuing startup:', err);
   }
 
   try {

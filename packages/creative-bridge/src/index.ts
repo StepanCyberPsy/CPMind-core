@@ -7,7 +7,7 @@ type HostToCreativeMessage =
     | { type: 'cpmind:init'; clickUrl: string | null; bridgeVersion: string }
     | { type: 'cpmind:destroy' };
 
-const BRIDGE_VERSION = '1';
+declare const BRIDGE_VERSION: string;
 
 function send(msg: CreativeToHostMessage): void {
     window.parent.postMessage(msg, '*');

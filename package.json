@@ -2,7 +2,7 @@
   "name": "cpmind-mvp",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @cpmind/shared build && pnpm --filter @cpmind/sdk build && pnpm --filter @cpmind/tag build && pnpm --filter @cpmind/display-runtime build && pnpm --filter @cpmind/player build && pnpm --filter @cpmind/embed build && pnpm --filter @cpmind/creative-bridge build && pnpm --filter @cpmind/backend build",
+    "build": "pnpm --filter @cpmind/shared build && pnpm --filter @cpmind/sdk build && pnpm --filter @cpmind/tag build && pnpm --filter @cpmind/display-runtime build && pnpm --filter @cpmind/player build && pnpm --filter @cpmind/embed build && pnpm --filter @cpmind/creative-bridge build && pnpm --filter @cpmind/runtime-publisher build && pnpm --filter @cpmind/backend build",
     "dev:backend": "pnpm --filter @cpmind/backend dev",
     "dev:frontend": "pnpm --filter @cpmind/frontend dev",
     "dev:tag": "pnpm --filter @cpmind/tag dev",

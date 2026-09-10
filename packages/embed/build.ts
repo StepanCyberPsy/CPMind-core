@@ -4,6 +4,7 @@ import { TAG_BUILD_TARGETS } from '@cpmind/shared';
 
 const isWatch = process.argv.includes('--watch');
 const cdnBaseUrl = process.env['CDN_BASE_URL'] ?? 'https://cdn.cpmind.tech';
+const version = process.env['LOADER_RUNTIME_VERSION'] ?? '1';
 
 function resolveBuildOptions(outfile: string): BuildOptions {
     return {
@@ -34,7 +35,7 @@ export async function watchLoaderBundle(outfile: string): Promise<void> {
 }
 
 void (async () => {
-    const outfile = 'dist/cpmind-loader_v1.min.js';
+    const outfile = `dist/cpmind-loader_v${version}.min.js`;
 
     if (isWatch) {
         await watchLoaderBundle(outfile);

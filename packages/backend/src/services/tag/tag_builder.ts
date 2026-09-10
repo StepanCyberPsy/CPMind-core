@@ -8,14 +8,14 @@ import type { TagConstantsValues } from '@cpmind/shared';
 const directory_name = path.dirname(fileURLToPath(import.meta.url));
 
 // Путь к entry point тега относительно скомпилированного/выполняемого этого файла.
-// Структура backend/dist/services и backend/src/services одинаково глубокие
-// относительно packages/, поэтому путь корректен и в dev (tsx), и в собранном виде
-const TAG_ENTRY_POINT = path.join(directory_name, '../../../tag/src/index.ts');
+// Модуль лежит в backend/src/services/tag и backend/dist/services/tag — обе структуры
+// одинаково глубокие, четыре уровня вверх дают packages/ и в dev (tsx), и в собранном виде
+const TAG_ENTRY_POINT = path.join(directory_name, '../../../../tag/src/index.ts');
 
 // TAG_DIST_DIR — путь к общему volume с NGINX в production. Без переменной —
 // fallback в packages/tag/dist для локальной разработки без Docker
 function getTagDistDir(): string {
-  return process.env['TAG_DIST_DIR'] ?? path.join(directory_name, '../../../tag/dist');
+  return process.env['TAG_DIST_DIR'] ?? path.join(directory_name, '../../../../tag/dist');
 }
 
 function getScriptFileName(version: string): string {
@@ -73,4 +73,19 @@ export async function removeTagArtifact(version: string): Promise<void> {
   const outfile = path.join(distDir, getScriptFileName(version));
 
   await rm(outfile, { force: true });
+}
+
+// Проверка наличия физического артефакта версии. Volume tag_dist имеет жизненный
+// цикл, независимый от postgres_data: при его пересоздании записи в БД сохраняются,
+// а файлы исчезают. Используется стартовой сверкой в bootstrap
+export async function hasTagArtifact(version: string): Promise<boolean> {
+  const distDir = getTagDistDir();
+  const outfile = path.join(distDir, getScriptFileName(version));
+
+  try {
+    await stat(outfile);
+    return true;
+  } catch {
+    return false;
+  }
 }

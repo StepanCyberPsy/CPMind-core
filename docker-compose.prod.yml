@@ -15,6 +15,8 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+      runtime-publisher:
+        condition: service_completed_successfully
     networks:
       - internal
 
@@ -140,6 +142,7 @@ services:
       SOURCE_BUCKET: ${SOURCE_BUCKET}
       DELIVERY_BUCKET: ${DELIVERY_BUCKET}
       CDN_BASE_URL: ${CDN_BASE_URL}
+      BRIDGE_VERSION: ${BRIDGE_VERSION:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       WORKER_LEASE_MS: ${WORKER_LEASE_MS:-900000}
@@ -154,6 +157,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - internal
+
+  runtime-publisher:
+    build:
+      context: .
+      dockerfile: packages/runtime-publisher/Dockerfile
+      args:
+        CDN_BASE_URL: ${CDN_BASE_URL}
+        CDN_HOSTNAME: ${CDN_HOSTNAME}
+        LOADER_RUNTIME_VERSION: ${LOADER_RUNTIME_VERSION:-1}
+        DISPLAY_RUNTIME_VERSION: ${DISPLAY_RUNTIME_VERSION:-1}
+        PLAYER_RUNTIME_VERSION: ${PLAYER_RUNTIME_VERSION:-1}
+        BRIDGE_VERSION: ${BRIDGE_VERSION:-1}
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      YC_WORKER_KEY_ID: ${YC_WORKER_KEY_ID}
+      YC_WORKER_SECRET: ${YC_WORKER_SECRET}
+      DELIVERY_BUCKET: ${DELIVERY_BUCKET}
+      RUNTIME_PUBLISH_ALLOW_OVERWRITE: ${RUNTIME_PUBLISH_ALLOW_OVERWRITE:-false}
     networks:
       - internal
 

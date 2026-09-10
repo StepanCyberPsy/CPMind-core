@@ -43,6 +43,10 @@ export function getCollectEndpoint(): string {
     return requireEnv('COLLECT_ENDPOINT');
 }
 
+export function getLoaderRuntimeVersion(): string {
+    return process.env['LOADER_RUNTIME_VERSION'] ?? '1';
+}
+
 export function getDisplayRuntimeVersion(): string {
     return process.env['DISPLAY_RUNTIME_VERSION'] ?? '1';
 }

@@ -7,7 +7,10 @@ import {
 import { TAG_BUILD_TARGETS } from '@cpmind/shared';
 
 const isWatch = process.argv.includes('--watch');
+const version = process.env['BRIDGE_VERSION'] ?? '1';
 
+// BRIDGE_VERSION инжектируется через define: значение попадает и в имя артефакта,
+// и в handshake cpmind:ready — хост и creative всегда согласованы по версии протокола
 function resolveBuildOptions(outfile: string): BuildOptions {
     return {
         entryPoints: ['src/index.ts'],
@@ -19,6 +22,7 @@ function resolveBuildOptions(outfile: string): BuildOptions {
         outfile,
         define: {
             'process.env.NODE_ENV': '"production"',
+            BRIDGE_VERSION: JSON.stringify(version),
         },
         legalComments: 'none',
     };
@@ -36,7 +40,7 @@ export async function watchBridgeBundle(outfile: string): Promise<void> {
 }
 
 void (async () => {
-    const outfile = 'dist/cpmind-creative-bridge_v1.min.js';
+    const outfile = `dist/cpmind-creative-bridge_v${version}.min.js`;
 
     if (isWatch) {
         await watchBridgeBundle(outfile);

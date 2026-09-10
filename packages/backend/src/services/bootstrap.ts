@@ -1,4 +1,8 @@
-import { eq, isNull, and } from 'drizzle-orm';
+import {
+  eq,
+  isNull,
+  and,
+} from 'drizzle-orm';
 import {
   DEFAULT_TAG_CONSTANTS,
   DEFAULT_WEIBULL_PARAMS,
@@ -11,6 +15,7 @@ import {
   DEFAULT_BANNER_WEIGHTS,
   DEFAULT_VIDEO_WEIGHTS,
 } from '@cpmind/shared';
+import type { TagConstantsValues } from '@cpmind/shared';
 import { db } from '../db/index.js';
 import {
   users,
@@ -26,6 +31,7 @@ import {
   s7QuantileConfigs,
 } from '../db/schema.js';
 import { createTagConstantsConfig } from './tag/tag_constants.js';
+import { buildTagArtifact, hasTagArtifact } from './tag/tag_builder.js';
 
 const LEGACY_TAG_LABEL = 'legacy_default';
 const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$.{53}$/;
@@ -145,6 +151,45 @@ export async function bootstrapTagConstants(): Promise<void> {
     constants: DEFAULT_TAG_CONSTANTS,
     description: 'Бутстрап-версия: значения, действовавшие до введения версионирования',
   });
+}
+
+// Восстанавливает физические артефакты активных версий тега. buildTagArtifact
+// вызывается только по действию оператора (создание либо реактивация версии), поэтому
+// при пересоздании volume tag_dist записи в БД остаются, а файлы исчезают навсегда —
+// <script src> у издателей отдает 404. Сверка выполняется на старте и идемпотентна:
+// существующие артефакты не пересобираются. Ошибка одной версии не прерывает остальные
+export async function reconcileTagBundles(): Promise<void> {
+  const rows = await db
+    .select({
+      id: tagConstantsConfigs.id,
+      version: tagConstantsConfigs.version,
+      constants: tagConstantsConfigs.constants,
+    })
+    .from(tagConstantsConfigs)
+    .where(eq(tagConstantsConfigs.isActive, true));
+
+  for (const row of rows) {
+    if (await hasTagArtifact(row.version)) continue;
+
+    try {
+      const artifact = await buildTagArtifact(
+        row.version,
+        row.constants as TagConstantsValues,
+      );
+
+      await db
+        .update(tagConstantsConfigs)
+        .set({
+          scriptPath: artifact.scriptPath,
+          fileSizeBytes: artifact.fileSizeBytes,
+        })
+        .where(eq(tagConstantsConfigs.id, row.id));
+
+      console.log(`[CPMind] Tag bundle rebuilt: ${row.version} (${artifact.fileSizeBytes} bytes)`);
+    } catch (err) {
+      console.error(`[CPMind] Tag bundle rebuild failed for ${row.version}:`, err);
+    }
+  }
 }
 
 // Вставляет глобальный дефолтный конфиг Weibull (k=1.0, λ=5.0) если таблица пуста.

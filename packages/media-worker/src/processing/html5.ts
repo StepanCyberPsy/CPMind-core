@@ -1,20 +1,76 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import {
+    readdir,
+    readFile,
+    writeFile,
+} from 'node:fs/promises';
 import { statSync } from 'node:fs';
-import { join } from 'node:path';
-import { createWriteStream } from 'node:fs';
-import archiver from 'archiver';
+import { createHash } from 'node:crypto';
+import {
+    extname,
+    join,
+    relative,
+    sep,
+} from 'node:path';
 import { extractZip } from '../security/archive.js';
 import {
     MAX_HTML5_COMPRESSED_BYTES,
 } from '../security/limits.js';
-import { getCdnBaseUrl } from '../config.js';
+import { getBridgeVersion, getCdnBaseUrl } from '../config.js';
+import { uploadProcessedFile } from '../storage/assets.js';
+import { html5BundleKey } from '../storage/keys.js';
+import { computeFileSha256 } from '../hashing/sha256.js';
 import { ProcessingError, type ProcessingResult } from '../types.js';
 
 const INDEX_HTML = 'index.html';
-const BRIDGE_VERSION = 'v1';
+const INDEX_CONTENT_TYPE = 'text/html; charset=utf-8';
+const FALLBACK_CONTENT_TYPE = 'application/octet-stream';
 
-function buildBridgeScriptTag(cdnBaseUrl: string): string {
-    const url = `${cdnBaseUrl}/runtime/cpmind-creative-bridge_${BRIDGE_VERSION}.min.js`;
+// Content-Type проставляется на каждый объект при загрузке: creative.cpmind.tech
+// проксирует Object Storage напрямую, а X-Content-Type-Options: nosniff запрещает
+// браузеру угадывать тип — без явного значения скрипты и стили бандла не применятся
+const BUNDLE_CONTENT_TYPES: Readonly<Record<string, string>> = {
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.mjs': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.txt': 'text/plain; charset=utf-8',
+    '.xml': 'application/xml; charset=utf-8',
+};
+
+interface BundleFile {
+    relativePath: string;
+    localPath: string;
+    sha256: string;
+    sizeBytes: number;
+}
+
+function resolveContentType(relativePath: string): string {
+    const extension = extname(relativePath).toLowerCase();
+    return BUNDLE_CONTENT_TYPES[extension] ?? FALLBACK_CONTENT_TYPE;
+}
+
+function buildBridgeScriptTag(
+    cdnBaseUrl: string,
+    bridgeVersion: string,
+): string {
+    const url = `${cdnBaseUrl}/runtime/cpmind-creative-bridge_v${bridgeVersion}.min.js`;
     return `<script src="${url}"></script>`;
 }
 
@@ -37,21 +93,48 @@ function injectBridgeScript(
     return `${htmlContent}\n${scriptTag}\n`;
 }
 
-async function repackZip(
-    sourceDir: string,
-    outputPath: string,
+// Обход только обычных файлов: extractZip уже отвергает симлинки, isFile()
+// дополнительно отсекает всё, что не является регулярным файлом
+async function collectBundleFiles(
+    rootDir: string,
+    currentDir: string,
+    files: BundleFile[],
 ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-        const output = createWriteStream(outputPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
+    const entries = await readdir(currentDir, { withFileTypes: true });
 
-        output.on('close', resolve);
-        archive.on('error', reject);
+    for (const entry of entries) {
+        const localPath = join(currentDir, entry.name);
 
-        archive.pipe(output);
-        archive.directory(sourceDir, false);
-        void archive.finalize();
-    });
+        if (entry.isDirectory()) {
+            await collectBundleFiles(rootDir, localPath, files);
+            continue;
+        }
+
+        if (!entry.isFile()) continue;
+
+        files.push({
+            relativePath: relative(rootDir, localPath).split(sep).join('/'),
+            localPath,
+            sha256: await computeFileSha256(localPath),
+            sizeBytes: statSync(localPath).size,
+        });
+    }
+}
+
+// Дайджест дерева: отсортированные пары путь/хеш. Одинаковое содержимое бандла
+// всегда даёт один и тот же ключ, поэтому дедупликация по sha256 корректна —
+// хеш одного index.html такой гарантии не даёт
+function computeBundleSha256(files: BundleFile[]): string {
+    const hash = createHash('sha256');
+
+    for (const file of files) {
+        hash.update(file.relativePath);
+        hash.update('\0');
+        hash.update(file.sha256);
+        hash.update('\n');
+    }
+
+    return hash.digest('hex');
 }
 
 export async function processHtml5(
@@ -87,30 +170,64 @@ export async function processHtml5(
         );
     }
 
-    const cdnBaseUrl = getCdnBaseUrl();
-    const scriptTag = buildBridgeScriptTag(cdnBaseUrl);
+    const scriptTag = buildBridgeScriptTag(getCdnBaseUrl(), getBridgeVersion());
     const injected = injectBridgeScript(indexContent, scriptTag);
 
     await writeFile(indexPath, injected, 'utf8');
 
     signal.throwIfAborted();
 
-    const outputPath = join(tempDir, 'bundle.zip');
-    await repackZip(extractDir, outputPath);
+    const files: BundleFile[] = [];
+    await collectBundleFiles(extractDir, extractDir, files);
 
-    signal.throwIfAborted();
+    if (files.length === 0) {
+        throw new ProcessingError(
+            'PROCESSING_OUTPUT_INVALID',
+            'HTML5 bundle contains no files after extraction',
+        );
+    }
 
-    const outputSize = statSync(outputPath).size;
+    files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
+
+    const entryFile = files.find((file) => file.relativePath === INDEX_HTML);
+
+    if (entryFile === undefined) {
+        throw new ProcessingError(
+            'HTML5_MISSING_INDEX',
+            'HTML5 bundle must contain index.html at root level',
+        );
+    }
+
+    const bundleSha256 = computeBundleSha256(files);
+    const bundleSizeBytes = files.reduce(
+        (total, file) => total + file.sizeBytes,
+        0,
+    );
+
+    for (const file of files) {
+        signal.throwIfAborted();
+
+        await uploadProcessedFile(
+            file.localPath,
+            html5BundleKey(bundleSha256, file.relativePath),
+            resolveContentType(file.relativePath),
+        );
+    }
 
     return {
-        sha256: '',
+        sha256: bundleSha256,
         files: [{
-            localPath: outputPath,
+            localPath: entryFile.localPath,
             assetClass: 'html_file',
-            mimeType: 'application/zip',
-            extension: 'zip',
+            mimeType: INDEX_CONTENT_TYPE,
+            extension: 'html',
             role: 'source',
             priority: 0,
+            bundle: {
+                sha256: bundleSha256,
+                storageKey: html5BundleKey(bundleSha256, INDEX_HTML),
+                sizeBytes: bundleSizeBytes,
+            },
         }],
     };
 }

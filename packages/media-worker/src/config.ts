@@ -64,6 +64,13 @@ export function getCdnBaseUrl(): string {
     return requireEnv('CDN_BASE_URL');
 }
 
+// Версия creative-bridge — должна совпадать с BRIDGE_VERSION, с которой собран
+// артефакт в runtime-publisher: значение участвует и в CDN-URL инжектируемого
+// скрипта, и в handshake cpmind:ready внутри iframe
+export function getBridgeVersion(): string {
+    return process.env['BRIDGE_VERSION'] ?? '1';
+}
+
 // Worker runtime
 export function getWorkerConcurrency(): number {
     return readBoundedInt('WORKER_CONCURRENCY', 1, 1, 32);

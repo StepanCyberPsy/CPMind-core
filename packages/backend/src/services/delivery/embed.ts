@@ -1,4 +1,8 @@
-import { and, desc, eq } from 'drizzle-orm';
+import {
+    and,
+    desc,
+    eq,
+} from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import {
     assets,
@@ -17,6 +21,7 @@ import {
     getCreativeBaseUrl,
     getDeliveryBaseUrl,
     getDisplayRuntimeVersion,
+    getLoaderRuntimeVersion,
     getPlayerRuntimeVersion,
 } from '../../lib/env.js';
 import type {
@@ -216,6 +221,7 @@ async function resolveDeliveryContext(
             .select({ version: tagConstantsConfigs.version, constants: tagConstantsConfigs.constants })
             .from(tagConstantsConfigs)
             .where(eq(tagConstantsConfigs.isActive, true))
+            .orderBy(desc(tagConstantsConfigs.createdAt))
             .limit(1),
 
         db
@@ -319,7 +325,7 @@ export async function resolveEmbedScript(
             : buildCdnUrl(primaryAsset.storageKey),
     };
 
-    const loaderUrl = `${cdnBase}/runtime/cpmind-loader_v1.min.js`;
+    const loaderUrl = `${cdnBase}/runtime/cpmind-loader_v${getLoaderRuntimeVersion()}.min.js`;
     const widthCss = ctx.width !== null ? `${ctx.width}px` : '100%';
     const heightCss = ctx.height !== null ? `${ctx.height}px` : 'auto';
     const configJson = JSON.stringify(queueEntry);

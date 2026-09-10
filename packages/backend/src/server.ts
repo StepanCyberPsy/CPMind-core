@@ -48,8 +48,18 @@ export function buildServer(): FastifyInstance {
     trustProxy: true,
   });
 
+  // Транспортные и фреймовые заголовки выставляет NGINX на всех vhost и location.
+  // add_header в NGINX добавляет заголовок, а не заменяет upstream-значение, поэтому
+  // дублирующие модули helmet отключены: при двух Strict-Transport-Security браузер
+  // обрабатывает только первый, а crossOriginResourcePolicy: same-origin блокирует
+  // загрузку /e/{token}.js со страницы издателя как no-cors подресурса
   app.register(helmet, {
     contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
+    frameguard: false,
+    hsts: false,
+    noSniff: false,
+    referrerPolicy: false,
   });
 
   app.register(cookie, {
@@ -72,7 +82,11 @@ export function buildServer(): FastifyInstance {
       ) {
         return callback(null, {
           origin: '*',
-          methods: ['GET', 'POST', 'OPTIONS'],
+          methods: [
+            'GET',
+            'POST',
+            'OPTIONS'
+          ],
           allowedHeaders: ['Content-Type'],
           credentials: false,
         });
