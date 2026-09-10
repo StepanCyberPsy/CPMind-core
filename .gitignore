@@ -81,3 +81,6 @@ test_givt_list.csv
 # Тестовые файлы
 *.mp4
 cpmind-structure.txt
+
+# Снимки bucket policy — рабочие артефакты операций с Object Storage
+policy-backup/
