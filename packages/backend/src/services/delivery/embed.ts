@@ -3,6 +3,7 @@ import {
     desc,
     eq,
 } from 'drizzle-orm';
+import { pino } from 'pino';
 import { db } from '../../db/index.js';
 import {
     assets,
@@ -34,6 +35,11 @@ import type {
 import type { VastInLineInput, VastRendition } from '../vast/inline.js';
 import { createAdSession } from './sessions.js';
 
+const logger = pino({
+    level: process.env['LOG_LEVEL'] ?? 'info',
+    name: 'delivery-embed',
+});
+
 const VIDEO_MODES = new Set([
     'instream_preroll',
     'instream_midroll',
@@ -63,6 +69,35 @@ const DEFAULT_TIMEOUTS: PlayerTimeouts = {
     contentHandoffMs: 5_000,
     adLoadTotalMs: 30_000,
 };
+
+// Оба публичных endpoint отдают пустой ответ при любой проблеме резолва — реклама
+// не должна ломать страницу издателя. Причина отказа при этом неразличима ни по
+// коду ответа, ни по телу, поэтому фиксируется в логе структурированно
+type DeliveryResolutionFailure =
+    | 'PLACEMENT_NOT_FOUND_OR_INACTIVE'
+    | 'NO_READY_CREATIVE_VERSION'
+    | 'NO_ACTIVE_TAG_CONSTANTS'
+    | 'NO_PRIMARY_ASSET'
+    | 'NOT_VIDEO_CREATIVE'
+    | 'NO_VAST_RENDITIONS'
+    | 'NO_VAST_DURATION';
+
+function logResolutionFailure(
+    endpoint: string,
+    deliveryToken: string,
+    reason: DeliveryResolutionFailure,
+    context?: Record<string, unknown>,
+): void {
+    logger.warn(
+        {
+            endpoint,
+            deliveryToken,
+            reason,
+            ...context,
+        },
+        'Delivery resolution failed',
+    );
+}
 
 interface VersionAssetRow {
     role: string;
@@ -120,6 +155,7 @@ function buildCreativeUrl(storageKey: string): string {
 
 async function resolveDeliveryContext(
     deliveryToken: string,
+    endpoint: string,
 ): Promise<DeliveryContext | null> {
     const [row] = await db
         .select({
@@ -157,7 +193,14 @@ async function resolveDeliveryContext(
         )
         .limit(1);
 
-    if (!row) return null;
+    if (!row) {
+        logResolutionFailure(
+            endpoint,
+            deliveryToken,
+            'PLACEMENT_NOT_FOUND_OR_INACTIVE',
+        );
+        return null;
+    }
 
     // Версия: закреплённая (pinned) если ready, иначе последняя ready
     let versionId: string | null = row.pinnedVersionId;
@@ -194,7 +237,19 @@ async function resolveDeliveryContext(
             .orderBy(desc(creativeVersions.version))
             .limit(1);
 
-        if (!latest) return null;
+        if (!latest) {
+            logResolutionFailure(
+                endpoint,
+                deliveryToken,
+                'NO_READY_CREATIVE_VERSION',
+                {
+                    creativeKey: row.creativeKey,
+                    pinnedVersionId: row.pinnedVersionId,
+                },
+            );
+            return null;
+        }
+
         versionId = latest.id;
         versionUuid = latest.uuid;
     }
@@ -231,7 +286,14 @@ async function resolveDeliveryContext(
             .limit(1),
     ]);
 
-    if (!tagConstantsRow[0]) return null;
+    if (!tagConstantsRow[0]) {
+        logResolutionFailure(
+            endpoint,
+            deliveryToken,
+            'NO_ACTIVE_TAG_CONSTANTS',
+        );
+        return null;
+    }
 
     return {
         placementId: row.placementId,
@@ -266,7 +328,7 @@ export async function resolveEmbedScript(
     deliveryToken: string,
     publisherDomain: string | null,
 ): Promise<string | null> {
-    const ctx = await resolveDeliveryContext(deliveryToken);
+    const ctx = await resolveDeliveryContext(deliveryToken, 'embed');
     if (!ctx) return null;
 
     let primaryAsset: VersionAssetRow | undefined;
@@ -274,7 +336,20 @@ export async function resolveEmbedScript(
         primaryAsset = ctx.versionAssets.find((a) => a.role === role);
         if (primaryAsset !== undefined) break;
     }
-    if (primaryAsset === undefined) return null;
+
+    if (primaryAsset === undefined) {
+        logResolutionFailure(
+            'embed',
+            deliveryToken,
+            'NO_PRIMARY_ASSET',
+            {
+                creativeVersionUuid: ctx.versionUuid,
+                creativeType: ctx.creativeType,
+                availableRoles: ctx.versionAssets.map((a) => a.role),
+            },
+        );
+        return null;
+    }
 
     const isVideo = VIDEO_MODES.has(ctx.mode);
     const deliveryBase = getDeliveryBaseUrl();
@@ -359,10 +434,18 @@ export async function resolveVastContext(
     deliveryToken: string,
     publisherDomain: string | null,
 ): Promise<{ input: VastInLineInput; adSessionId: string } | null> {
-    const ctx = await resolveDeliveryContext(deliveryToken);
+    const ctx = await resolveDeliveryContext(deliveryToken, 'vast');
     if (!ctx) return null;
 
-    if (ctx.creativeType !== 'video_creative') return null;
+    if (ctx.creativeType !== 'video_creative') {
+        logResolutionFailure(
+            'vast',
+            deliveryToken,
+            'NOT_VIDEO_CREATIVE',
+            { creativeType: ctx.creativeType },
+        );
+        return null;
+    }
 
     const renditions: VastRendition[] = ctx.versionAssets
         .filter((a) => VAST_RENDITION_ROLES.has(a.role) && a.mimeType.startsWith('video/'))
@@ -375,11 +458,35 @@ export async function resolveVastContext(
             codec: a.codec,
         }));
 
-    if (renditions.length === 0) return null;
+    if (renditions.length === 0) {
+        logResolutionFailure(
+            'vast',
+            deliveryToken,
+            'NO_VAST_RENDITIONS',
+            {
+                creativeVersionUuid: ctx.versionUuid,
+                availableRoles: ctx.versionAssets.map((a) => a.role),
+            },
+        );
+        return null;
+    }
 
     const primaryAsset = ctx.versionAssets.find((a) => a.role === 'primary');
     const durationSec = primaryAsset?.durationSec ?? null;
-    if (durationSec === null || durationSec <= 0) return null;
+
+    if (durationSec === null || durationSec <= 0) {
+        logResolutionFailure(
+            'vast',
+            deliveryToken,
+            'NO_VAST_DURATION',
+            {
+                creativeVersionUuid: ctx.versionUuid,
+                hasPrimaryAsset: primaryAsset !== undefined,
+                durationSec,
+            },
+        );
+        return null;
+    }
 
     const adSessionId = await createAdSession({
         placementId: ctx.placementId,

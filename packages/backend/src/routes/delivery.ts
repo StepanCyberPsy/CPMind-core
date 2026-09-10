@@ -4,6 +4,17 @@ import { resolveEmbedScript } from '../services/delivery/embed.js';
 import { processDeliveryEvent } from '../services/delivery/events.js';
 import { extractPublisherDomain } from '../services/delivery/publisher.js';
 
+const EMBED_SCRIPT_SUFFIX = '.js';
+
+// Контракт встраивания — <script src="/e/{token}.js">: расширение нужно издателю
+// и CDN-посредникам, но частью delivery_token не является. Обе формы URL
+// резолвятся в один и тот же placement
+function normalizeDeliveryToken(rawToken: string): string {
+    return rawToken.endsWith(EMBED_SCRIPT_SUFFIX)
+        ? rawToken.slice(0, -EMBED_SCRIPT_SUFFIX.length)
+        : rawToken;
+}
+
 export const deliveryRoute: FastifyPluginAsync = async (app) => {
 
     // GET /e/:token — embed bundle
@@ -17,7 +28,10 @@ export const deliveryRoute: FastifyPluginAsync = async (app) => {
             .header('Content-Type', 'application/javascript; charset=utf-8')
             .header('Cache-Control', 'no-store');
 
-        const script = await resolveEmbedScript(token, publisherDomain);
+        const script = await resolveEmbedScript(
+            normalizeDeliveryToken(token),
+            publisherDomain,
+        );
 
         if (script === null) {
             return reply.status(200).send('');
