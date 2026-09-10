@@ -54,12 +54,24 @@ const DISPLAY_ASSET_ROLES = [
     'source'
 ] as const;
 
+// Роль source присваивается процессором первой rendition для соблюдения инварианта
+// assertProcessingResult — ровно один source-ассет на версию креатива. Для VAST это
+// такой же полноценный MediaFile, как rendition_*, и должен попадать в выдачу
 const VAST_RENDITION_ROLES = new Set([
+    'source',
     'primary',
     'rendition_360',
     'rendition_720',
     'rendition_1080',
 ]);
+
+// Порядок поиска ассета, несущего durationSec и являющегося основным медиафайлом.
+// Совпадает по смыслу с DISPLAY_ASSET_ROLES: primary при нескольких rendition,
+// source при единственной
+const VAST_PRIMARY_ASSET_ROLES = [
+    'primary',
+    'source'
+] as const;
 
 const DEFAULT_TIMEOUTS: PlayerTimeouts = {
     configRequestMs: 5_000,
@@ -471,7 +483,14 @@ export async function resolveVastContext(
         return null;
     }
 
-    const primaryAsset = ctx.versionAssets.find((a) => a.role === 'primary');
+    let primaryAsset: VersionAssetRow | undefined;
+    for (const role of VAST_PRIMARY_ASSET_ROLES) {
+        primaryAsset = ctx.versionAssets.find(
+            (a) => a.role === role && a.durationSec !== null,
+        );
+        if (primaryAsset !== undefined) break;
+    }
+
     const durationSec = primaryAsset?.durationSec ?? null;
 
     if (durationSec === null || durationSec <= 0) {
@@ -483,6 +502,7 @@ export async function resolveVastContext(
                 creativeVersionUuid: ctx.versionUuid,
                 hasPrimaryAsset: primaryAsset !== undefined,
                 durationSec,
+                availableRoles: ctx.versionAssets.map((a) => a.role),
             },
         );
         return null;
