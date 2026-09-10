@@ -1,6 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
-import { DeliveryEventPayloadSchema } from '@cpmind/shared';
-import { resolveEmbedScript } from '../services/delivery/embed.js';
+import {
+    DeliveryEventPayloadSchema,
+    DeliverySessionRequestSchema,
+} from '@cpmind/shared';
+import { issueAdSession, resolveEmbedScript } from '../services/delivery/embed.js';
 import { processDeliveryEvent } from '../services/delivery/events.js';
 import { extractPublisherDomain } from '../services/delivery/publisher.js';
 
@@ -38,6 +41,30 @@ export const deliveryRoute: FastifyPluginAsync = async (app) => {
         }
 
         return reply.status(200).send(script);
+    });
+
+    // POST /api/delivery/session — ad session для in-stream привязки
+    app.post('/api/delivery/session', async (request, reply) => {
+        const parsed = DeliverySessionRequestSchema.safeParse(request.body);
+
+        if (!parsed.success) {
+            return reply.status(422).send({ errors: parsed.error.flatten() });
+        }
+
+        const publisherDomain = extractPublisherDomain(
+            request.headers['referer'] as string | undefined,
+        );
+
+        const adSessionId = await issueAdSession(
+            parsed.data.deliveryToken,
+            publisherDomain,
+        );
+
+        if (adSessionId === null) {
+            return reply.status(404).send({ error: 'Placement not available' });
+        }
+
+        return reply.send({ adSessionId });
     });
 
     // POST /api/delivery/event — SDK lifecycle events

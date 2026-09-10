@@ -9,15 +9,12 @@ import {
     tags,
 } from '../db/schema.js';
 import { getDeliveryBaseUrl } from '../lib/env.js';
-import type { CreatePlacementPayload, UpdatePlacementPayload } from '@cpmind/shared';
-
-const VIDEO_DELIVERY_MODES = new Set([
-    'instream_preroll',
-    'instream_midroll',
-    'instream_postroll',
-    'outstream',
-    'standalone_video',
-]);
+import { VIDEO_DELIVERY_MODES } from '@cpmind/shared';
+import type {
+    CreatePlacementPayload,
+    DeliveryMode,
+    UpdatePlacementPayload,
+} from '@cpmind/shared';
 
 // Типы ответа
 
@@ -48,6 +45,8 @@ export interface PlacementDetail {
     skippable: boolean;
     skipOffsetSec: number | null;
     allowedDomains: string[] | null;
+    slotId: string | null;
+    videoSelector: string | null;
     clickUrl: string | null;
     isActive: boolean;
     deliveryToken: string;
@@ -98,9 +97,16 @@ function generateDeliveryToken(): string {
     return randomBytes(24).toString('base64url');
 }
 
-function buildEmbedCode(token: string): string {
+function buildEmbedCode(
+    token: string,
+    slotId: string | null,
+): string {
     const base = getDeliveryBaseUrl();
-    return `<script async src="${base}/e/${token}.js"></script>`;
+    const script = `<script async src="${base}/e/${token}.js"></script>`;
+
+    if (slotId === null) return script;
+
+    return `<div id="${slotId}"></div>\n${script}`;
 }
 
 function buildVastUrl(token: string): string {
@@ -184,6 +190,8 @@ export async function createPlacement(
             skippable: payload.skippable ?? false,
             skipOffsetSec: payload.skipOffsetSec ?? null,
             allowedDomains: payload.allowedDomains ?? null,
+            slotId: payload.slotId ?? null,
+            videoSelector: payload.videoSelector ?? null,
             clickUrl,
             isActive: true,
         })
@@ -243,6 +251,8 @@ export async function getPlacementDetail(
             skippable: placements.skippable,
             skipOffsetSec: placements.skipOffsetSec,
             allowedDomains: placements.allowedDomains,
+            slotId: placements.slotId,
+            videoSelector: placements.videoSelector,
             clickUrl: placements.clickUrl,
             isActive: placements.isActive,
             deliveryToken: placements.deliveryToken,
@@ -286,8 +296,10 @@ export async function getPlacementDetail(
 
     const isVersionReady = latestVersion?.status === 'ready';
 
-    const embedCode = isVersionReady ? buildEmbedCode(row.deliveryToken) : null;
-    const vastUrl = isVersionReady && VIDEO_DELIVERY_MODES.has(row.mode)
+    const embedCode = isVersionReady
+        ? buildEmbedCode(row.deliveryToken, row.slotId)
+        : null;
+    const vastUrl = isVersionReady && VIDEO_DELIVERY_MODES.has(row.mode as DeliveryMode)
         ? buildVastUrl(row.deliveryToken)
         : null;
 
@@ -306,6 +318,8 @@ export async function getPlacementDetail(
         skippable: row.skippable,
         skipOffsetSec: row.skipOffsetSec,
         allowedDomains: row.allowedDomains,
+        slotId: row.slotId,
+        videoSelector: row.videoSelector,
         clickUrl: row.clickUrl,
         isActive: row.isActive,
         deliveryToken: row.deliveryToken,
@@ -334,6 +348,8 @@ export async function updatePlacement(
     if (payload.skippable !== undefined) updateData['skippable'] = payload.skippable;
     if (payload.skipOffsetSec !== undefined) updateData['skipOffsetSec'] = payload.skipOffsetSec;
     if (payload.allowedDomains !== undefined) updateData['allowedDomains'] = payload.allowedDomains;
+    if (payload.slotId !== undefined) updateData['slotId'] = payload.slotId;
+    if (payload.videoSelector !== undefined) updateData['videoSelector'] = payload.videoSelector;
     if (payload.clickUrl !== undefined) updateData['clickUrl'] = payload.clickUrl;
 
     const result = await db

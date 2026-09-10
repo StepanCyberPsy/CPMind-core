@@ -20,6 +20,12 @@ const DELIVERY_MODES: Array<{ value: DeliveryMode; label: string }> = [
     { value: 'standalone_video', label: 'Standalone Video' },
 ];
 
+const INSTREAM_MODES = new Set<DeliveryMode>([
+    'instream_preroll',
+    'instream_midroll',
+    'instream_postroll',
+]);
+
 interface Props {
     preselectedCreativeUuid?: string | undefined;
 }
@@ -36,6 +42,10 @@ export function CreatePlacementForm({ preselectedCreativeUuid }: Props): React.R
     const [campaignUuid, setCampaignUuid] = useState('');
     const [creativeUuid, setCreativeUuid] = useState(preselectedCreativeUuid ?? '');
     const [mode, setMode] = useState<DeliveryMode>('display');
+    const [slotId, setSlotId] = useState('');
+    const [videoSelector, setVideoSelector] = useState('');
+
+    const isInstream = INSTREAM_MODES.has(mode);
 
     const openForm = async (): Promise<void> => {
         if (open) { setOpen(false); return; }
@@ -68,6 +78,8 @@ export function CreatePlacementForm({ preselectedCreativeUuid }: Props): React.R
                 mode,
                 initialMuted: true,
                 skippable: false,
+                ...(!isInstream && slotId !== '' && { slotId }),
+                ...(isInstream && videoSelector !== '' && { videoSelector }),
             });
             router.push(`/placements/${result.uuid}`);
         } catch (err) {
@@ -146,6 +158,46 @@ export function CreatePlacementForm({ preselectedCreativeUuid }: Props): React.R
                             ))}
                         </select>
                     </div>
+
+                    {isInstream ? (
+                        <div className={styles.formRow}>
+                            <label className={styles.formLabel} htmlFor="pl-video-selector">
+                                CSS-селектор видео
+                            </label>
+                            <input
+                                id="pl-video-selector"
+                                type="text"
+                                className={styles.formInput}
+                                value={videoSelector}
+                                onChange={(e) => setVideoSelector(e.target.value)}
+                                disabled={submitting}
+                                placeholder=".entry-content video"
+                            />
+                            <span className={styles.formHint}>
+                                Ограничивает привязку конкретными видео на странице.
+                                Пустое поле — реклама перед каждым видео.
+                            </span>
+                        </div>
+                    ) : (
+                        <div className={styles.formRow}>
+                            <label className={styles.formLabel} htmlFor="pl-slot-id">
+                                ID слота
+                            </label>
+                            <input
+                                id="pl-slot-id"
+                                type="text"
+                                className={styles.formInput}
+                                value={slotId}
+                                onChange={(e) => setSlotId(e.target.value)}
+                                disabled={submitting}
+                                placeholder="cpmind-sidebar"
+                            />
+                            <span className={styles.formHint}>
+                                Идентификатор пустого div на странице издателя, внутрь которого
+                                монтируется креатив. Пустое поле — креатив добавляется в конец страницы.
+                            </span>
+                        </div>
+                    )}
 
                     <div className={styles.formActions}>
                         <button

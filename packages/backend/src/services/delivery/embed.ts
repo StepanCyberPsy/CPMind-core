@@ -25,6 +25,10 @@ import {
     getLoaderRuntimeVersion,
     getPlayerRuntimeVersion,
 } from '../../lib/env.js';
+import {
+    INSTREAM_DELIVERY_MODES,
+    VIDEO_DELIVERY_MODES,
+} from '@cpmind/shared';
 import type {
     CreativeType,
     DeliveryMode,
@@ -39,14 +43,6 @@ const logger = pino({
     level: process.env['LOG_LEVEL'] ?? 'info',
     name: 'delivery-embed',
 });
-
-const VIDEO_MODES = new Set([
-    'instream_preroll',
-    'instream_midroll',
-    'instream_postroll',
-    'outstream',
-    'standalone_video',
-]);
 
 const DISPLAY_ASSET_ROLES = [
     'primary',
@@ -136,6 +132,8 @@ interface DeliveryContext {
     skippable: boolean;
     skipOffsetSec: number | null;
     clickUrl: string | null;
+    slotId: string | null;
+    videoSelector: string | null;
     userId: number;
     tagId: number;
     tagUuid: string;
@@ -182,6 +180,8 @@ async function resolveDeliveryContext(
             skippable: placements.skippable,
             skipOffsetSec: placements.skipOffsetSec,
             clickUrl: placements.clickUrl,
+            slotId: placements.slotId,
+            videoSelector: placements.videoSelector,
             pinnedVersionId: placements.creativeVersionId,
             userId: placements.userId,
             tagId: placements.tagId,
@@ -320,6 +320,8 @@ async function resolveDeliveryContext(
         skippable: row.skippable,
         skipOffsetSec: row.skipOffsetSec,
         clickUrl: row.clickUrl ?? row.creativeClickUrl,
+        slotId: row.slotId,
+        videoSelector: row.videoSelector,
         userId: row.userId,
         tagId: row.tagId,
         tagUuid: row.tagUuid,
@@ -363,7 +365,7 @@ export async function resolveEmbedScript(
         return null;
     }
 
-    const isVideo = VIDEO_MODES.has(ctx.mode);
+    const isVideo = VIDEO_DELIVERY_MODES.has(ctx.mode as DeliveryMode);
     const deliveryBase = getDeliveryBaseUrl();
     const cdnBase = getCdnBaseUrl();
     const measurementMode = resolveMeasurementMode(ctx.creativeType);
@@ -395,8 +397,11 @@ export async function resolveEmbedScript(
         tagConstants: ctx.tagConstants,
         collectEndpoint: getCollectEndpoint(),
         deliveryEventEndpoint: `${deliveryBase}/api/delivery/event`,
+        sessionEndpoint: `${deliveryBase}/api/delivery/session`,
         vastUrl: isVideo ? `${deliveryBase}/vast/${ctx.deliveryToken}` : null,
         clickUrl: ctx.clickUrl,
+        slotId: ctx.slotId,
+        videoSelector: ctx.videoSelector,
         width: ctx.width,
         height: ctx.height,
         plcmt: ctx.plcmt,
@@ -417,18 +422,41 @@ export async function resolveEmbedScript(
     const heightCss = ctx.height !== null ? `${ctx.height}px` : 'auto';
     const configJson = JSON.stringify(queueEntry);
 
+    const mountLines: string[] = INSTREAM_DELIVERY_MODES.has(ctx.mode as DeliveryMode)
+        ? [
+            "function mount(){",
+            "if(document.body===null)return false;",
+            "cfg.container=document.body;",
+            "window.__CPMIND_QUEUE__.push(cfg);",
+            "return true;",
+            "}",
+        ]
+        : [
+            "function mount(){",
+            ctx.slotId !== null
+                ? `var slot=document.getElementById(${JSON.stringify(ctx.slotId)});`
+                : "var slot=document.body;",
+            "if(slot===null)return false;",
+            "var el=document.createElement('div');",
+            `el.style.width=${JSON.stringify(widthCss)};`,
+            `el.style.height=${JSON.stringify(heightCss)};`,
+            "el.style.overflow='hidden';",
+            "slot.appendChild(el);",
+            "cfg.container=el;",
+            "window.__CPMIND_QUEUE__.push(cfg);",
+            "return true;",
+            "}",
+        ];
+
     const js = [
         "(function(){",
         "'use strict';",
-        "var el=document.createElement('div');",
-        `el.style.width=${JSON.stringify(widthCss)};`,
-        `el.style.height=${JSON.stringify(heightCss)};`,
-        "el.style.overflow='hidden';",
-        "document.body.appendChild(el);",
         "window.__CPMIND_QUEUE__=window.__CPMIND_QUEUE__||[];",
         `var cfg=${configJson};`,
-        "cfg.container=el;",
-        "window.__CPMIND_QUEUE__.push(cfg);",
+        ...mountLines,
+        "if(!mount()){",
+        "document.addEventListener('DOMContentLoaded',function(){mount();});",
+        "}",
         "if(!window.__CPMIND_LOADER__){",
         "window.__CPMIND_LOADER__=true;",
         "var s=document.createElement('script');",
@@ -440,6 +468,27 @@ export async function resolveEmbedScript(
     ].join('\n');
 
     return js;
+}
+
+export async function issueAdSession(
+    deliveryToken: string,
+    publisherDomain: string | null,
+): Promise<string | null> {
+    const ctx = await resolveDeliveryContext(deliveryToken, 'session');
+    if (!ctx) return null;
+
+    return createAdSession({
+        placementId: ctx.placementId,
+        creativeVersionId: ctx.versionId,
+        userId: ctx.userId,
+        tagId: ctx.tagId,
+        creativeType: ctx.creativeType as CreativeType,
+        deliveryMode: ctx.mode as DeliveryMode,
+        measurementMode: resolveMeasurementMode(ctx.creativeType),
+        publisherDomain,
+        autoplayRequested: ctx.autoplayMode === 'autoplay',
+        initialMuted: ctx.initialMuted,
+    });
 }
 
 export async function resolveVastContext(

@@ -161,6 +161,8 @@ export type {
   AdSessionId,
   PlayerTimeouts,
   DeliveryRuntimeConfig,
+  DeliverySessionRequest,
+  DeliverySessionResponse,
   DeliveryTiming,
 } from '../schemas/delivery.js';
 

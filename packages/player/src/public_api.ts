@@ -70,9 +70,16 @@ export const CPMindPlayer = {
 
         binding = bindNativeContent(opts.contentVideo, {
             async runAd(): Promise<void> {
+                const deliveryConfig = opts.resolveAdSessionId !== undefined
+                    ? {
+                        ...opts.deliveryConfig,
+                        adSessionId: await opts.resolveAdSessionId(),
+                    }
+                    : opts.deliveryConfig;
+
                 handle = await createPlayerSession({
                     container,
-                    deliveryConfig: opts.deliveryConfig,
+                    deliveryConfig,
                     showClose: false,
                     getContentPlayheadSec: () => opts.contentVideo.currentTime,
                 });

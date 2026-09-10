@@ -1,34 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from 'react';
+import {
+    INSTREAM_DELIVERY_MODES,
+    VIDEO_DELIVERY_MODES,
+    type DeliveryMode,
+} from '@cpmind/shared';
 import type { PlacementDetail } from '@/lib/admin/api';
 import styles from '@/styles/placement-embed-modal.module.css';
-
-const VIDEO_MODES = new Set([
-    'instream_preroll',
-    'instream_midroll',
-    'instream_postroll',
-    'outstream',
-    'standalone_video',
-]);
-
-const INSTREAM_MODES = new Set([
-    'instream_preroll',
-    'instream_midroll',
-    'instream_postroll',
-]);
-
-function buildInstreamSnippet(deliveryToken: string): string {
-    return [
-        `<script src="https://cdn.cpmind.tech/runtime/cpmind-player_v1.min.js"></script>`,
-        `<script>`,
-        `  CPMindPlayer.attachNative({`,
-        `    placementToken: '${deliveryToken}',`,
-        `    content: document.getElementById('your-video-id'),`,
-        `  });`,
-        `</script>`,
-    ].join('\n');
-}
 
 interface CopyButtonProps {
     text: string;
@@ -86,8 +70,8 @@ export function PlacementEmbedModal({ placement, onClose }: Props): React.ReactE
     const [showDiagnostics, setShowDiagnostics] = useState(false);
     const overlayRef = useRef<HTMLDivElement>(null);
 
-    const isVideo = VIDEO_MODES.has(placement.mode);
-    const isInstream = INSTREAM_MODES.has(placement.mode);
+    const isVideo = VIDEO_DELIVERY_MODES.has(placement.mode as DeliveryMode);
+    const isInstream = INSTREAM_DELIVERY_MODES.has(placement.mode as DeliveryMode);
 
     // Close on Escape
     useEffect(() => {
@@ -144,24 +128,19 @@ export function PlacementEmbedModal({ placement, onClose }: Props): React.ReactE
                 </div>
 
                 <div className={styles.body}>
-                    {isInstream ? (
-                        <div className={styles.block}>
-                            <span className={styles.blockTitle}>In-stream (нативное видео)</span>
-                            <span className={styles.blockDesc}>
-                                Вставьте на страницу после тега вашего видео-плеера.
-                                Замените <code>your-video-id</code> на id вашего video-элемента.
-                            </span>
-                            <CodeBlock code={buildInstreamSnippet(placement.deliveryToken)} />
-                        </div>
-                    ) : (
-                        <div className={styles.block}>
-                            <span className={styles.blockTitle}>Embed-код</span>
-                            <span className={styles.blockDesc}>
-                                Вставьте в HTML-код страницы в месте показа рекламы.
-                            </span>
-                            <CodeBlock code={embedCode} />
-                        </div>
-                    )}
+                    <div className={styles.block}>
+                        <span className={styles.blockTitle}>Embed-код</span>
+                        <span className={styles.blockDesc}>
+                            {isInstream
+                                ? placement.videoSelector !== null
+                                    ? `Вставьте в любое место страницы. Реклама показывается перед видео, попадающими под селектор ${placement.videoSelector}.`
+                                    : 'Вставьте в любое место страницы. Реклама показывается перед каждым видео на странице.'
+                                : placement.slotId !== null
+                                    ? 'Разместите div в нужном месте страницы, скрипт — в любом месте после него.'
+                                    : 'Вставьте в HTML-код страницы. Креатив добавляется в конец страницы.'}
+                        </span>
+                        <CodeBlock code={embedCode} />
+                    </div>
 
                     {isVideo && vastUrl !== null && (
                         <>

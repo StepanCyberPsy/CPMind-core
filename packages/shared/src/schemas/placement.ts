@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { CreativeTypeSchema } from './creative.js';
 import { DeliveryModeSchema } from './delivery.js';
 
+const VIDEO_SELECTOR_MAX_LENGTH = 256;
+const SLOT_ID_REGEX = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const DOMAIN_REGEX = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
 
 // IAB OpenRTB plcmt: 1=In-Stream, 2=In-Banner, 3=In-Article, 4=In-Feed, 5=Interstitial
@@ -32,6 +34,8 @@ export const PlacementRowSchema = z.object({
     allowedDomains: z.array(
         z.string().min(1).max(253).regex(DOMAIN_REGEX),
     ).nullable(),
+    slotId: z.string().regex(SLOT_ID_REGEX).nullable(),
+    videoSelector: z.string().min(1).max(VIDEO_SELECTOR_MAX_LENGTH).nullable(),
     clickUrl: z.string().url().nullable(),
     isActive: z.boolean(),
     createdAt: z.string(),
@@ -53,6 +57,8 @@ export const CreatePlacementPayloadSchema = z.object({
     allowedDomains: z.array(
         z.string().min(1).max(253).regex(DOMAIN_REGEX),
     ).optional(),
+    slotId: z.string().regex(SLOT_ID_REGEX).optional(),
+    videoSelector: z.string().min(1).max(VIDEO_SELECTOR_MAX_LENGTH).optional(),
     clickUrl: z.string().url().optional(),
 });
 
@@ -69,6 +75,8 @@ export const UpdatePlacementPayloadSchema = z.object({
     allowedDomains: z.array(
         z.string().min(1).max(253).regex(DOMAIN_REGEX),
     ).nullable().optional(),
+    slotId: z.string().regex(SLOT_ID_REGEX).nullable().optional(),
+    videoSelector: z.string().min(1).max(VIDEO_SELECTOR_MAX_LENGTH).nullable().optional(),
     clickUrl: z.string().url().nullable().optional(),
 }).refine(
     (data) => Object.values(data).some((v) => v !== undefined),

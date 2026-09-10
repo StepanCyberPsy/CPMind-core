@@ -236,6 +236,8 @@ export interface PlacementDetail {
   skippable: boolean;
   skipOffsetSec: number | null;
   allowedDomains: string[] | null;
+  slotId: string | null;
+  videoSelector: string | null;
   clickUrl: string | null;
   isActive: boolean;
   deliveryToken: string;

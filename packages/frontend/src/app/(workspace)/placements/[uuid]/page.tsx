@@ -84,6 +84,18 @@ export default async function PlacementDetailPage({
                                 </span>
                             </div>
                         )}
+                        {placement.slotId !== null && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>ID слота</span>
+                                <span className={styles.metaMono}>{placement.slotId}</span>
+                            </div>
+                        )}
+                        {placement.videoSelector !== null && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Селектор видео</span>
+                                <span className={styles.metaMono}>{placement.videoSelector}</span>
+                            </div>
+                        )}
                         <div className={styles.metaItem}>
                             <span className={styles.metaLabel}>Delivery token</span>
                             <span className={styles.metaMono}>{placement.deliveryToken}</span>

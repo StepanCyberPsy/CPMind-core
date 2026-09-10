@@ -578,6 +578,8 @@ export const placements = pgTable('placements', {
   skippable: boolean('skippable').notNull().default(false),
   skipOffsetSec: real('skip_offset_sec'),
   allowedDomains: text('allowed_domains').array(),
+  slotId: text('slot_id'),
+  videoSelector: text('video_selector'),
   clickUrl: text('click_url'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

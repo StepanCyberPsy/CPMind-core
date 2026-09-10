@@ -35,6 +35,29 @@ export const MeasurementFinalizationReasonSchema = z.enum([
     'destroyed',
 ]);
 
+// Производные множества режимов доставки. Единый источник истины для backend,
+// frontend и player — локальные копии расходятся при добавлении режима в enum
+export const VIDEO_DELIVERY_MODES: ReadonlySet<DeliveryMode> = new Set([
+    'instream_preroll',
+    'instream_midroll',
+    'instream_postroll',
+    'outstream',
+    'standalone_video',
+]);
+
+// Привязываются к content video издателя — собственный контейнер не требуется
+export const INSTREAM_DELIVERY_MODES: ReadonlySet<DeliveryMode> = new Set([
+    'instream_preroll',
+    'instream_midroll',
+    'instream_postroll',
+]);
+
+// Player создаёт собственную поверхность в контейнере placement
+export const SELF_MOUNTED_DELIVERY_MODES: ReadonlySet<DeliveryMode> = new Set([
+    'outstream',
+    'standalone_video',
+]);
+
 // Идентификатор рекламной сессии
 export const AdSessionIdSchema = z.string().uuid().brand<'AdSessionId'>();
 
@@ -61,8 +84,11 @@ export const DeliveryRuntimeConfigSchema = z.object({
     tagConstants: TagConstantsValuesSchema,
     collectEndpoint: z.string().url(),
     deliveryEventEndpoint: z.string().url(),
+    sessionEndpoint: z.string().url(),
     vastUrl: z.string().url().nullable(),
     clickUrl: z.string().url().nullable(),
+    slotId: z.string().nullable(),
+    videoSelector: z.string().nullable(),
     width: z.number().int().positive().nullable(),
     height: z.number().int().positive().nullable(),
     plcmt: z.number().int().positive().nullable(),
@@ -71,6 +97,14 @@ export const DeliveryRuntimeConfigSchema = z.object({
     skippable: z.boolean(),
     skipOffsetSec: z.number().min(0).nullable(),
     timeouts: PlayerTimeoutsSchema,
+});
+
+export const DeliverySessionRequestSchema = z.object({
+    deliveryToken: z.string().min(32),
+});
+
+export const DeliverySessionResponseSchema = z.object({
+    adSessionId: AdSessionIdSchema,
 });
 
 // Тайминги доставки для диагностики
@@ -87,4 +121,6 @@ export type MeasurementFinalizationReason = z.infer<typeof MeasurementFinalizati
 export type AdSessionId = z.infer<typeof AdSessionIdSchema>;
 export type PlayerTimeouts = z.infer<typeof PlayerTimeoutsSchema>;
 export type DeliveryRuntimeConfig = z.infer<typeof DeliveryRuntimeConfigSchema>;
+export type DeliverySessionRequest = z.infer<typeof DeliverySessionRequestSchema>;
+export type DeliverySessionResponse = z.infer<typeof DeliverySessionResponseSchema>;
 export type DeliveryTiming = z.infer<typeof DeliveryTimingSchema>;

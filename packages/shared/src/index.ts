@@ -160,7 +160,12 @@ export {
     AdSessionIdSchema,
     PlayerTimeoutsSchema,
     DeliveryRuntimeConfigSchema,
+    DeliverySessionRequestSchema,
+    DeliverySessionResponseSchema,
     DeliveryTimingSchema,
+    VIDEO_DELIVERY_MODES,
+    INSTREAM_DELIVERY_MODES,
+    SELF_MOUNTED_DELIVERY_MODES,
 } from './schemas/delivery.js';
 
 // Placements

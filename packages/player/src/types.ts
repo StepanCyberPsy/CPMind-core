@@ -39,4 +39,5 @@ export interface NativeAttachOptions {
     contentVideo: HTMLVideoElement;
     deliveryConfig: DeliveryRuntimeConfig;
     container?: HTMLElement; // если не указан — берётся из contentVideo.parentElement
+    resolveAdSessionId?: (() => Promise<DeliveryRuntimeConfig['adSessionId']>) | undefined;
 }
