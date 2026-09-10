@@ -1,5 +1,9 @@
 import { observeEligibility, observePlayback } from './viewport.js';
 import type { ViewportObservers } from './viewport.js';
+import {
+    OUTSTREAM_ASPECT_RATIO,
+    OUTSTREAM_MIN_HEIGHT_PX,
+} from '../player-config.js';
 
 export type OutstreamState =
     | 'mounting'
@@ -31,9 +35,45 @@ export interface OutstreamLifecycle {
     destroy(): void;
 }
 
+export interface OutstreamSurfaceSize {
+    width: number | null;
+    height: number | null;
+}
+
+// Резервирует высоту контейнера до начала наблюдения. Элемент нулевой высоты
+// не пересекает viewport при threshold 0 и не достигает PLAYBACK_THRESHOLD —
+// без резервирования eligibility не срабатывает и сессия не создаётся никогда.
+// Высота ставится один раз при монтировании: содержимое ещё не загружено,
+// поэтому определить её из медиа невозможно
+function reserveSurfaceHeight(
+    surface: HTMLElement,
+    size: OutstreamSurfaceSize,
+): void {
+    if (size.width !== null) {
+        surface.style.width = `${size.width}px`;
+    }
+
+    if (size.height !== null) {
+        surface.style.height = `${size.height}px`;
+        return;
+    }
+
+    const measuredWidth = surface.getBoundingClientRect().width;
+    const baseWidth = measuredWidth > 0
+        ? measuredWidth
+        : (size.width ?? 0);
+
+    const derivedHeight = baseWidth > 0
+        ? Math.round(baseWidth / OUTSTREAM_ASPECT_RATIO)
+        : 0;
+
+    surface.style.height = `${Math.max(derivedHeight, OUTSTREAM_MIN_HEIGHT_PX)}px`;
+}
+
 export function createOutstreamLifecycle(
     surface: HTMLElement,
     callbacks: OutstreamLifecycleCallbacks,
+    size: OutstreamSurfaceSize,
 ): OutstreamLifecycle {
     let state: OutstreamState = 'mounting';
     let eligibilityObs: ViewportObservers | null = null;
@@ -103,6 +143,8 @@ export function createOutstreamLifecycle(
     }
 
     state = 'mounting';
+    reserveSurfaceHeight(surface, size);
+
     eligibilityObs = observeEligibility(surface, () => {
         void startLoad();
     });

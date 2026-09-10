@@ -19,10 +19,23 @@ export function createAdSurface(
 ): AdSurface {
     ensurePlayerStyles();
 
+    // height 100% не разрешается против родителя с height auto — для таких
+    // контейнеров высота берётся из фактического бокса, зарезервированного
+    // жизненным циклом out-stream до монтирования поверхности
+    const containerHeight = container.getBoundingClientRect().height;
+
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-cpmind-surface', '');
     wrapper.style.width = width !== null ? `${width}px` : '100%';
-    wrapper.style.height = height !== null ? `${height}px` : '100%';
+
+    if (height !== null) {
+        wrapper.style.height = `${height}px`;
+    } else if (containerHeight > 0) {
+        wrapper.style.height = `${containerHeight}px`;
+    } else {
+        wrapper.style.height = '100%';
+    }
+
     wrapper.style.position = 'relative';
     wrapper.style.overflow = 'hidden';
 

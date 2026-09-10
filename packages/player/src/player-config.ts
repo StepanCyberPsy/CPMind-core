@@ -63,6 +63,11 @@ export const SEEK_STEP_SEC = 5;
 export const ELIGIBILITY_THRESHOLD = 0;
 export const PLAYBACK_THRESHOLD = 0.5;
 
+// Outstream surface
+
+export const OUTSTREAM_ASPECT_RATIO = 16 / 9;
+export const OUTSTREAM_MIN_HEIGHT_PX = 180;
+
 // For bridge
 
 export const ACTION_SOURCE_WINDOW_MS = 100;

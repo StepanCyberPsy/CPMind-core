@@ -44,6 +44,9 @@ export const CPMindPlayer = {
             onClose(): void {
                 handle?.close('user');
             },
+        }, {
+            width: opts.deliveryConfig.width,
+            height: opts.deliveryConfig.height,
         });
 
         return {
