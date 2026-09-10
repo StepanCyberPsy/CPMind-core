@@ -75,13 +75,17 @@ try {
         processEntry(entry);
     }
 
-    // GTM-style async pattern: перехватываем push после загрузки runtime
+    // GTM-style async pattern: перехватываем push после загрузки runtime.
+    // Предыдущий push сохраняется и вызывается: loader перехватывает push для
+    // подгрузки runtime по creativeType, а на странице может быть загружен player.
+    // Замена на Array.prototype.push разорвала бы цепочку обработчиков
+    const previousPush = queue.push;
+
     queue.push = (...entries: DisplayQueueEntry[]): number => {
         for (const entry of entries) {
             processEntry(entry);
         }
-        Array.prototype.push.apply(queue, entries);
-        return queue.length;
+        return previousPush.apply(queue, entries);
     };
 } catch {
     // Глобальная защита — предотвращаем падение страницы паблишера
