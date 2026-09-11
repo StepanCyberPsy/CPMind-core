@@ -44,14 +44,30 @@ export function CreativePreview({ creativeType, assets }: Props): React.ReactEle
 
     if (BANNER_CREATIVE_TYPES.has(creativeType)) {
         if (creativeType === 'banner_html5') {
+            const bundleAsset = assets.find((a) => a.role === 'source');
+
+            if (bundleAsset === undefined) {
+                return (
+                    <div className={styles.root}>
+                        <div className={styles.placeholder}>
+                            <span className={styles.placeholderIcon}>{'</>'}</span>
+                            <span className={styles.placeholderText}>
+                                HTML5-баннер обрабатывается
+                            </span>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className={styles.root}>
-                    <div className={styles.placeholder}>
-                        <span className={styles.placeholderIcon}>{'</>'}</span>
-                        <span className={styles.placeholderText}>
-                            HTML5-баннер — интерактивный контент
-                        </span>
-                    </div>
+                    <iframe
+                        className={styles.iframe}
+                        src={bundleAsset.cdnUrl}
+                        sandbox="allow-scripts"
+                        title="Превью HTML5-креатива"
+                        loading="lazy"
+                    />
                 </div>
             );
         }

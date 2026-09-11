@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createPlacement } from '@/lib/admin/api';
 import {
     BANNER_CREATIVE_TYPES,
+    INSTREAM_MODES,
     VIDEO_DELIVERY_MODES,
 } from '@/lib/config';
 import { PlacementEmbedModal } from './PlacementEmbedModal';
@@ -27,6 +28,8 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
 
     const [clickUrl, setClickUrl] = useState('');
     const [mode, setMode] = useState<DeliveryMode>(DEFAULT_VIDEO_MODE);
+    const [slotId, setSlotId] = useState('');
+    const [videoSelector, setVideoSelector] = useState('');
     const [initialMuted, setInitialMuted] = useState(true);
     const [skippable, setSkippable] = useState(false);
     const [skipOffsetSec, setSkipOffsetSec] = useState('5');
@@ -34,6 +37,7 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
     const [error, setError] = useState<string | null>(null);
     const [createdPlacement, setCreatedPlacement] = useState<PlacementDetail | null>(null);
     const [showModal, setShowModal] = useState(false);
+    const isInstream = !isBanner && INSTREAM_MODES.has(mode);
 
     const handleSubmit = async (): Promise<void> => {
         setLoading(true);
@@ -52,6 +56,7 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
                     initialMuted: false,
                     skippable: false,
                     ...(clickUrl.trim() !== '' && { clickUrl: clickUrl.trim() }),
+                    ...(slotId.trim() !== '' && { slotId: slotId.trim() }),
                     ...(sourceAsset?.width != null && { width: sourceAsset.width }),
                     ...(sourceAsset?.height != null && { height: sourceAsset.height }),
                 })
@@ -60,6 +65,9 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
                     mode,
                     initialMuted,
                     skippable,
+                    ...(isInstream
+                        ? videoSelector.trim() !== '' && { videoSelector: videoSelector.trim() }
+                        : slotId.trim() !== '' && { slotId: slotId.trim() }),
                     ...(skippable && skipOffsetSec !== '' && {
                         skipOffsetSec: Number(skipOffsetSec),
                     }),
@@ -178,6 +186,44 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
                             </div>
                         )}
                     </>
+                )}
+
+                {isInstream ? (
+                    <div className={styles.field}>
+                        <label className={styles.label} htmlFor="ipl-video-selector">
+                            CSS-селектор видео
+                        </label>
+                        <input
+                            id="ipl-video-selector"
+                            type="text"
+                            value={videoSelector}
+                            onChange={(e) => setVideoSelector(e.target.value)}
+                            placeholder=".entry-content video"
+                            disabled={loading}
+                        />
+                        <span className={styles.hint}>
+                            Ограничивает привязку конкретными видео на странице.
+                            Пустое поле — реклама перед каждым видео.
+                        </span>
+                    </div>
+                ) : (
+                    <div className={styles.field}>
+                        <label className={styles.label} htmlFor="ipl-slot-id">
+                            ID слота
+                        </label>
+                        <input
+                            id="ipl-slot-id"
+                            type="text"
+                            value={slotId}
+                            onChange={(e) => setSlotId(e.target.value)}
+                            placeholder="cpmind-sidebar"
+                            disabled={loading}
+                        />
+                        <span className={styles.hint}>
+                            Идентификатор пустого div на странице издателя, внутрь которого
+                            монтируется креатив. Пустое поле — креатив добавляется в конец страницы.
+                        </span>
+                    </div>
                 )}
 
                 {error !== null && (

@@ -46,6 +46,20 @@ export function CreativePlacementPanel({ placement }: Props): React.ReactElement
                     </span>
                 </div>
 
+                {placement.slotId !== null && (
+                    <div className={styles.infoRow}>
+                        <span className={styles.infoLabel}>ID слота</span>
+                        <CopyableText text={placement.slotId} />
+                    </div>
+                )}
+
+                {placement.videoSelector !== null && (
+                    <div className={styles.infoRow}>
+                        <span className={styles.infoLabel}>Селектор видео</span>
+                        <CopyableText text={placement.videoSelector} />
+                    </div>
+                )}
+
                 <div className={styles.infoRow}>
                     <span className={styles.infoLabel}>Delivery token</span>
                     <CopyableText

@@ -1,3 +1,7 @@
+# КАРТА ИСПРАВЛЕНИЙ
+
+Отложенные дефекты: две ad-сессии на показ у VAST, measurement_mode: legacy_tag в impressions, пустой measurement_started_at, нестабильный s6_completion_rate_pct, asset_gc без прав на удаление, отсутствие архивирования оригиналов, allowedDomains без enforcement, резолвинг upstream в nginx.
+
 # Итоговый реестр неисправностей
 
 | # | Неисправность | Приоритет | Доказательство |

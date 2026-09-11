@@ -13,7 +13,10 @@ import {
     creativeVersionAssets,
     assets,
 } from '../db/schema.js';
-import { getCdnBaseUrl } from '../lib/env.js';
+import {
+    getCdnBaseUrl,
+    getCreativeBaseUrl,
+} from '../lib/env.js';
 
 export interface AssetView {
     id: string;
@@ -56,7 +59,13 @@ export interface CreativeDetail extends CreativeListItem {
     versions: CreativeVersionView[];
 }
 
-function buildCdnUrl(storageKey: string): string {
+function buildAssetUrl(
+    storageKey: string,
+    assetClass: string,
+): string {
+    if (assetClass === 'html_file') {
+        return `${getCreativeBaseUrl()}/${storageKey}`;
+    }
     return `${getCdnBaseUrl()}/${storageKey}`;
 }
 
@@ -86,7 +95,10 @@ function toAssetView(row: {
         height: row.height,
         durationSec: row.durationSec,
         codec: row.codec,
-        cdnUrl: buildCdnUrl(row.storageKey),
+        cdnUrl: buildAssetUrl(
+            row.storageKey,
+            row.assetClass
+        ),
     };
 }
 
