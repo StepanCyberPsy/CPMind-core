@@ -61,9 +61,6 @@ function attachPreroll(entry: PlayerQueueEntry): void {
                 CPMindPlayer.attachNative({
                     contentVideo,
                     deliveryConfig: entry,
-                    ...(contentVideo.parentElement !== null && {
-                        container: contentVideo.parentElement,
-                    }),
                     resolveAdSessionId: () => requestAdSessionId(entry),
                 });
             } catch {
