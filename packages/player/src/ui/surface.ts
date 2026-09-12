@@ -11,11 +11,15 @@ export interface AdSurface {
 }
 
 // Создаёт DOM-структуру рекламной поверхности и монтирует в container.
-// CSS-prefix изоляция — без Shadow DOM
+// CSS-prefix изоляция — без Shadow DOM.
+// overlay: поверхность перекрывает содержимое контейнера вместо занятия места
+// в потоке. Требуется для in-stream — реклама показывается поверх content video,
+// а не под ним. Контейнер при этом обязан иметь position отличный от static
 export function createAdSurface(
     container: HTMLElement,
     width: number | null,
     height: number | null,
+    overlay: boolean,
 ): AdSurface {
     ensurePlayerStyles();
 
@@ -26,17 +30,27 @@ export function createAdSurface(
 
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-cpmind-surface', '');
-    wrapper.style.width = width !== null ? `${width}px` : '100%';
 
-    if (height !== null) {
-        wrapper.style.height = `${height}px`;
-    } else if (containerHeight > 0) {
-        wrapper.style.height = `${containerHeight}px`;
-    } else {
+    if (overlay) {
+        wrapper.style.position = 'absolute';
+        wrapper.style.top = '0';
+        wrapper.style.left = '0';
+        wrapper.style.width = '100%';
         wrapper.style.height = '100%';
+        wrapper.style.zIndex = '2147483000';
+    } else {
+        wrapper.style.position = 'relative';
+        wrapper.style.width = width !== null ? `${width}px` : '100%';
+
+        if (height !== null) {
+            wrapper.style.height = `${height}px`;
+        } else if (containerHeight > 0) {
+            wrapper.style.height = `${containerHeight}px`;
+        } else {
+            wrapper.style.height = '100%';
+        }
     }
 
-    wrapper.style.position = 'relative';
     wrapper.style.overflow = 'hidden';
 
     // Ad label

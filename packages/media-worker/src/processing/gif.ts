@@ -36,13 +36,22 @@ export async function processGif(
         );
     }
 
+    const frameHeight = metadata.pageHeight ?? metadata.height;
+
+    if (frameHeight <= 0) {
+        throw new ProcessingError(
+            'PROCESSING_INVALID_IMAGE',
+            'Cannot read GIF frame height',
+        );
+    }
+
     if (
         metadata.width > MAX_IMAGE_DIMENSION_PX ||
-        metadata.height > MAX_IMAGE_DIMENSION_PX
+        frameHeight > MAX_IMAGE_DIMENSION_PX
     ) {
         throw new ProcessingError(
             'PROCESSING_DIMENSION_EXCEEDED',
-            `GIF ${metadata.width}x${metadata.height} exceeds max ${MAX_IMAGE_DIMENSION_PX}px`,
+            `GIF ${metadata.width}x${frameHeight} exceeds max ${MAX_IMAGE_DIMENSION_PX}px`,
         );
     }
 
@@ -62,7 +71,7 @@ export async function processGif(
             role: 'source',
             priority: 0,
             width: metadata.width,
-            height: metadata.height,
+            height: frameHeight,
         }],
     };
 }

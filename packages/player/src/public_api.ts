@@ -10,6 +10,34 @@ import type {
     NativeAttachOptions
 } from './types.js';
 
+const OVERLAY_HOST_ATTR = 'data-cpmind-overlay-host';
+
+function ensureOverlayHost(contentVideo: HTMLVideoElement): HTMLElement {
+    const existing = contentVideo.parentElement;
+
+    if (existing !== null && existing.hasAttribute(OVERLAY_HOST_ATTR)) {
+        return existing;
+    }
+
+    const host = document.createElement('div');
+    host.setAttribute(OVERLAY_HOST_ATTR, '');
+    host.style.position = 'relative';
+    host.style.display = 'block';
+    host.style.width = '100%';
+
+    const parent = contentVideo.parentElement;
+
+    if (parent === null) {
+        host.appendChild(contentVideo);
+        return host;
+    }
+
+    parent.insertBefore(host, contentVideo);
+    host.appendChild(contentVideo);
+
+    return host;
+}
+
 export const CPMindPlayer = {
 
     mountOutstream(opts: OutstreamOptions): PlayerController {
@@ -61,9 +89,7 @@ export const CPMindPlayer = {
     },
 
     attachNative(opts: NativeAttachOptions): PlayerController {
-        const container = opts.container
-            ?? (opts.contentVideo.parentElement as HTMLElement | null)
-            ?? document.body;
+        const container = opts.container ?? ensureOverlayHost(opts.contentVideo);
 
         let handle: PlayerHandle | null = null;
         let binding: InstreamBinding | null = null;
@@ -81,6 +107,7 @@ export const CPMindPlayer = {
                     container,
                     deliveryConfig,
                     showClose: false,
+                    overlay: opts.container === undefined,
                     getContentPlayheadSec: () => opts.contentVideo.currentTime,
                 });
                 await handle.play();

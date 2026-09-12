@@ -45,6 +45,7 @@ export interface PlayerSessionOptions {
     container: HTMLElement;
     deliveryConfig: DeliveryRuntimeConfig;
     showClose: boolean;
+    overlay?: boolean | undefined;
     getContentPlayheadSec?: (() => number | undefined) | undefined;
     onFinished?: ((outcome: PlayerTerminalOutcome) => void) | undefined;
 }
@@ -86,6 +87,7 @@ export async function createPlayerSession(
         opts.container,
         deliveryConfig.width,
         deliveryConfig.height,
+        opts.overlay ?? false,
     );
     const video = createAdVideoElement(deliveryConfig.initialMuted);
     surface.videoSlot.appendChild(video);
