@@ -1,4 +1,3 @@
-import type { AdSessionPlayerErrorCode } from '@cpmind/shared';
 import type { DisplayQueueEntry } from './types.js';
 import {
     createDisplaySessionContext,
@@ -45,11 +44,11 @@ async function runDisplayFlowAsync(entry: DisplayQueueEntry): Promise<void> {
     } catch (err) {
         if (ctx !== null) {
             const isAbort = err instanceof DOMException && err.name === 'AbortError';
-            const errorCode: AdSessionPlayerErrorCode = isAbort
-                ? 'MEDIA_START_TIMEOUT'
-                : 'MEDIA_LOAD_FAILED';
-            sendDisplayEvent(ctx, 'creative_error', errorCode);
-            destroyDisplaySession(ctx, 'error');
+            sendDisplayEvent(ctx, 'creative_error', {
+                errorCode: isAbort ? 'MEDIA_START_TIMEOUT' : 'MEDIA_LOAD_FAILED',
+                finalizationReason: isAbort ? 'timeout' : 'error',
+            });
+            destroyDisplaySession(ctx, isAbort ? 'timeout' : 'error');
         }
     } finally {
         clearTimeout(timeoutId);

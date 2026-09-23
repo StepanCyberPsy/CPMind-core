@@ -1,6 +1,16 @@
 import type { AudioConnection } from '@cpmind/shared';
 import type { S6AccumulatorState, S6RawData } from '../types.js';
 
+// Максимальная скорость воспроизведения, при которой шаг позиции считается непрерывным
+const MAX_PLAYBACK_RATE = 2;
+
+// Абсолютный допуск шага позиции: джиттер timeupdate и буферизация
+const POSITION_STEP_TOLERANCE_SEC = 0.5;
+
+// Допуск достижения конца ролика: последний timeupdate приходит до фактического конца
+const END_TOLERANCE_SEC = 0.5;
+const REPLAY_SEEK_BACK_SEC = 0.5;
+
 function isAudible(isMuted: boolean, volume: number): boolean {
     return !isMuted && volume > 0;
 }
@@ -11,15 +21,52 @@ function accumulateAudibleTime(state: S6AccumulatorState): void {
     state.audibleTimeStart = null;
 }
 
+// Сдвигает границу непрерывно просмотренного отрезка. Шаг засчитывается, только если
+// он начинается внутри просмотренного отрезка и не превышает прошедшее время с учётом
+// playbackRate — перемотка вперёд досмотр не увеличивает
+function advanceWatchedFrontier(
+    state: S6AccumulatorState,
+    positionSec: number,
+    nowMs: number,
+): void {
+    const previousSec = state.lastSeekTime;
+    const stepSec = positionSec - previousSec;
+    const elapsedSec = state.lastTickAt !== null
+        ? Math.max(0, nowMs - state.lastTickAt) / 1000
+        : 0;
+    const maxStepSec = elapsedSec * MAX_PLAYBACK_RATE + POSITION_STEP_TOLERANCE_SEC;
+    const isContinuous = stepSec >= 0 && stepSec <= maxStepSec;
+    const startsInsideWatched = previousSec <= state.watchedFrontierSec + POSITION_STEP_TOLERANCE_SEC;
+
+    if (isContinuous && startsInsideWatched && positionSec > state.watchedFrontierSec) {
+        state.watchedFrontierSec = state.duration > 0
+            ? Math.min(positionSec, state.duration)
+            : positionSec;
+    }
+}
+
+function markCompletionIfWatched(
+    state: S6AccumulatorState,
+    isMuted: boolean,
+    volume: number,
+): void {
+    if (state.completion || state.duration <= 0) return;
+    if (state.watchedFrontierSec < state.duration - END_TOLERANCE_SEC) return;
+
+    state.completion = true;
+    state.completion_rate_pct = 100;
+    if (isAudible(isMuted, volume)) state.audible_quartile_100 = true;
+}
+
+// Квартили и процент досмотра — по просмотренному отрезку, а не по позиции воспроизведения
 function checkQuartiles(
     state: S6AccumulatorState,
-    currentTime: number,
     isMuted: boolean,
     volume: number,
 ): void {
     if (state.duration <= 0) return;
 
-    const pct = currentTime / state.duration;
+    const pct = state.watchedFrontierSec / state.duration;
     const audible = isAudible(isMuted, volume);
 
     if (!state.quartile_25 && pct >= 0.25) {
@@ -34,14 +81,11 @@ function checkQuartiles(
         state.quartile_75 = true;
         if (audible) state.audible_quartile_75 = true;
     }
-    if (!state.completion && pct >= 1.0) {
-        state.completion = true;
-        state.completion_rate_pct = 100;
-        if (audible) state.audible_quartile_100 = true;
-    }
     if (pct * 100 > state.completion_rate_pct) {
         state.completion_rate_pct = Math.min(100, pct * 100);
     }
+
+    markCompletionIfWatched(state, isMuted, volume);
 }
 
 function updateMutedStatus(state: S6AccumulatorState): void {
@@ -66,6 +110,8 @@ export function createS6AccumulatorState(
         audibleTimeStart: null,
         everMutedWhilePlaying: false,
         everUnmutedWhilePlaying: false,
+        watchedFrontierSec: 0,
+        lastTickAt: null,
         play_initiated: false,
         quartile_25: false,
         quartile_50: false,
@@ -84,19 +130,36 @@ export function createS6AccumulatorState(
         audible_quartile_75: false,
         audible_quartile_100: false,
         unmuted_by_user: false,
+        muted_by_user: false,
+        start_muted: null,
     };
 }
 
+// Длительность live-потока (Infinity) и невалидные значения не принимаются
 export function onS6LoadedMetadata(state: S6AccumulatorState, duration: number): void {
+    if (!Number.isFinite(duration) || duration <= 0) return;
     state.duration = duration;
 }
 
+// currentTime задаёт начало просмотренного отрезка при первом старте: измерение
+// может начаться не с начала ролика (autoplay до инициализации legacy-тега)
 export function onS6Play(
     state: S6AccumulatorState,
     isMuted: boolean,
     volume: number,
+    currentTime?: number,
 ): void {
+    if (!state.play_initiated && currentTime !== undefined) {
+        state.watchedFrontierSec = Math.max(state.watchedFrontierSec, currentTime);
+        state.lastSeekTime = currentTime;
+    }
+
+    if (state.start_muted === null) {
+        state.start_muted = !isAudible(isMuted, volume);
+    }
+
     state.play_initiated = true;
+    state.lastTickAt = Date.now();
 
     if (state.videoEndedInSegment) {
         state.replay_count += 1;
@@ -115,6 +178,7 @@ export function onS6Play(
 
 export function onS6Pause(state: S6AccumulatorState): void {
     state.pause_initiated = true;
+    state.lastTickAt = null;
     accumulateAudibleTime(state);
 }
 
@@ -123,11 +187,22 @@ export function onS6Ended(
     isMuted: boolean,
     volume: number,
 ): void {
-    state.completion = true;
-    state.completion_rate_pct = 100;
+    if (state.duration > 0) {
+        if (!state.isSeeking) {
+            advanceWatchedFrontier(state, state.duration, Date.now());
+        }
+        state.lastSeekTime = state.duration;
+        checkQuartiles(state, isMuted, volume);
+    } else {
+        // Длительность неизвестна — досмотр подтверждается только событием завершения
+        state.completion = true;
+        state.completion_rate_pct = 100;
+        if (isAudible(isMuted, volume)) state.audible_quartile_100 = true;
+    }
+
     state.videoEndedInSegment = true;
+    state.lastTickAt = null;
     accumulateAudibleTime(state);
-    if (isAudible(isMuted, volume)) state.audible_quartile_100 = true;
 }
 
 export function onS6TimeUpdate(
@@ -136,11 +211,19 @@ export function onS6TimeUpdate(
     isMuted: boolean,
     volume: number,
 ): void {
-    if (!state.isSeeking) state.lastSeekTime = currentTime;
-    checkQuartiles(state, currentTime, isMuted, volume);
+    if (!state.isSeeking) {
+        const nowMs = Date.now();
+        advanceWatchedFrontier(state, currentTime, nowMs);
+        state.lastSeekTime = currentTime;
+        if (state.lastTickAt !== null) state.lastTickAt = nowMs;
+    }
+
+    checkQuartiles(state, isMuted, volume);
     state.volume_level = Math.round(volume * 100);
 }
 
+// initiatedByUser отделяет действие зрителя от программного изменения звука.
+// Legacy-адаптер источник не различает — значение по умолчанию сохраняет его поведение
 export function onS6VolumeChange(
     state: S6AccumulatorState,
     isMuted: boolean,
@@ -148,17 +231,22 @@ export function onS6VolumeChange(
     isPaused: boolean,
     isEnded: boolean,
     previouslyMuted: boolean,
+    initiatedByUser = true,
 ): void {
     const nowAudible = isAudible(isMuted, volume);
     const wasAudible = state.audibleTimeStart !== null;
 
     state.volume_level = Math.round(volume * 100);
 
+    if (initiatedByUser) {
+        if (previouslyMuted && !isMuted) state.unmuted_by_user = true;
+        if (!previouslyMuted && isMuted) state.muted_by_user = true;
+    }
+
     if (!isPaused && !isEnded) {
         if (nowAudible && !wasAudible) {
             state.audibleTimeStart = Date.now();
             state.everUnmutedWhilePlaying = true;
-            if (previouslyMuted && !isMuted) state.unmuted_by_user = true;
         } else if (!nowAudible && wasAudible) {
             accumulateAudibleTime(state);
             state.everMutedWhilePlaying = true;
@@ -172,11 +260,20 @@ export function onS6Seeking(state: S6AccumulatorState): void {
     state.isSeeking = true;
 }
 
-export function onS6Seeked(state: S6AccumulatorState, newTime: number): void {
+// previousTime — позиция до перемотки, если runtime передаёт её явно.
+// Иначе используется последняя позиция воспроизведения до события seeking
+export function onS6Seeked(
+    state: S6AccumulatorState,
+    newTime: number,
+    previousTime?: number,
+): void {
+    const fromSec = previousTime ?? state.lastSeekTime;
+
     state.isSeeking = false;
-    if (newTime < state.lastSeekTime - 0.5) state.replay_count += 1;
+    if (newTime < fromSec - REPLAY_SEEK_BACK_SEC) state.replay_count += 1;
     state.lastSeekTime = newTime;
-    if (state.videoEndedInSegment && newTime < state.duration - 0.5) {
+    if (state.lastTickAt !== null) state.lastTickAt = Date.now();
+    if (state.videoEndedInSegment && newTime < state.duration - REPLAY_SEEK_BACK_SEC) {
         state.videoEndedInSegment = false;
     }
 }
@@ -230,9 +327,13 @@ export function getS6Data(state: S6AccumulatorState): S6RawData {
         audible_quartile_100: state.audible_quartile_100,
         muted_throughout,
         unmuted_by_user: state.unmuted_by_user,
+        muted_by_user: state.muted_by_user,
+        ...(state.start_muted !== null && { start_muted: state.start_muted }),
     };
 }
 
+// Новый сегмент продолжает просмотр с текущей позиции: граница просмотренного отрезка
+// и состояние звука на старте сегмента берутся из фактического состояния видео
 export function resetS6Accumulator(
     state: S6AccumulatorState,
     currentTime: number,
@@ -243,13 +344,17 @@ export function resetS6Accumulator(
 ): void {
     accumulateAudibleTime(state);
 
+    const isPlaying = !isPaused && !isEnded;
+
     state.lastSeekTime = currentTime;
     state.isSeeking = false;
     state.videoEndedInSegment = false;
     state.audibleTimeStart = null;
     state.everMutedWhilePlaying = false;
     state.everUnmutedWhilePlaying = false;
-    state.play_initiated = !isPaused && !isEnded;
+    state.watchedFrontierSec = currentTime;
+    state.lastTickAt = isPlaying ? Date.now() : null;
+    state.play_initiated = isPlaying;
     state.quartile_25 = false;
     state.quartile_50 = false;
     state.quartile_75 = false;
@@ -266,8 +371,10 @@ export function resetS6Accumulator(
     state.audible_quartile_75 = false;
     state.audible_quartile_100 = false;
     state.unmuted_by_user = false;
+    state.muted_by_user = false;
+    state.start_muted = isPlaying ? !isAudible(isMuted, volume) : null;
 
-    if (!isPaused && !isEnded) {
+    if (isPlaying) {
         if (isAudible(isMuted, volume)) {
             state.audibleTimeStart = Date.now();
             state.everUnmutedWhilePlaying = true;

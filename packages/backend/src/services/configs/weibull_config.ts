@@ -1,4 +1,10 @@
-import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+  lte,
+  isNotNull,
+} from 'drizzle-orm';
 import { DEFAULT_WEIBULL_PARAMS, type WeibullParams } from '@cpmind/shared';
 import { db } from '../../db/index.js';
 import { s1WeibullConfigs, type S1WeibullConfigSelect } from '../../db/schema.js';

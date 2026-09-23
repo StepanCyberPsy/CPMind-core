@@ -1,6 +1,7 @@
 import type {
     CreativeType,
     AdSessionIdentity,
+    MeasurementFinalizationReason,
 } from '@cpmind/shared';
 import type {
     Session,
@@ -106,6 +107,7 @@ export function createSession(input: CreateSessionInput): Session {
         zoom: false,
         swipeCount: 0,
         lastHoverStart: null,
+        unconfirmedFrameEvents: 0,
 
         // S6
         s6: null,
@@ -139,9 +141,21 @@ export function resetSessionForNewSegment(session: Session): void {
     session.eventIntervals = [];
 }
 
+// checkpoint — промежуточный снимок сегмента, перезаписывается следующей отправкой того же impression_id
+export interface BuildPayloadOptions {
+    checkpoint: boolean;
+    finalizationReason: MeasurementFinalizationReason | null;
+}
+
+const DEFAULT_BUILD_PAYLOAD_OPTIONS: BuildPayloadOptions = {
+    checkpoint: false,
+    finalizationReason: null,
+};
+
 export function buildPayload(
     session: Session,
     meta: SessionPayloadMeta,
+    options: BuildPayloadOptions = DEFAULT_BUILD_PAYLOAD_OPTIONS,
 ): object {
     const now = session.timestampEnd || Date.now();
 
@@ -212,9 +226,17 @@ export function buildPayload(
         timestamp_end: now,
         ...(meta.adSessionIdentity !== undefined && {
             ad_session_id: meta.adSessionIdentity.adSessionId,
+            placement_uuid: meta.adSessionIdentity.placementUuid,
             delivery_mode: meta.adSessionIdentity.deliveryMode,
             measurement_mode: meta.adSessionIdentity.measurementMode,
         }),
+        ...(meta.adSessionIdentity !== undefined && meta.adSessionIdentity.creativeVersionUuid !== null && {
+            creative_version_uuid: meta.adSessionIdentity.creativeVersionUuid,
+        }),
+        ...(options.finalizationReason !== null && {
+            finalization_reason: options.finalizationReason,
+        }),
+        ...(options.checkpoint && { checkpoint: true }),
 
         signals: {
             s1: {
@@ -259,6 +281,9 @@ export function buildPayload(
                     ? session.zoom : null,
                 swipe_count: session.deviceType !== 'desktop'
                     ? session.swipeCount : null,
+                ...(session.unconfirmedFrameEvents > 0 && {
+                    unconfirmed_frame_events: session.unconfirmedFrameEvents,
+                }),
             },
             s6: session.s6 !== null ? getS6Data(session.s6) : null,
             s7: {

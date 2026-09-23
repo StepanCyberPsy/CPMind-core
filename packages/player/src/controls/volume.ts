@@ -9,12 +9,16 @@ export interface VolumeButton {
 
 export function createVolumeButton(
     container: HTMLElement,
+    initialMuted: boolean,
     onToggle: (source: PlayerActionSource) => void,
 ): VolumeButton {
     const btn = document.createElement('button');
     btn.setAttribute('data-cpmind-btn', '');
-    btn.setAttribute('aria-label', 'Включить звук');
-    btn.innerHTML = ICON_MUTED;
+
+    // Состояние выставляется при создании: событие volumechange не возникает,
+    // когда звук включён с самого старта, и иконка осталась бы беззвучной
+    btn.setAttribute('aria-label', initialMuted ? 'Включить звук' : 'Выключить звук');
+    btn.innerHTML = initialMuted ? ICON_MUTED : ICON_UNMUTED;
 
     const onClick = (e: PointerEvent): void => {
         e.stopPropagation();

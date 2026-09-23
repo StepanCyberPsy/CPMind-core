@@ -8,6 +8,7 @@ import {
     createUploadSession,
     completeUploadSession,
     getUploadSessionStatus,
+    UploadServiceError,
 } from '../services/uploads/service.js';
 
 export const uploadsRoute: FastifyPluginAsync = async (app) => {
@@ -28,6 +29,9 @@ export const uploadsRoute: FastifyPluginAsync = async (app) => {
             }
             return reply.status(201).send(result);
         } catch (err) {
+            if (err instanceof UploadServiceError) {
+                return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+            }
             request.log.error({ err }, 'Failed to create upload session');
             return reply.status(500).send({ error: 'Internal server error' });
         }

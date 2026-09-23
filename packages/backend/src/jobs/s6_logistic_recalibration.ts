@@ -1,20 +1,48 @@
 import cron from 'node-cron';
-import { and, eq, gte, isNotNull, sql, desc } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  gte,
+  isNotNull,
+  sql,
+  desc,
+} from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s6LogisticConfigs } from '../db/schema.js';
-import { fitLogisticMLE } from '@cpmind/shared';
+import {
+  S6_PLACEMENT_GROUPS,
+  S6_PLACEMENT_GROUP_FILTERS,
+  buildS6SegmentKey,
+  fitLogisticMLE,
+  type S6PlacementGroup,
+} from '@cpmind/shared';
 import pino from 'pino';
+import {
+  buildTrainableImpressionFilter,
+  countSampleExclusions,
+  type SampleExclusions,
+  type TrainingSampleOptions,
+} from './recalibration_sample.js';
+import {
+  splitDeterministically,
+  type LabeledSample,
+} from './sample_split.js';
 
 const logger = pino({ name: 's6-logistic-recalibration-job' });
 
 const RECALIBRATION_WINDOW_DAYS = 30;
 const MIN_SAMPLE_SIZE = 1000;
 const TEST_SPLIT_RATIO = 0.2;
+const COEFFICIENT_COUNT = 9;
+
+// Досмотр и звук в SDK измеряются иначе, чем в legacy-теге (фактически просмотренный
+// отрезок, действия зрителя) — обучение только на данных SDK
+const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: true };
 
 const DEVICE_TYPES = ['desktop', 'mobile', 'tablet'] as const;
-const SKIPPABLE_VARIANTS = ['skippable', 'non_skippable'] as const;
 
 interface S6Row {
+  impressionId: string;
   completionRatePct: number | null;
   quartile25: boolean | null;
   quartile50: boolean | null;
@@ -57,7 +85,7 @@ function weakLabel(row: S6Row): number {
 }
 
 /**
- * Определяет доминирующую версию констант тега в обучающем окне.
+ * Определяет доминирующую версию констант тега в обучающем окне среди пригодных для обучения видеопоказов.
  */
 async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<string | null> {
   const rows = await db
@@ -71,6 +99,7 @@ async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<st
       eq(impressions.isSuspicious, false),
       isNotNull(impressions.tagConstantsVersion),
       eq(impressions.creativeType, 'video_creative'),
+      buildTrainableImpressionFilter(SAMPLE_OPTIONS),
     ))
     .groupBy(impressions.tagConstantsVersion)
     .orderBy(desc(sql`count(*)`))
@@ -81,33 +110,52 @@ async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<st
 
 async function fetchSegmentData(
   deviceType: string,
-  skippable: boolean,
+  placementGroup: S6PlacementGroup,
   windowStart: Date,
   tagConstantsVersion: string,
-): Promise<S6Row[]> {
-  const rows = await db
-    .select({
-      completionRatePct: impressions.s6CompletionRatePct,
-      audibleTimeSec: impressions.s6AudibleTimeSec,
-      durationSec: impressions.s6DurationSec,
-      signalsRaw: impressions.signalsRaw,
-    })
-    .from(impressions)
-    .where(and(
-      eq(impressions.deviceType, deviceType),
-      eq(impressions.s6Skippable, skippable),
-      eq(impressions.creativeType, 'video_creative'),
-      eq(impressions.tagConstantsVersion, tagConstantsVersion),
-      gte(impressions.createdAt, windowStart),
-      eq(impressions.isSuspicious, false),
-      isNotNull(impressions.s6CompletionRatePct),
-    ));
+): Promise<{ rows: S6Row[]; exclusions: SampleExclusions }> {
+  const filter = S6_PLACEMENT_GROUP_FILTERS[placementGroup];
 
-  return rows.map((row) => {
+  const baseWhere = and(
+    eq(impressions.deviceType, deviceType),
+    eq(impressions.creativeType, 'video_creative'),
+    eq(impressions.format, filter.format),
+    filter.skippable !== null
+      ? eq(impressions.s6Skippable, filter.skippable)
+      : undefined,
+    eq(impressions.tagConstantsVersion, tagConstantsVersion),
+    gte(impressions.createdAt, windowStart),
+    eq(impressions.isSuspicious, false),
+    isNotNull(impressions.s6CompletionRatePct),
+
+    // Без длительности признак доли звука обращается в ноль и читается моделью
+    // как «звук не слышали», хотя величина просто неизвестна
+    isNotNull(impressions.s6DurationSec),
+  );
+
+  const [rawRows, exclusions] = await Promise.all([
+    db
+      .select({
+        impressionId: impressions.impressionId,
+        completionRatePct: impressions.s6CompletionRatePct,
+        audibleTimeSec: impressions.s6AudibleTimeSec,
+        durationSec: impressions.s6DurationSec,
+        signalsRaw: impressions.signalsRaw,
+      })
+      .from(impressions)
+      .where(and(
+        baseWhere,
+        buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+      )),
+    countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+  ]);
+
+  const rows = rawRows.map((row) => {
     const raw = row.signalsRaw as Record<string, unknown> | null;
     const s6 = raw?.['s6'] as Record<string, unknown> | null ?? null;
 
     return {
+      impressionId: row.impressionId,
       completionRatePct: row.completionRatePct ?? null,
       quartile25: s6?.['quartile_25'] as boolean | null ?? null,
       quartile50: s6?.['quartile_50'] as boolean | null ?? null,
@@ -122,6 +170,8 @@ async function fetchSegmentData(
       skipped: s6?.['skipped'] as boolean | null ?? null,
     };
   });
+
+  return { rows, exclusions };
 }
 
 export async function recalibrateS6Logistic(): Promise<void> {
@@ -136,15 +186,24 @@ export async function recalibrateS6Logistic(): Promise<void> {
   logger.info({ tagConstantsVersion }, 'S6 Logistic recalibration: resolved tag_constants_version');
 
   for (const deviceType of DEVICE_TYPES) {
-    for (const skippableLabel of SKIPPABLE_VARIANTS) {
-      const segmentKey = `${deviceType}|${skippableLabel}`;
-      const isSkippable = skippableLabel === 'skippable';
+    for (const placementGroup of S6_PLACEMENT_GROUPS) {
+      const segmentKey = buildS6SegmentKey(deviceType, placementGroup);
 
-      const rows = await fetchSegmentData(deviceType, isSkippable, windowStart, tagConstantsVersion);
+      const { rows, exclusions } = await fetchSegmentData(
+        deviceType,
+        placementGroup,
+        windowStart,
+        tagConstantsVersion,
+      );
 
       if (rows.length < MIN_SAMPLE_SIZE) {
         logger.warn(
-          { segmentKey, sampleSize: rows.length, minRequired: MIN_SAMPLE_SIZE },
+          {
+            segmentKey,
+            sampleSize: rows.length,
+            minRequired: MIN_SAMPLE_SIZE,
+            sampleExclusions: exclusions,
+          },
           'S6 Logistic recalibration skipped — insufficient sample size',
         );
         continue;
@@ -166,28 +225,52 @@ export async function recalibrateS6Logistic(): Promise<void> {
       const audibleZ = zscoreFeatures(audibleRatios);
       const replayZ = zscoreFeatures(replayLogs);
 
-      const X = rows.map((_, i) => [
-        1,
-        completionZ.z[i] ?? 0,
-        quartileZ.z[i] ?? 0,
-        audibleZ.z[i] ?? 0,
-        rows[i]!.mutedThroughout ? 1 : 0,
-        rows[i]!.unmutedByUser ? 1 : 0,
-        replayZ.z[i] ?? 0,
-        rows[i]!.skipped ? 1 : 0,
-        (completionZ.z[i] ?? 0) * (audibleZ.z[i] ?? 0),
-      ]);
+      const samples: LabeledSample[] = rows.map((row, i) => ({
+        key: row.impressionId,
+        x: [
+          1,
+          completionZ.z[i] ?? 0,
+          quartileZ.z[i] ?? 0,
+          audibleZ.z[i] ?? 0,
+          row.mutedThroughout ? 1 : 0,
+          row.unmutedByUser ? 1 : 0,
+          replayZ.z[i] ?? 0,
+          row.skipped ? 1 : 0,
+          (completionZ.z[i] ?? 0) * (audibleZ.z[i] ?? 0),
+        ],
+        y: weakLabel(row),
+      }));
 
-      const y = rows.map((r) => weakLabel(r));
-
-      const splitIdx = Math.floor(rows.length * (1 - TEST_SPLIT_RATIO));
-      const XTrain = X.slice(0, splitIdx);
-      const yTrain = y.slice(0, splitIdx);
-      const XTest = X.slice(splitIdx);
-      const yTest = y.slice(splitIdx);
+      const { train, test } = splitDeterministically(
+        samples,
+        (sample) => sample.key,
+        TEST_SPLIT_RATIO,
+      );
+      const XTrain = train.map((sample) => sample.x);
+      const yTrain = train.map((sample) => sample.y);
+      const XTest = test.map((sample) => sample.x);
+      const yTest = test.map((sample) => sample.y);
 
       try {
         const fit = fitLogisticMLE(XTrain, yTrain);
+
+        if (
+          !fit.converged ||
+          fit.beta.length !== COEFFICIENT_COUNT ||
+          fit.beta.some((value) => !Number.isFinite(value))
+        ) {
+          logger.error(
+            {
+              segmentKey,
+              tagConstantsVersion,
+              sampleSize: fit.sampleSize,
+              converged: fit.converged,
+              beta: fit.beta,
+            },
+            'S6 Logistic recalibration skipped — fitting did not converge',
+          );
+          continue;
+        }
 
         let correct = 0;
         for (let i = 0; i < XTest.length; i++) {
@@ -236,9 +319,11 @@ export async function recalibrateS6Logistic(): Promise<void> {
             segmentKey,
             tagConstantsVersion,
             sampleSize: fit.sampleSize,
+            testSampleSize: XTest.length,
             trainAccuracy: fit.accuracy.toFixed(3),
             testAccuracy: testAccuracy.toFixed(3),
             converged: fit.converged,
+            sampleExclusions: exclusions,
           },
           'S6 Logistic segment fitted — draft saved, awaiting manual activation',
         );

@@ -3,7 +3,13 @@ import { format } from 'date-fns';
 import { eq, and } from 'drizzle-orm';
 import { USER_VISIBLE_IMPRESSION_FIELDS, UserUuidSchema } from '@cpmind/shared';
 import { db } from '../db/index.js';
-import { impressions, tags, users } from '../db/schema.js';
+import {
+  impressions,
+  tags,
+  users,
+  campaigns,
+  creatives,
+} from '../db/schema.js';
 import type { AuthenticatedRequestUser } from '../middleware/requireAuth.js';
 import {
   buildWhereClause,
@@ -23,7 +29,8 @@ const CSV_BATCH_SIZE = 10_000;
 const ADMIN_CSV_HEADER = [
   'impression_id', 'session_group_id', 'segment_index',
   'tag_uuid', 'tag_label', 'user_uuid', 'user_login',
-  'campaign_id', 'creative_id', 'creative_type', 'device_type',
+  'campaign_id', 'creative_id', 'campaign_name', 'creative_name',
+  'creative_type', 'device_type',
   'skippable', 'publisher_domain',
   'timestamp_start', 'timestamp_end', 'weights_version',
   's1_model_version', 's3_model_version', 's4_model_version',
@@ -72,7 +79,8 @@ function rowToAdminCsvLine(row: JoinedImpressionDetailRow): string {
   const fields: unknown[] = [
     row.impression_id, row.session_group_id, row.segment_index,
     owner.tagUuid, row.tag_label, owner.userUuid, owner.userLogin,
-    row.campaign_id, row.creative_id, row.creative_type, row.device_type,
+    row.campaign_id, row.creative_id, row.campaign_name, row.creative_name,
+    row.creative_type, row.device_type,
     row.skippable, row.publisher_domain,
     row.timestamp_start, row.timestamp_end, row.weights_version,
     row.s1_model_version, row.s3_model_version, row.s4_model_version,
@@ -142,6 +150,8 @@ async function buildAdminCsvBody(
       .from(impressions)
       .leftJoin(tags, eq(impressions.tagId, tags.id))
       .leftJoin(users, eq(impressions.userId, users.id))
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
+      .leftJoin(creatives, eq(impressions.creativeRefId, creatives.id))
       .where(where)
       .orderBy(impressions.createdAt)
       .limit(CSV_BATCH_SIZE)
@@ -160,6 +170,8 @@ async function buildUserCsvBody(
     USER_CSV_HEADER,
     (offset) => db.select(USER_VISIBLE_COLUMNS)
       .from(impressions)
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
+      .leftJoin(creatives, eq(impressions.creativeRefId, creatives.id))
       .where(where)
       .orderBy(impressions.createdAt)
       .limit(CSV_BATCH_SIZE)

@@ -3,6 +3,7 @@ import { CreativeTypeSchema } from './creative.js';
 
 const FILENAME_REGEX = /^[^/\\]+$/;
 const MIME_TYPE_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_]*\/[a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]*$/;
+export const ENTITY_KEY_REGEX = /^[A-Za-zА-Яа-яЁё0-9_-]+$/u;
 
 export const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
@@ -23,13 +24,15 @@ export const UploadStrategySchema = z.enum([
     'multipart',
 ]);
 
-// Создание upload-сессии
+// Создание upload-сессии. creativeKey задаётся пользователем для сверки
+// с внешней системой; без него генерируется системный ключ
 export const CreateUploadPayloadSchema = z.object({
     campaignUuid: z.string().uuid(),
     creativeType: CreativeTypeSchema,
     filename: z.string().min(1).max(255).regex(FILENAME_REGEX),
     sizeBytes: z.number().int().positive().max(MAX_UPLOAD_SIZE_BYTES),
     mimeType: z.string().min(1).max(127).regex(MIME_TYPE_REGEX),
+    creativeKey: z.string().min(1).max(255).regex(ENTITY_KEY_REGEX).optional(),
 });
 
 // Presigned URL для одной части multipart

@@ -67,9 +67,14 @@ export function initS6Legacy(
         onS6LoadedMetadata(state, videoEl.duration);
     }
 
-    // Autoplay уже запущен до initS6Legacy
+    // Autoplay уже запущен до initS6Legacy — просмотренный отрезок начинается с текущей позиции
     if (!videoEl.paused && !videoEl.ended) {
-        onS6Play(state, videoEl.muted, videoEl.volume);
+        onS6Play(
+            state,
+            videoEl.muted,
+            videoEl.volume,
+            videoEl.currentTime,
+        );
     }
 
     void detectAudioConnection().then((conn) => {
@@ -81,7 +86,12 @@ export function initS6Legacy(
     });
 
     videoEl.addEventListener('play', () => {
-        onS6Play(state, videoEl.muted, videoEl.volume);
+        onS6Play(
+            state,
+            videoEl.muted,
+            videoEl.volume,
+            videoEl.currentTime,
+        );
         previousMuted = videoEl.muted;
     });
 

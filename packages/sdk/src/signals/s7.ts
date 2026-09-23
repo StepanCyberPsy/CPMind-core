@@ -1,5 +1,7 @@
 import type { Session, SdkSignalConfig } from '../types.js';
 
+const disposers = new WeakMap<Session, () => void>();
+
 const AD_SELECTORS = [
     'iframe[src*="doubleclick.net"]',
     'iframe[src*="googlesyndication.com"]',
@@ -110,11 +112,21 @@ export function initS7(
         }
     }, config.constants.S7_SAMPLE_INTERVAL_MS);
 
-    window.addEventListener('pagehide', () => {
+    function dispose(): void {
         clearInterval(intervalId);
-    }, { once: true });
+        window.removeEventListener('pagehide', dispose);
+        disposers.delete(session);
+    }
+
+    window.addEventListener('pagehide', dispose, { once: true });
+    disposers.set(session, dispose);
 }
 
 export function resetSegmentS7(session: Session): void {
     session.viewabilityPersistenceSamples = [];
+}
+
+// Остановка сэмплирования контекста страницы при завершении измерения
+export function disposeS7(session: Session): void {
+    disposers.get(session)?.();
 }

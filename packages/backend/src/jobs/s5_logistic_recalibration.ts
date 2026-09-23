@@ -12,6 +12,12 @@ import { db } from '../db/index.js';
 import { impressions, s5LogisticConfigs } from '../db/schema.js';
 import { fitLogisticMLE } from '@cpmind/shared';
 import pino from 'pino';
+import {
+  buildTrainableImpressionFilter,
+  countSampleExclusions,
+  type SampleExclusions,
+  type TrainingSampleOptions,
+} from './recalibration_sample.js';
 
 const logger = pino({ name: 's5-logistic-recalibration-job' });
 
@@ -24,6 +30,9 @@ const MOBILE_SWIPE_FALLBACK_COUNT = 2;
 const MIN_POSITIVE_RATE = 0.05;
 const MAX_POSITIVE_RATE = 0.95;
 const L2_LAMBDA = 1.0;
+
+// Сбор S5 на контейнере в SDK не отличается от legacy-тега — данные обоих режимов сопоставимы
+const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: false };
 
 const SEGMENTS = ['desktop', 'mobile_tablet'] as const;
 type S5Segment = typeof SEGMENTS[number];
@@ -44,6 +53,7 @@ async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<st
       gte(impressions.createdAt, windowStart),
       eq(impressions.isSuspicious, false),
       isNotNull(impressions.tagConstantsVersion),
+      buildTrainableImpressionFilter(SAMPLE_OPTIONS),
     ))
     .groupBy(impressions.tagConstantsVersion)
     .orderBy(desc(sql`count(*)`))
@@ -115,28 +125,38 @@ async function fetchSegmentData(
   segment: S5Segment,
   windowStart: Date,
   tagConstantsVersion: string,
-): Promise<S5Features[]> {
+): Promise<{ features: S5Features[]; exclusions: SampleExclusions }> {
   const deviceFilter = segment === 'desktop'
     ? eq(impressions.deviceType, 'desktop')
     : sql`${impressions.deviceType} IN ('mobile', 'tablet')`;
 
-  const rows = await db
-    .select({
-      impressionId: impressions.impressionId,
-      signalsRaw: impressions.signalsRaw,
-    })
-    .from(impressions)
-    .where(and(
-      deviceFilter,
-      gte(impressions.createdAt, windowStart),
-      eq(impressions.isSuspicious, false),
-      eq(impressions.tagConstantsVersion, tagConstantsVersion),
-      isNotNull(impressions.signalsRaw),
-    ));
+  const baseWhere = and(
+    deviceFilter,
+    gte(impressions.createdAt, windowStart),
+    eq(impressions.isSuspicious, false),
+    eq(impressions.tagConstantsVersion, tagConstantsVersion),
+    isNotNull(impressions.signalsRaw),
+  );
 
-  return rows
+  const [rows, exclusions] = await Promise.all([
+    db
+      .select({
+        impressionId: impressions.impressionId,
+        signalsRaw: impressions.signalsRaw,
+      })
+      .from(impressions)
+      .where(and(
+        baseWhere,
+        buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+      )),
+    countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+  ]);
+
+  const features = rows
     .map((row) => extractFeatures(row.impressionId, row.signalsRaw))
     .filter((f): f is S5Features => f !== null);
+
+  return { features, exclusions };
 }
 
 function percentileContinuous(
@@ -425,7 +445,7 @@ export async function recalibrateS5Logistic(): Promise<void> {
   );
 
   for (const segment of SEGMENTS) {
-    const features = await fetchSegmentData(
+    const { features, exclusions } = await fetchSegmentData(
       segment,
       windowStart,
       tagConstantsVersion,
@@ -437,6 +457,7 @@ export async function recalibrateS5Logistic(): Promise<void> {
           segment,
           sampleSize: features.length,
           minRequired: MIN_SAMPLE_SIZE,
+          sampleExclusions: exclusions,
         },
         'S5 Logistic recalibration skipped — insufficient sample size',
       );
@@ -575,6 +596,7 @@ export async function recalibrateS5Logistic(): Promise<void> {
           segment,
           tagConstantsVersion,
           sampleSize: fit.sampleSize,
+          sampleExclusions: exclusions,
           testSampleSize: XTest.length,
           threshold,
           thresholdSource,

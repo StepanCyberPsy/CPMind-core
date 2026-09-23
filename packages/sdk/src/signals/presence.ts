@@ -3,6 +3,7 @@ import type { Session, SdkSignalConfig } from '../types.js';
 export interface PresenceHandle {
     cleanup: () => void;
     resetSegment: () => void;
+    reportActivity: () => void;
 }
 
 const EVENT_TYPES = [
@@ -32,6 +33,7 @@ export function initPresence(
     let lastUpdateTime = 0;
     const THROTTLE_MS = 100;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let active = true;
 
     function armIdleTimer(): void {
         if (idleTimer !== null) clearTimeout(idleTimer);
@@ -79,6 +81,7 @@ export function initPresence(
     }
 
     function cleanup(): void {
+        active = false;
         if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null; }
         for (const eventType of EVENT_TYPES) {
             document.removeEventListener(eventType, onUserEvent, {
@@ -96,5 +99,18 @@ export function initPresence(
         armIdleTimer();
     }
 
-    return { cleanup, resetSegment };
+    // Активность внутри iframe креатива, подтверждённая хостом. Интервалы не записываются:
+    // частота событий моста ограничена и не отражает ритм действий зрителя (robotic timing IVT)
+    function reportActivity(): void {
+        if (!active) return;
+        armIdleTimer();
+        session.eventsDuringImpression++;
+        session.lastUserEventTimestamp = Date.now();
+    }
+
+    return {
+        cleanup,
+        resetSegment,
+        reportActivity,
+    };
 }

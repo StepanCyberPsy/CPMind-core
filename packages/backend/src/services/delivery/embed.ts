@@ -2,10 +2,12 @@ import {
     and,
     desc,
     eq,
+    gt,
 } from 'drizzle-orm';
 import { pino } from 'pino';
 import { db } from '../../db/index.js';
 import {
+    adSessions,
     assets,
     campaigns,
     creatives,
@@ -13,10 +15,10 @@ import {
     creativeVersions,
     deliveryRuntimeConfigs,
     placements,
-    tagConstantsConfigs,
     tags,
 } from '../../db/schema.js';
 import {
+    getAdSessionTtlMs,
     getCdnBaseUrl,
     getCollectEndpoint,
     getCreativeBaseUrl,
@@ -26,18 +28,36 @@ import {
     getPlayerRuntimeVersion,
 } from '../../lib/env.js';
 import {
-    INSTREAM_DELIVERY_MODES,
-    VIDEO_DELIVERY_MODES,
+    PlayerTimeoutsSchema,
+    isInstreamFormat,
+    isVideoFormat,
+    toFormatSubtype,
 } from '@cpmind/shared';
 import type {
     CreativeType,
     DeliveryMode,
     MeasurementMode,
+    PlacementFormat,
+    PlacementSubtype,
     PlayerTimeouts,
     TagConstantsValues,
 } from '@cpmind/shared';
 import type { VastInLineInput, VastRendition } from '../vast/inline.js';
-import { createAdSession } from './sessions.js';
+import {
+    resolveDeliveryTagConstants,
+    type DeliveryTagConstantsFailure,
+} from '../tag/tag_constants.js';
+import {
+    attachVastRequestToAdSession,
+    createAdSession,
+    type CreateAdSessionInput,
+} from './sessions.js';
+import {
+    selectRotationCreative,
+    toRotationMode,
+    type RotationCandidate,
+} from './creative_rotation.js';
+import { placementCreativeSet } from '../../db/schema.js';
 
 const logger = pino({
     level: process.env['LOG_LEVEL'] ?? 'info',
@@ -69,26 +89,21 @@ const VAST_PRIMARY_ASSET_ROLES = [
     'source'
 ] as const;
 
-const DEFAULT_TIMEOUTS: PlayerTimeouts = {
-    configRequestMs: 5_000,
-    vastRequestMs: 8_000,
-    mediaStartMs: 15_000,
-    firstFrameMs: 10_000,
-    contentHandoffMs: 5_000,
-    adLoadTotalMs: 30_000,
-};
-
 // Оба публичных endpoint отдают пустой ответ при любой проблеме резолва — реклама
 // не должна ломать страницу издателя. Причина отказа при этом неразличима ни по
 // коду ответа, ни по телу, поэтому фиксируется в логе структурированно
 type DeliveryResolutionFailure =
     | 'PLACEMENT_NOT_FOUND_OR_INACTIVE'
     | 'NO_READY_CREATIVE_VERSION'
-    | 'NO_ACTIVE_TAG_CONSTANTS'
+    | DeliveryTagConstantsFailure
     | 'NO_PRIMARY_ASSET'
     | 'NOT_VIDEO_CREATIVE'
     | 'NO_VAST_RENDITIONS'
-    | 'NO_VAST_DURATION';
+    | 'NO_VAST_DURATION'
+    | 'SESSION_MODE_NOT_INSTREAM'
+    | 'AD_SESSION_NOT_ATTACHABLE'
+    | 'SESSION_VERSION_NOT_AVAILABLE'
+    | 'ROTATION_VERSION_NOT_READY';
 
 function logResolutionFailure(
     endpoint: string,
@@ -124,9 +139,17 @@ interface DeliveryContext {
     placementUuid: string;
     deliveryToken: string;
     mode: string;
+    format: PlacementFormat;
+    subtype: PlacementSubtype | null;
+    rotationMode: string;
     plcmt: number | null;
     width: number | null;
     height: number | null;
+    stickyCorner: string | null;
+    stickyOffsetX: number | null;
+    stickyOffsetY: number | null;
+    stickyWidth: number | null;
+    stickyHeight: number | null;
     autoplayMode: string | null;
     initialMuted: boolean;
     skippable: boolean;
@@ -137,6 +160,7 @@ interface DeliveryContext {
     userId: number;
     tagId: number;
     tagUuid: string;
+    creativeId: string;
     creativeType: string;
     creativeKey: string;
     creativeName: string;
@@ -149,10 +173,77 @@ interface DeliveryContext {
     timeouts: PlayerTimeouts;
 }
 
+// HTML5 измеряется полностью: S5 и присутствие внутри iframe подтверждаются хостом через creative-bridge
 function resolveMeasurementMode(creativeType: string): MeasurementMode {
     if (creativeType === 'video_creative') return 'full_cpmind_player';
-    if (creativeType === 'banner_html5') return 'partial_embedded_iframe';
     return 'full_direct_display';
+}
+
+// SDK инлайнится в runtime-бандл, поэтому версия SDK фиксируется как версия бандла,
+// выданного сервером для показа
+function resolveRuntimeVersions(creativeType: string): {
+    playerRuntimeVersion: string | null;
+    sdkRuntimeVersion: string;
+} {
+    if (creativeType === 'video_creative') {
+        const version = getPlayerRuntimeVersion();
+        return {
+            playerRuntimeVersion: version,
+            sdkRuntimeVersion: `player_v${version}`,
+        };
+    }
+
+    return {
+        playerRuntimeVersion: null,
+        sdkRuntimeVersion: `display_v${getDisplayRuntimeVersion()}`,
+    };
+}
+
+function buildAdSessionInput(
+    ctx: DeliveryContext,
+    publisherDomain: string | null,
+    measurementMode: MeasurementMode,
+    vastRequested: boolean,
+    videoShowIndex: number | null,
+): CreateAdSessionInput {
+    return {
+        placementId: ctx.placementId,
+        creativeVersionId: ctx.versionId,
+        userId: ctx.userId,
+        tagId: ctx.tagId,
+        creativeType: ctx.creativeType as CreativeType,
+        deliveryMode: ctx.mode as DeliveryMode,
+        format: ctx.format,
+        subtype: ctx.subtype,
+        measurementMode,
+        publisherDomain,
+        autoplayRequested: ctx.autoplayMode === 'autoplay',
+        initialMuted: ctx.initialMuted,
+        tagConstantsVersion: ctx.tagConstantsVersion,
+        vastRequested,
+        videoShowIndex,
+        ...resolveRuntimeVersions(ctx.creativeType),
+    };
+}
+
+// Невалидный JSONB конфигурации не должен останавливать доставку: значения по умолчанию
+// PlayerTimeoutsSchema совпадают с seed delivery_runtime_configs v1.0
+function resolvePlayerTimeouts(
+    raw: unknown,
+    deliveryToken: string,
+): PlayerTimeouts {
+    const parsed = PlayerTimeoutsSchema.safeParse(raw ?? {});
+    if (parsed.success) return parsed.data;
+
+    logger.warn(
+        {
+            deliveryToken,
+            issues: parsed.error.issues,
+        },
+        'Invalid delivery runtime timeouts — defaults applied',
+    );
+
+    return PlayerTimeoutsSchema.parse({});
 }
 
 function buildCdnUrl(storageKey: string): string {
@@ -172,9 +263,17 @@ async function resolveDeliveryContext(
             placementId: placements.id,
             placementUuid: placements.uuid,
             mode: placements.mode,
+            format: placements.format,
+            subtype: placements.subtype,
+            rotationMode: placements.rotationMode,
             plcmt: placements.plcmt,
             width: placements.width,
             height: placements.height,
+            stickyCorner: placements.stickyCorner,
+            stickyOffsetX: placements.stickyOffsetX,
+            stickyOffsetY: placements.stickyOffsetY,
+            stickyWidth: placements.stickyWidth,
+            stickyHeight: placements.stickyHeight,
             autoplayMode: placements.autoplayMode,
             initialMuted: placements.initialMuted,
             skippable: placements.skippable,
@@ -183,6 +282,7 @@ async function resolveDeliveryContext(
             slotId: placements.slotId,
             videoSelector: placements.videoSelector,
             pinnedVersionId: placements.creativeVersionId,
+            pinnedTagConstantsConfigId: placements.tagConstantsConfigId,
             userId: placements.userId,
             tagId: placements.tagId,
             tagUuid: tags.uuid,
@@ -266,7 +366,7 @@ async function resolveDeliveryContext(
         versionUuid = latest.uuid;
     }
 
-    const [versionAssets, tagConstantsRow, runtimeRow] = await Promise.all([
+    const [versionAssets, tagConstants, runtimeRow] = await Promise.all([
         db
             .select({
                 role: creativeVersionAssets.role,
@@ -284,12 +384,7 @@ async function resolveDeliveryContext(
             .where(eq(creativeVersionAssets.creativeVersionId, versionId))
             .orderBy(creativeVersionAssets.priority),
 
-        db
-            .select({ version: tagConstantsConfigs.version, constants: tagConstantsConfigs.constants })
-            .from(tagConstantsConfigs)
-            .where(eq(tagConstantsConfigs.isActive, true))
-            .orderBy(desc(tagConstantsConfigs.createdAt))
-            .limit(1),
+        resolveDeliveryTagConstants(row.pinnedTagConstantsConfigId),
 
         db
             .select({ timeouts: deliveryRuntimeConfigs.timeouts })
@@ -298,23 +393,40 @@ async function resolveDeliveryContext(
             .limit(1),
     ]);
 
-    if (!tagConstantsRow[0]) {
+    if (tagConstants.kind === 'unavailable') {
         logResolutionFailure(
             endpoint,
             deliveryToken,
-            'NO_ACTIVE_TAG_CONSTANTS',
+            tagConstants.reason,
+            {
+                pinnedTagConstantsConfigId: row.pinnedTagConstantsConfigId,
+                tagConstantsVersion: tagConstants.version,
+            },
         );
         return null;
     }
+
+    // Формат выводится из прежней модели, пока колонка допускает отсутствие значения
+    const fallback = toFormatSubtype(row.mode as DeliveryMode);
+    const format = (row.format as PlacementFormat | null) ?? fallback.format;
+    const subtype = (row.subtype as PlacementSubtype | null) ?? fallback.subtype;
 
     return {
         placementId: row.placementId,
         placementUuid: row.placementUuid,
         deliveryToken,
         mode: row.mode,
+        format,
+        subtype,
+        rotationMode: row.rotationMode,
         plcmt: row.plcmt,
         width: row.width,
         height: row.height,
+        stickyCorner: row.stickyCorner,
+        stickyOffsetX: row.stickyOffsetX,
+        stickyOffsetY: row.stickyOffsetY,
+        stickyWidth: row.stickyWidth,
+        stickyHeight: row.stickyHeight,
         autoplayMode: row.autoplayMode,
         initialMuted: row.initialMuted,
         skippable: row.skippable,
@@ -325,6 +437,7 @@ async function resolveDeliveryContext(
         userId: row.userId,
         tagId: row.tagId,
         tagUuid: row.tagUuid,
+        creativeId: row.creativeId,
         creativeType: row.creativeType,
         creativeKey: row.creativeKey,
         creativeName: row.creativeName,
@@ -332,9 +445,112 @@ async function resolveDeliveryContext(
         versionId,
         versionUuid: versionUuid!,
         versionAssets,
-        tagConstantsVersion: tagConstantsRow[0].version,
-        tagConstants: tagConstantsRow[0].constants as TagConstantsValues,
-        timeouts: (runtimeRow[0]?.timeouts as PlayerTimeouts | undefined) ?? DEFAULT_TIMEOUTS,
+        tagConstantsVersion: tagConstants.version,
+        tagConstants: tagConstants.constants,
+        timeouts: resolvePlayerTimeouts(runtimeRow[0]?.timeouts, deliveryToken),
+    };
+}
+
+// Набор роликов плейсмента. Пустой набор означает работу с одним креативом
+async function loadRotationCandidates(
+    placementId: string,
+): Promise<RotationCandidate[]> {
+    return db
+        .select({
+            creativeId: placementCreativeSet.creativeId,
+            weightPct: placementCreativeSet.weightPct,
+            displayOrder: placementCreativeSet.displayOrder,
+        })
+        .from(placementCreativeSet)
+        .where(eq(placementCreativeSet.placementId, placementId));
+}
+
+// Подменяет креатив контекста выбранным по ротации. Версия перечитывается:
+// каждый ролик набора — отдельный креатив со своей последней ready-версией
+async function applyRotation(
+    ctx: DeliveryContext,
+    endpoint: string,
+    showIndex: number,
+    previousCreativeId: string | null,
+): Promise<DeliveryContext | null> {
+    const candidates = await loadRotationCandidates(ctx.placementId);
+
+    const selected = selectRotationCreative({
+        candidates,
+        format: ctx.format,
+        mode: toRotationMode(ctx.rotationMode),
+        showIndex,
+        previousCreativeId,
+        random: Math.random,
+    });
+
+    if (selected === null) return ctx;
+    if (selected.creativeId === ctx.creativeId) return ctx;
+
+    const [creative] = await db
+        .select({
+            id: creatives.id,
+            creativeType: creatives.creativeType,
+            creativeKey: creatives.creativeKey,
+            creativeName: creatives.name,
+            clickUrl: creatives.clickUrl,
+        })
+        .from(creatives)
+        .where(eq(creatives.id, selected.creativeId))
+        .limit(1);
+
+    const [version] = await db
+        .select({
+            id: creativeVersions.id,
+            uuid: creativeVersions.uuid,
+        })
+        .from(creativeVersions)
+        .where(and(
+            eq(creativeVersions.creativeId, selected.creativeId),
+            eq(creativeVersions.status, 'ready'),
+        ))
+        .orderBy(desc(creativeVersions.version))
+        .limit(1);
+
+    // Ролик без готовой версии не отдаётся: выдача продолжается с основным
+    // креативом плейсмента вместо отказа во всей рекламной возможности
+    if (!creative || !version) {
+        logResolutionFailure(
+            endpoint,
+            ctx.deliveryToken,
+            'ROTATION_VERSION_NOT_READY',
+            { rotationCreativeId: selected.creativeId },
+        );
+        return ctx;
+    }
+
+    const versionAssets = await db
+        .select({
+            role: creativeVersionAssets.role,
+            priority: creativeVersionAssets.priority,
+            storageKey: assets.storageKey,
+            mimeType: assets.mimeType,
+            width: assets.width,
+            height: assets.height,
+            durationSec: assets.durationSec,
+            codec: assets.codec,
+            bitrateBps: assets.bitrateBps,
+        })
+        .from(creativeVersionAssets)
+        .innerJoin(assets, eq(creativeVersionAssets.assetId, assets.id))
+        .where(eq(creativeVersionAssets.creativeVersionId, version.id))
+        .orderBy(creativeVersionAssets.priority);
+
+    return {
+        ...ctx,
+        creativeId: creative.id,
+        creativeType: creative.creativeType,
+        creativeKey: creative.creativeKey,
+        creativeName: creative.creativeName,
+        clickUrl: ctx.clickUrl ?? creative.clickUrl,
+        versionId: version.id,
+        versionUuid: version.uuid,
+        versionAssets,
     };
 }
 
@@ -342,7 +558,11 @@ export async function resolveEmbedScript(
     deliveryToken: string,
     publisherDomain: string | null,
 ): Promise<string | null> {
-    const ctx = await resolveDeliveryContext(deliveryToken, 'embed');
+    const baseCtx = await resolveDeliveryContext(deliveryToken, 'embed');
+    if (!baseCtx) return null;
+
+    // Первый ролик цикла выбирается при выдаче embed-скрипта
+    const ctx = await applyRotation(baseCtx, 'embed', 0, null);
     if (!ctx) return null;
 
     let primaryAsset: VersionAssetRow | undefined;
@@ -365,23 +585,23 @@ export async function resolveEmbedScript(
         return null;
     }
 
-    const isVideo = VIDEO_DELIVERY_MODES.has(ctx.mode as DeliveryMode);
+    const isVideo = isVideoFormat(ctx.format);
+    const isInstream = isInstreamFormat(ctx.format);
     const deliveryBase = getDeliveryBaseUrl();
     const cdnBase = getCdnBaseUrl();
     const measurementMode = resolveMeasurementMode(ctx.creativeType);
 
-    const adSessionId = await createAdSession({
-        placementId: ctx.placementId,
-        creativeVersionId: ctx.versionId,
-        userId: ctx.userId,
-        tagId: ctx.tagId,
-        creativeType: ctx.creativeType as CreativeType,
-        deliveryMode: ctx.mode as DeliveryMode,
-        measurementMode,
-        publisherDomain,
-        autoplayRequested: ctx.autoplayMode === 'autoplay',
-        initialMuted: ctx.initialMuted,
-    });
+    // In-stream: сессия выдаётся плееру в момент рекламной вставки через sessionEndpoint.
+    // Создание при загрузке страницы порождало сессии без рекламной возможности
+    const adSessionId = isInstream
+        ? null
+        : await createAdSession(buildAdSessionInput(
+            ctx,
+            publisherDomain,
+            measurementMode,
+            false,
+            isVideo ? 0 : null,
+        ));
 
     const queueEntry = {
         adSessionId,
@@ -392,18 +612,27 @@ export async function resolveEmbedScript(
         creativeVersionUuid: ctx.versionUuid,
         creativeType: ctx.creativeType,
         deliveryMode: ctx.mode,
+        format: ctx.format,
+        subtype: ctx.subtype,
+        measurementMode,
         tagUuid: ctx.tagUuid,
         tagConstantsVersion: ctx.tagConstantsVersion,
         tagConstants: ctx.tagConstants,
         collectEndpoint: getCollectEndpoint(),
         deliveryEventEndpoint: `${deliveryBase}/api/delivery/event`,
         sessionEndpoint: `${deliveryBase}/api/delivery/session`,
+        advanceEndpoint: `${deliveryBase}/api/delivery/advance`,
         vastUrl: isVideo ? `${deliveryBase}/vast/${ctx.deliveryToken}` : null,
         clickUrl: ctx.clickUrl,
         slotId: ctx.slotId,
         videoSelector: ctx.videoSelector,
         width: ctx.width,
         height: ctx.height,
+        stickyCorner: ctx.stickyCorner,
+        stickyOffsetX: ctx.stickyOffsetX,
+        stickyOffsetY: ctx.stickyOffsetY,
+        stickyWidth: ctx.stickyWidth,
+        stickyHeight: ctx.stickyHeight,
         plcmt: ctx.plcmt,
         autoplay: ctx.autoplayMode === 'autoplay',
         initialMuted: ctx.initialMuted,
@@ -422,7 +651,7 @@ export async function resolveEmbedScript(
     const heightCss = ctx.height !== null ? `${ctx.height}px` : 'auto';
     const configJson = JSON.stringify(queueEntry);
 
-    const mountLines: string[] = INSTREAM_DELIVERY_MODES.has(ctx.mode as DeliveryMode)
+    const mountLines: string[] = isInstream
         ? [
             "function mount(){",
             "if(document.body===null)return false;",
@@ -470,30 +699,175 @@ export async function resolveEmbedScript(
     return js;
 }
 
+// Выдача сессии для in-stream вставки. Для остальных режимов сессию создаёт embed —
+// повторная выдача по публичному токену порождала бы сессии вне рекламной возможности
 export async function issueAdSession(
     deliveryToken: string,
     publisherDomain: string | null,
 ): Promise<string | null> {
-    const ctx = await resolveDeliveryContext(deliveryToken, 'session');
+    const baseCtx = await resolveDeliveryContext(deliveryToken, 'session');
+    if (!baseCtx) return null;
+
+    if (!isInstreamFormat(baseCtx.format)) {
+        logResolutionFailure(
+            'session',
+            deliveryToken,
+            'SESSION_MODE_NOT_INSTREAM',
+            {
+                mode: baseCtx.mode,
+                format: baseCtx.format,
+            },
+        );
+        return null;
+    }
+
+    // Ролик выбирается в момент рекламной вставки и фиксируется в сессии:
+    // запрос VAST с этим sid отдаст именно его
+    const ctx = await applyRotation(baseCtx, 'session', 0, null);
     if (!ctx) return null;
 
-    return createAdSession({
-        placementId: ctx.placementId,
-        creativeVersionId: ctx.versionId,
-        userId: ctx.userId,
-        tagId: ctx.tagId,
-        creativeType: ctx.creativeType as CreativeType,
-        deliveryMode: ctx.mode as DeliveryMode,
-        measurementMode: resolveMeasurementMode(ctx.creativeType),
+    return createAdSession(buildAdSessionInput(
+        ctx,
         publisherDomain,
-        autoplayRequested: ctx.autoplayMode === 'autoplay',
-        initialMuted: ctx.initialMuted,
+        resolveMeasurementMode(ctx.creativeType),
+        false,
+        0,
+    ));
+}
+
+// requestedAdSessionId — сессия, выданная плееру CPMind: VAST привязывается к ней.
+// Без sid запрос пришёл от внешнего плеера — создаётся vast_only-сессия
+// Ассеты версии, зафиксированной в сессии. Используется, когда версия сессии
+// отличается от текущей ready-версии плейсмента: публикация новой версии не должна
+// подменять ролик, который сервер уже назначил этой рекламной возможности
+async function loadSessionVersion(
+    creativeVersionId: string,
+): Promise<{ versionId: string; versionUuid: string; versionAssets: VersionAssetRow[] } | null> {
+    const [version] = await db
+        .select({ uuid: creativeVersions.uuid })
+        .from(creativeVersions)
+        .where(eq(creativeVersions.id, creativeVersionId))
+        .limit(1);
+
+    if (!version) return null;
+
+    const versionAssets = await db
+        .select({
+            role: creativeVersionAssets.role,
+            priority: creativeVersionAssets.priority,
+            storageKey: assets.storageKey,
+            mimeType: assets.mimeType,
+            width: assets.width,
+            height: assets.height,
+            durationSec: assets.durationSec,
+            codec: assets.codec,
+            bitrateBps: assets.bitrateBps,
+        })
+        .from(creativeVersionAssets)
+        .innerJoin(assets, eq(creativeVersionAssets.assetId, assets.id))
+        .where(eq(creativeVersionAssets.creativeVersionId, creativeVersionId))
+        .orderBy(creativeVersionAssets.priority);
+
+    return {
+        versionId: creativeVersionId,
+        versionUuid: version.uuid,
+        versionAssets,
+    };
+}
+
+// Продвигает рекламную сессию к следующему ролику набора. Сессия остаётся прежней:
+// цикл out-stream — очередной показ внутри той же рекламной возможности.
+// Строка берётся под блокировку: параллельные переходы увеличили бы номер дважды
+export async function advanceAdSessionCreative(
+    deliveryToken: string,
+    adSessionId: string,
+): Promise<{ videoShowIndex: number; creativeVersionUuid: string } | null> {
+    const baseCtx = await resolveDeliveryContext(deliveryToken, 'advance');
+    if (!baseCtx) return null;
+
+    if (!isVideoFormat(baseCtx.format)) {
+        logResolutionFailure(
+            'advance',
+            deliveryToken,
+            'NOT_VIDEO_CREATIVE',
+            { format: baseCtx.format },
+        );
+        return null;
+    }
+
+    const cutoff = new Date(Date.now() - getAdSessionTtlMs());
+
+    return db.transaction(async (tx) => {
+        const [session] = await tx
+            .select({
+                creativeVersionId: adSessions.creativeVersionId,
+                videoShowIndex: adSessions.videoShowIndex,
+            })
+            .from(adSessions)
+            .where(and(
+                eq(adSessions.adSessionId, adSessionId),
+                eq(adSessions.placementId, baseCtx.placementId),
+                eq(adSessions.measurementMode, 'full_cpmind_player'),
+                gt(adSessions.createdAt, cutoff),
+            ))
+            .for('update')
+            .limit(1);
+
+        if (!session) {
+            logResolutionFailure(
+                'advance',
+                deliveryToken,
+                'AD_SESSION_NOT_ATTACHABLE',
+                { adSessionId },
+            );
+            return null;
+        }
+
+        // Ролик предыдущего показа исключается из розыгрыша, чтобы набор
+        // не повторялся подряд
+        let previousCreativeId: string | null = null;
+
+        if (session.creativeVersionId !== null) {
+            const [previousVersion] = await tx
+                .select({ creativeId: creativeVersions.creativeId })
+                .from(creativeVersions)
+                .where(eq(creativeVersions.id, session.creativeVersionId))
+                .limit(1);
+
+            previousCreativeId = previousVersion?.creativeId ?? null;
+        }
+
+        const nextIndex = (session.videoShowIndex ?? 0) + 1;
+
+        const ctx = await applyRotation(
+            baseCtx,
+            'advance',
+            nextIndex,
+            previousCreativeId,
+        );
+
+        if (!ctx) return null;
+
+        await tx
+            .update(adSessions)
+            .set({
+                creativeVersionId: ctx.versionId,
+                videoShowIndex: nextIndex,
+                lastSeenAt: new Date(),
+            })
+            .where(eq(adSessions.adSessionId, adSessionId));
+
+        return {
+            videoShowIndex: nextIndex,
+            creativeVersionUuid: ctx.versionUuid,
+        };
     });
 }
 
 export async function resolveVastContext(
     deliveryToken: string,
     publisherDomain: string | null,
+    requestedAdSessionId: string | null,
 ): Promise<{ input: VastInLineInput; adSessionId: string } | null> {
     const ctx = await resolveDeliveryContext(deliveryToken, 'vast');
     if (!ctx) return null;
@@ -508,7 +882,60 @@ export async function resolveVastContext(
         return null;
     }
 
-    const renditions: VastRendition[] = ctx.versionAssets
+    let adSessionId: string;
+    let versionUuid = ctx.versionUuid;
+    let versionAssets = ctx.versionAssets;
+
+    if (requestedAdSessionId !== null) {
+        const sessionVersionId = await attachVastRequestToAdSession(
+            requestedAdSessionId,
+            ctx.placementId,
+        );
+
+        if (sessionVersionId === null) {
+            logResolutionFailure(
+                'vast',
+                deliveryToken,
+                'AD_SESSION_NOT_ATTACHABLE',
+                { adSessionId: requestedAdSessionId },
+            );
+            return null;
+        }
+
+        adSessionId = requestedAdSessionId;
+
+        // Версия сессии авторитетна: ассеты перечитываются только при расхождении
+        // с версией, выбранной по текущему состоянию плейсмента
+        if (sessionVersionId !== ctx.versionId) {
+            const sessionVersion = await loadSessionVersion(sessionVersionId);
+
+            if (sessionVersion === null) {
+                logResolutionFailure(
+                    'vast',
+                    deliveryToken,
+                    'SESSION_VERSION_NOT_AVAILABLE',
+                    {
+                        adSessionId: requestedAdSessionId,
+                        creativeVersionId: sessionVersionId,
+                    },
+                );
+                return null;
+            }
+
+            versionUuid = sessionVersion.versionUuid;
+            versionAssets = sessionVersion.versionAssets;
+        }
+    } else {
+        adSessionId = await createAdSession(buildAdSessionInput(
+            ctx,
+            publisherDomain,
+            'vast_only',
+            true,
+            0,
+        ));
+    }
+
+    const renditions: VastRendition[] = versionAssets
         .filter((a) => VAST_RENDITION_ROLES.has(a.role) && a.mimeType.startsWith('video/'))
         .map((a) => ({
             cdnUrl: buildCdnUrl(a.storageKey),
@@ -525,8 +952,8 @@ export async function resolveVastContext(
             deliveryToken,
             'NO_VAST_RENDITIONS',
             {
-                creativeVersionUuid: ctx.versionUuid,
-                availableRoles: ctx.versionAssets.map((a) => a.role),
+                creativeVersionUuid: versionUuid,
+                availableRoles: versionAssets.map((a) => a.role),
             },
         );
         return null;
@@ -534,47 +961,33 @@ export async function resolveVastContext(
 
     let primaryAsset: VersionAssetRow | undefined;
     for (const role of VAST_PRIMARY_ASSET_ROLES) {
-        primaryAsset = ctx.versionAssets.find(
+        primaryAsset = versionAssets.find(
             (a) => a.role === role && a.durationSec !== null,
         );
         if (primaryAsset !== undefined) break;
     }
 
     const durationSec = primaryAsset?.durationSec ?? null;
-
     if (durationSec === null || durationSec <= 0) {
         logResolutionFailure(
             'vast',
             deliveryToken,
             'NO_VAST_DURATION',
             {
-                creativeVersionUuid: ctx.versionUuid,
+                creativeVersionUuid: versionUuid,
                 hasPrimaryAsset: primaryAsset !== undefined,
                 durationSec,
-                availableRoles: ctx.versionAssets.map((a) => a.role),
+                availableRoles: versionAssets.map((a) => a.role),
             },
         );
         return null;
     }
 
-    const adSessionId = await createAdSession({
-        placementId: ctx.placementId,
-        creativeVersionId: ctx.versionId,
-        userId: ctx.userId,
-        tagId: ctx.tagId,
-        creativeType: ctx.creativeType as CreativeType,
-        deliveryMode: ctx.mode as DeliveryMode,
-        measurementMode: 'full_cpmind_player',
-        publisherDomain,
-        autoplayRequested: ctx.autoplayMode === 'autoplay',
-        initialMuted: ctx.initialMuted,
-    });
-
     return {
         adSessionId,
         input: {
             adSessionId,
-            creativeVersionUuid: ctx.versionUuid,
+            creativeVersionUuid: versionUuid,
             adTitle: ctx.creativeName,
             clickUrl: ctx.clickUrl,
             skippable: ctx.skippable,

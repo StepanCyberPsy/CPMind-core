@@ -36,6 +36,10 @@ export interface S6AccumulatorState {
     everMutedWhilePlaying: boolean;
     everUnmutedWhilePlaying: boolean;
 
+    // Граница непрерывно просмотренного отрезка и время последнего шага воспроизведения
+    watchedFrontierSec: number;
+    lastTickAt: number | null;
+
     // Video Engagement
     play_initiated: boolean;
     quartile_25: boolean;
@@ -57,6 +61,8 @@ export interface S6AccumulatorState {
     audible_quartile_75: boolean;
     audible_quartile_100: boolean;
     unmuted_by_user: boolean;
+    muted_by_user: boolean;
+    start_muted: boolean | null;
 }
 
 // Финализированные данные S6 для payload
@@ -81,6 +87,8 @@ export interface S6RawData {
     audible_quartile_100: boolean;
     muted_throughout: boolean;
     unmuted_by_user: boolean;
+    muted_by_user: boolean;
+    start_muted?: boolean;
 }
 
 // Сессия показа — полное состояние одного сегмента
@@ -127,6 +135,9 @@ export interface Session {
     swipeCount: number;
     lastHoverStart: number | null;
 
+    // Отклонённые хостом события моста HTML5-креатива — диагностика подделки взаимодействий
+    unconfirmedFrameEvents: number;
+
     // S6 — Video Engagement (null для не-video creative)
     s6: S6AccumulatorState | null;
 
@@ -149,8 +160,11 @@ export interface Session {
     publisherDomain: string;
 }
 
-// Конфигурация SDK — константы передаются явно, не через esbuild define
+// Конфигурация SDK — константы передаются явно, не через esbuild define.
+// explicitStart: начало измерения задаёт runtime через startMeasurement,
+// S1 не выставляет timestampStart по первому попаданию во viewport
 export interface SdkSignalConfig {
     debug: boolean;
     constants: TagConstantsValues;
+    explicitStart?: boolean;
 }

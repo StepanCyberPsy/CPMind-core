@@ -16,6 +16,12 @@ export const ImpressionRowSchema = z.object({
   tag_constants_version: z.string().nullable(),
   campaign_id: z.string(),
   creative_id: z.string(),
+
+  // Отображаемые названия из справочников. null для показов legacy-тега:
+  // ссылок на кампанию и креатив у них нет, в панели показывается ключ
+  campaign_name: z.string().nullable(),
+  creative_name: z.string().nullable(),
+
   creative_type: z.string(),
   device_type: z.string(),
   skippable: z.boolean(),

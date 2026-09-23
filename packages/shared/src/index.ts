@@ -58,6 +58,7 @@ export {
     TagConstantsConfigListResponseSchema,
     CreateTagConstantsPayloadSchema,
     TagConstantsConfigIdParamSchema,
+    TagConstantsDeactivationBlockSchema,
     DEFAULT_TAG_CONSTANTS,
     TAG_BUILD_TARGETS,
 } from './schemas/tag-constants.js';
@@ -111,6 +112,13 @@ export {
 export {
     classifyIvtSync,
 } from './scoring/ivt.js';
+export {
+    S6_PLACEMENT_GROUPS,
+    S6_PLACEMENT_GROUP_FILTERS,
+    buildS6SegmentKey,
+    resolveS6PlacementGroup,
+    resolveS6SegmentKeys,
+} from './scoring/segments.js';
 
 // Схемы IVT
 export {
@@ -142,6 +150,7 @@ export {
 // Загрузка
 export {
     MAX_UPLOAD_SIZE_BYTES,
+    ENTITY_KEY_REGEX,
     UploadStatusSchema,
     UploadStrategySchema,
     CreateUploadPayloadSchema,
@@ -155,6 +164,11 @@ export {
 // Delivery
 export {
     DeliveryModeSchema,
+    PlacementFormatSchema,
+    InstreamSubtypeSchema,
+    OutstreamSubtypeSchema,
+    PlacementSubtypeSchema,
+    StickyCornerSchema,
     MeasurementModeSchema,
     MeasurementFinalizationReasonSchema,
     AdSessionIdSchema,
@@ -162,16 +176,31 @@ export {
     DeliveryRuntimeConfigSchema,
     DeliverySessionRequestSchema,
     DeliverySessionResponseSchema,
+    DeliveryAdvanceRequestSchema,
+    DeliveryAdvanceResponseSchema,
     DeliveryTimingSchema,
     VIDEO_DELIVERY_MODES,
     INSTREAM_DELIVERY_MODES,
     SELF_MOUNTED_DELIVERY_MODES,
+    FORMAT_SUBTYPES,
+    isValidFormatSubtype,
+    isVideoFormat,
+    isInstreamFormat,
+    isSelfMountedFormat,
+    resolvePlcmt,
+    toFormatSubtype,
+    toDeliveryMode,
 } from './schemas/delivery.js';
 
 // Placements
 export {
     PlcmtSchema,
     AutoplayModeSchema,
+    DomainEnforcementSchema,
+    RotationModeSchema,
+    PlacementCreativeSetItemSchema,
+    PlacementCreativeSetSchema,
+    resolveDefaultInitialMuted,
     PlacementRowSchema,
     CreatePlacementPayloadSchema,
     UpdatePlacementPayloadSchema,

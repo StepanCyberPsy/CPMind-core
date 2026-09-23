@@ -1,5 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
-import { VastTrackingRequestSchema } from '@cpmind/shared';
+import {
+    AdSessionIdSchema,
+    VastTrackingRequestSchema,
+} from '@cpmind/shared';
 import { resolveVastContext } from '../services/delivery/embed.js';
 import { generateVastInLine } from '../services/vast/inline.js';
 import { processVastTrackingEvent } from '../services/vast/tracking.js';
@@ -12,9 +15,11 @@ const VAST_EMPTY = [
 
 export const vastRoute: FastifyPluginAsync = async (app) => {
 
-    // GET /vast/:token — VAST 4.3 InLine XML
+    // GET /vast/:token — VAST 4.3 InLine XML. sid — сессия, выданная плееру CPMind:
+    // запрос привязывается к ней. Без sid (внешний плеер) создаётся vast_only-сессия
     app.get('/vast/:token', async (request, reply) => {
         const { token } = request.params as { token: string };
+        const query = request.query as Record<string, string | undefined>;
         const publisherDomain = extractPublisherDomain(
             request.headers['referer'] as string | undefined,
         );
@@ -23,7 +28,25 @@ export const vastRoute: FastifyPluginAsync = async (app) => {
             .header('Content-Type', 'application/xml; charset=utf-8')
             .header('Cache-Control', 'no-store');
 
-        const context = await resolveVastContext(token, publisherDomain);
+        const rawSid = query['sid'];
+        let requestedAdSessionId: string | null = null;
+
+        if (rawSid !== undefined) {
+            const sidParsed = AdSessionIdSchema.safeParse(rawSid);
+
+            if (!sidParsed.success) {
+                request.log.warn({ token }, 'VAST request rejected — invalid sid');
+                return reply.status(200).send(VAST_EMPTY);
+            }
+
+            requestedAdSessionId = sidParsed.data;
+        }
+
+        const context = await resolveVastContext(
+            token,
+            publisherDomain,
+            requestedAdSessionId,
+        );
 
         if (context === null) {
             return reply.status(200).send(VAST_EMPTY);

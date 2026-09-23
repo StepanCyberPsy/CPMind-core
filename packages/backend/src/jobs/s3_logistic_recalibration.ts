@@ -1,23 +1,36 @@
 import cron from 'node-cron';
 import {
-    and,
-    eq,
-    gte,
-    isNotNull,
-    sql,
-    desc,
-    inArray,
+  and,
+  eq,
+  gte,
+  isNotNull,
+  sql,
+  desc,
+  inArray,
 } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s3LogisticConfigs } from '../db/schema.js';
 import { fitLogisticMLE } from '@cpmind/shared';
 import pino from 'pino';
+import {
+  buildTrainableImpressionFilter,
+  countSampleExclusions,
+  type TrainingSampleOptions,
+} from './recalibration_sample.js';
+import {
+  splitDeterministically,
+  type LabeledSample,
+} from './sample_split.js';
 
 const logger = pino({ name: 's3-logistic-recalibration-job' });
 
 const RECALIBRATION_WINDOW_DAYS = 30;
 const MIN_SAMPLE_SIZE = 1000;
 const TEST_SPLIT_RATIO = 0.2;
+const COEFFICIENT_COUNT = 8;
+
+// Сбор S3 в SDK не отличается от legacy-тега — данные обоих режимов сопоставимы
+const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: false };
 
 const CREATIVE_GROUP_MAP: Record<string, string> = {
   banner_static: 'static',
@@ -49,7 +62,7 @@ function median(values: number[]): number {
 /**
  * Определяет доминирующую версию констант тега в обучающем окне.
  * Смешивание данных разных версий даёт смещённые коэффициенты (§6.1, §11.3) —
- * используется только наиболее частая версия.
+ * используется только наиболее частая версия среди пригодных для обучения показов.
  */
 async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<string | null> {
   const rows = await db
@@ -63,6 +76,7 @@ async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<st
       eq(impressions.isSuspicious, false),
       isNotNull(impressions.tagConstantsVersion),
       isNotNull(impressions.s3RawScrollSpeed),
+      buildTrainableImpressionFilter(SAMPLE_OPTIONS),
     ))
     .groupBy(impressions.tagConstantsVersion)
     .orderBy(desc(sql`count(*)`))
@@ -72,6 +86,7 @@ async function resolveDominantTagConstantsVersion(windowStart: Date): Promise<st
 }
 
 interface S3Features {
+  impressionId: string;
   speed: number;
   stddev: number;
   pause: number;
@@ -84,6 +99,7 @@ interface S3Features {
 }
 
 function extractFeatures(
+  impressionId: string,
   signalsRaw: unknown,
   s1RawTimeInView: number | null,
 ): S3Features | null {
@@ -96,6 +112,7 @@ function extractFeatures(
   const s5 = raw['s5'] as Record<string, unknown> | null;
 
   return {
+    impressionId,
     speed: typeof s3['scroll_speed_avg_px_s'] === 'number' ? s3['scroll_speed_avg_px_s'] : 0,
     stddev: typeof s3['scroll_speed_std_dev'] === 'number' ? s3['scroll_speed_std_dev'] : 0,
     pause: typeof s3['pause_count'] === 'number' ? s3['pause_count'] : 0,
@@ -127,24 +144,38 @@ export async function recalibrateS3Logistic(): Promise<void> {
         .filter(([, group]) => group === creativeGroup)
         .map(([creativeType]) => creativeType);
 
-      const rows = await db
-        .select({
-          s1RawTimeInView: impressions.s1RawTimeInView,
-          signalsRaw: impressions.signalsRaw,
-        })
-        .from(impressions)
-        .where(and(
-          eq(impressions.deviceType, deviceType),
-          inArray(impressions.creativeType, matchingCreativeTypes),
-          eq(impressions.tagConstantsVersion, tagConstantsVersion),
-          gte(impressions.createdAt, windowStart),
-          eq(impressions.isSuspicious, false),
-          isNotNull(impressions.s3RawScrollSpeed),
-        ));
+      const baseWhere = and(
+        eq(impressions.deviceType, deviceType),
+        inArray(impressions.creativeType, matchingCreativeTypes),
+        eq(impressions.tagConstantsVersion, tagConstantsVersion),
+        gte(impressions.createdAt, windowStart),
+        eq(impressions.isSuspicious, false),
+        isNotNull(impressions.s3RawScrollSpeed),
+      );
+
+      const [rows, exclusions] = await Promise.all([
+        db
+          .select({
+            impressionId: impressions.impressionId,
+            s1RawTimeInView: impressions.s1RawTimeInView,
+            signalsRaw: impressions.signalsRaw,
+          })
+          .from(impressions)
+          .where(and(
+            baseWhere,
+            buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+          )),
+        countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+      ]);
 
       if (rows.length < MIN_SAMPLE_SIZE) {
         logger.warn(
-          { segmentKey, sampleSize: rows.length, minRequired: MIN_SAMPLE_SIZE },
+          {
+            segmentKey,
+            sampleSize: rows.length,
+            minRequired: MIN_SAMPLE_SIZE,
+            sampleExclusions: exclusions,
+          },
           'S3 Logistic recalibration skipped — insufficient sample size',
         );
         continue;
@@ -152,7 +183,7 @@ export async function recalibrateS3Logistic(): Promise<void> {
 
       const features: S3Features[] = [];
       for (const row of rows) {
-        const f = extractFeatures(row.signalsRaw, row.s1RawTimeInView);
+        const f = extractFeatures(row.impressionId, row.signalsRaw, row.s1RawTimeInView);
         if (f !== null) features.push(f);
       }
 
@@ -167,11 +198,6 @@ export async function recalibrateS3Logistic(): Promise<void> {
       // Медиана time_in_view для прокси-метки (§3.3)
       const medianTimeInView = median(features.map((f) => f.timeInView));
 
-      // Прокси-метка: y=1 если clicked=1 ИЛИ time_in_view > median (§3.3)
-      const y = features.map((f) =>
-        f.clicked === 1 || f.timeInView > medianTimeInView ? 1 : 0,
-      );
-
       // Z-score нормализация по каждому признаку
       const speedZ = zscoreFeatures(features.map((f) => f.speed));
       const stddevZ = zscoreFeatures(features.map((f) => f.stddev));
@@ -180,25 +206,52 @@ export async function recalibrateS3Logistic(): Promise<void> {
       const streakZ = zscoreFeatures(features.map((f) => f.streak));
 
       // X = [intercept, speed_z, stddev_z, pause_z, direction_z, streak_z, reading, momentum]
-      const X = features.map((f, i) => [
-        1,
-        speedZ.z[i] ?? 0,
-        stddevZ.z[i] ?? 0,
-        pauseZ.z[i] ?? 0,
-        directionZ.z[i] ?? 0,
-        streakZ.z[i] ?? 0,
-        f.reading,
-        f.momentum,
-      ]);
+      // Прокси-метка: y=1 если clicked=1 ИЛИ time_in_view > median (§3.3)
+      const samples: LabeledSample[] = features.map((f, i) => ({
+        key: f.impressionId,
+        x: [
+          1,
+          speedZ.z[i] ?? 0,
+          stddevZ.z[i] ?? 0,
+          pauseZ.z[i] ?? 0,
+          directionZ.z[i] ?? 0,
+          streakZ.z[i] ?? 0,
+          f.reading,
+          f.momentum,
+        ],
+        y: f.clicked === 1 || f.timeInView > medianTimeInView ? 1 : 0,
+      }));
 
-      const splitIdx = Math.floor(features.length * (1 - TEST_SPLIT_RATIO));
-      const XTrain = X.slice(0, splitIdx);
-      const yTrain = y.slice(0, splitIdx);
-      const XTest = X.slice(splitIdx);
-      const yTest = y.slice(splitIdx);
+      const { train, test } = splitDeterministically(
+        samples,
+        (sample) => sample.key,
+        TEST_SPLIT_RATIO,
+      );
+      const XTrain = train.map((sample) => sample.x);
+      const yTrain = train.map((sample) => sample.y);
+      const XTest = test.map((sample) => sample.x);
+      const yTest = test.map((sample) => sample.y);
 
       try {
         const fit = fitLogisticMLE(XTrain, yTrain);
+
+        if (
+          !fit.converged ||
+          fit.beta.length !== COEFFICIENT_COUNT ||
+          fit.beta.some((value) => !Number.isFinite(value))
+        ) {
+          logger.error(
+            {
+              segmentKey,
+              tagConstantsVersion,
+              sampleSize: fit.sampleSize,
+              converged: fit.converged,
+              beta: fit.beta,
+            },
+            'S3 Logistic recalibration skipped — fitting did not converge',
+          );
+          continue;
+        }
 
         // Accuracy на hold-out выборке
         let correct = 0;
@@ -249,9 +302,11 @@ export async function recalibrateS3Logistic(): Promise<void> {
             segmentKey,
             tagConstantsVersion,
             sampleSize: fit.sampleSize,
+            testSampleSize: XTest.length,
             trainAccuracy: fit.accuracy.toFixed(3),
             testAccuracy: testAccuracy.toFixed(3),
             converged: fit.converged,
+            sampleExclusions: exclusions,
           },
           'S3 Logistic segment fitted — draft saved, awaiting manual activation',
         );

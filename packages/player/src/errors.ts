@@ -24,10 +24,9 @@ export const PlayerError = {
     PLAYER_DESTROYED: 'PLAYER_DESTROYED',
 } as const;
 
-// VAST_FETCH_TIMEOUT не входит в AdSessionPlayerErrorCode — маппим на MEDIA_START_TIMEOUT
+// Все коды PlayerError входят в AdSessionPlayerErrorCode — причина сбоя сохраняется без подмены
 export function toAdSessionErrorCode(code: PlayerErrorCode): AdSessionPlayerErrorCode {
-    if (code === PlayerError.VAST_FETCH_TIMEOUT) return 'MEDIA_START_TIMEOUT';
-    return code as AdSessionPlayerErrorCode;
+    return code;
 }
 
 export type PlayerErrorCode = typeof PlayerError[keyof typeof PlayerError];

@@ -1,4 +1,5 @@
 import type { Session, SdkSignalConfig } from '../types.js';
+import type { FrameInteractionKind } from './frame_trust.js';
 
 function distanceToRect(px: number, py: number, rect: DOMRect): number {
     const dx = Math.max(rect.left - px, 0, px - rect.right);
@@ -16,6 +17,7 @@ function angleDiff(a: number, b: number): number {
 }
 
 const resetters = new WeakMap<HTMLElement, () => void>();
+const disposers = new WeakMap<HTMLElement, () => void>();
 
 interface GestureEvent extends Event {
     scale: number;
@@ -37,8 +39,9 @@ function initDesktop(
     let lastAngle: number | null = null;
     let totalMoves = 0;
     let significantChanges = 0;
+    let disposed = false;
 
-    creativeEl.addEventListener('click', () => {
+    const onClick = (): void => {
         session.clicked = true;
         if (session.lastHoverStart !== null) {
             session.hoverToClickLatencyMs = Date.now() - session.lastHoverStart;
@@ -46,17 +49,17 @@ function initDesktop(
         if (config.debug) {
             console.log('[CPMind S5] Clicked:', { hoverToClickLatencyMs: session.hoverToClickLatencyMs });
         }
-    }, { capture: true });
+    };
 
-    creativeEl.addEventListener('mouseenter', () => {
+    const onMouseEnter = (): void => {
         session.hoverCount++;
         session.lastHoverStart = Date.now();
         if (config.debug) {
             console.log('[CPMind S5] Hover enter:', { hoverCount: session.hoverCount });
         }
-    });
+    };
 
-    creativeEl.addEventListener('mouseleave', () => {
+    const onMouseLeave = (): void => {
         if (session.lastHoverStart !== null) {
             const hoverDuration = Date.now() - session.lastHoverStart;
             session.hoverDurationTotalMs += hoverDuration;
@@ -71,7 +74,7 @@ function initDesktop(
                 });
             }
         }
-    });
+    };
 
     let rafScheduled = false;
     let pendingX = 0;
@@ -79,6 +82,8 @@ function initDesktop(
 
     function processMouseFrame(): void {
         rafScheduled = false;
+        if (disposed) return;
+
         const rect = creativeEl.getBoundingClientRect();
         const dist = distanceToRect(pendingX, pendingY, rect);
 
@@ -113,14 +118,19 @@ function initDesktop(
         }
     }
 
-    document.addEventListener('mousemove', (e: MouseEvent) => {
+    const onMouseMove = (e: MouseEvent): void => {
         pendingX = e.clientX;
         pendingY = e.clientY;
         if (!rafScheduled) {
             rafScheduled = true;
             requestAnimationFrame(processMouseFrame);
         }
-    }, { passive: true });
+    };
+
+    creativeEl.addEventListener('click', onClick, { capture: true });
+    creativeEl.addEventListener('mouseenter', onMouseEnter);
+    creativeEl.addEventListener('mouseleave', onMouseLeave);
+    document.addEventListener('mousemove', onMouseMove, { passive: true });
 
     function resetState(): void {
         lastMouseX = null;
@@ -136,9 +146,19 @@ function initDesktop(
         session.cursorProximityMinPx = Infinity;
         session.cursorTrajectoryEntropy = 0;
         session.lastHoverStart = null;
+        session.unconfirmedFrameEvents = 0;
+    }
+
+    function dispose(): void {
+        disposed = true;
+        creativeEl.removeEventListener('click', onClick, { capture: true });
+        creativeEl.removeEventListener('mouseenter', onMouseEnter);
+        creativeEl.removeEventListener('mouseleave', onMouseLeave);
+        document.removeEventListener('mousemove', onMouseMove);
     }
 
     resetters.set(creativeEl, resetState);
+    disposers.set(creativeEl, dispose);
 }
 
 function initMobile(
@@ -157,16 +177,17 @@ function initMobile(
     let touchStartY: number | null = null;
     let touchStartX: number | null = null;
     let touchStartTime: number | null = null;
+    let initialPinchDistance: number | null = null;
 
-    creativeEl.addEventListener('touchstart', (e: TouchEvent) => {
+    const onTouchStart = (e: TouchEvent): void => {
         const touch = e.touches[0];
         if (!touch) return;
         touchStartY = touch.clientY;
         touchStartX = touch.clientX;
         touchStartTime = Date.now();
-    }, { passive: true });
+    };
 
-    creativeEl.addEventListener('touchend', (e: TouchEvent) => {
+    const onTouchEnd = (e: TouchEvent): void => {
         if (touchStartTime === null) return;
         const touchDuration = Date.now() - touchStartTime;
         session.touchStartEndDeltaMs = touchDuration;
@@ -188,9 +209,9 @@ function initMobile(
         touchStartY = null;
         touchStartX = null;
         touchStartTime = null;
-    }, { passive: true });
+    };
 
-    creativeEl.addEventListener('touchmove', (e: TouchEvent) => {
+    const onTouchMove = (e: TouchEvent): void => {
         if (touchStartY === null || touchStartX === null) return;
         const touch = e.touches[0];
         if (!touch) return;
@@ -206,18 +227,16 @@ function initMobile(
                 console.log('[CPMind S5] Swipe detected:', { swipeCount: session.swipeCount });
             }
         }
-    }, { passive: true });
+    };
 
-    creativeEl.addEventListener('gesturechange', (e: Event) => {
+    const onGestureChange = (e: Event): void => {
         const scale = (e as GestureEvent).scale;
         if (Math.abs(scale - 1) > GESTURE_SCALE_DELTA_MIN) {
             session.zoom = true;
         }
-    }, { passive: true });
+    };
 
-    let initialPinchDistance: number | null = null;
-
-    creativeEl.addEventListener('touchstart', (e: TouchEvent) => {
+    const onPinchStart = (e: TouchEvent): void => {
         if (e.touches.length === 2) {
             const t1 = e.touches[0]!;
             const t2 = e.touches[1]!;
@@ -225,9 +244,9 @@ function initMobile(
             const dy = t2.clientY - t1.clientY;
             initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
         }
-    }, { passive: true });
+    };
 
-    creativeEl.addEventListener('touchmove', (e: TouchEvent) => {
+    const onPinchMove = (e: TouchEvent): void => {
         if (e.touches.length === 2 && initialPinchDistance !== null) {
             const t1 = e.touches[0]!;
             const t2 = e.touches[1]!;
@@ -238,11 +257,19 @@ function initMobile(
                 session.zoom = true;
             }
         }
-    }, { passive: true });
+    };
 
-    creativeEl.addEventListener('touchend', () => {
+    const onPinchEnd = (): void => {
         initialPinchDistance = null;
-    }, { passive: true });
+    };
+
+    creativeEl.addEventListener('touchstart', onTouchStart, { passive: true });
+    creativeEl.addEventListener('touchend', onTouchEnd, { passive: true });
+    creativeEl.addEventListener('touchmove', onTouchMove, { passive: true });
+    creativeEl.addEventListener('gesturechange', onGestureChange, { passive: true });
+    creativeEl.addEventListener('touchstart', onPinchStart, { passive: true });
+    creativeEl.addEventListener('touchmove', onPinchMove, { passive: true });
+    creativeEl.addEventListener('touchend', onPinchEnd, { passive: true });
 
     function resetState(): void {
         touchStartY = null;
@@ -254,9 +281,21 @@ function initMobile(
         session.touchStartEndDeltaMs = null;
         session.zoom = false;
         session.swipeCount = 0;
+        session.unconfirmedFrameEvents = 0;
+    }
+
+    function dispose(): void {
+        creativeEl.removeEventListener('touchstart', onTouchStart);
+        creativeEl.removeEventListener('touchend', onTouchEnd);
+        creativeEl.removeEventListener('touchmove', onTouchMove);
+        creativeEl.removeEventListener('gesturechange', onGestureChange);
+        creativeEl.removeEventListener('touchstart', onPinchStart);
+        creativeEl.removeEventListener('touchmove', onPinchMove);
+        creativeEl.removeEventListener('touchend', onPinchEnd);
     }
 
     resetters.set(creativeEl, resetState);
+    disposers.set(creativeEl, dispose);
 }
 
 export function initS5(
@@ -273,4 +312,41 @@ export function initS5(
 
 export function resetSegmentS5(creativeEl: HTMLElement): void {
     resetters.get(creativeEl)?.();
+}
+
+// Снятие обработчиков взаимодействий при завершении измерения
+export function disposeS5(creativeEl: HTMLElement): void {
+    disposers.get(creativeEl)?.();
+    disposers.delete(creativeEl);
+    resetters.delete(creativeEl);
+}
+
+// Взаимодействие внутри iframe креатива, подтверждённое хостом. Поля заполняются
+// по тем же правилам, что и прямые события контейнера; payload отбирает поля по device_type
+export function recordFrameInteraction(
+    session: Session,
+    kind: Exclude<FrameInteractionKind, 'activity'>,
+): void {
+    switch (kind) {
+        case 'click': {
+            session.clicked = true;
+            if (session.deviceType === 'desktop' && session.lastHoverStart !== null) {
+                session.hoverToClickLatencyMs = Date.now() - session.lastHoverStart;
+            }
+            break;
+        }
+        case 'tap': {
+            session.clicked = true;
+            session.tapCount++;
+            break;
+        }
+        case 'swipe': {
+            session.swipeCount++;
+            break;
+        }
+        case 'zoom': {
+            session.zoom = true;
+            break;
+        }
+    }
 }

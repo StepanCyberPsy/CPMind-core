@@ -80,6 +80,7 @@ export type {
   TagConstantsConfigListResponse,
   CreateTagConstantsPayload,
   TagConstantsConfigIdParam,
+  TagConstantsDeactivationBlock,
 } from '../schemas/tag-constants.js';
 
 export type {
@@ -131,6 +132,11 @@ export type {
 } from '../scoring/ivt.js';
 
 export type {
+  S6PlacementGroup,
+  S6PlacementGroupFilter,
+} from '../scoring/segments.js';
+
+export type {
   CreativeType,
   CreativeStatus,
   DeviceType,
@@ -156,6 +162,11 @@ export type {
 
 export type {
   DeliveryMode,
+  PlacementFormat,
+  InstreamSubtype,
+  OutstreamSubtype,
+  PlacementSubtype,
+  StickyCorner,
   MeasurementMode,
   MeasurementFinalizationReason,
   AdSessionId,
@@ -163,12 +174,17 @@ export type {
   DeliveryRuntimeConfig,
   DeliverySessionRequest,
   DeliverySessionResponse,
+  DeliveryAdvanceRequest,
+  DeliveryAdvanceResponse,
   DeliveryTiming,
 } from '../schemas/delivery.js';
 
 export type {
   Plcmt,
   AutoplayMode,
+  DomainEnforcement,
+  RotationMode,
+  PlacementCreativeSetItem,
   PlacementRow,
   CreatePlacementPayload,
   UpdatePlacementPayload,
@@ -183,6 +199,7 @@ export type {
   AdSessionPlaybackQuality,
   AdSessionDeliveryEventType,
   DeliveryEventPayload,
+  DeliveryEventDetails,
   AdSessionRow,
 } from '../schemas/ad_session.js';
 

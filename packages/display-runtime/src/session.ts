@@ -3,7 +3,7 @@ import type {
     AdSessionId,
     AdSessionIdentity,
     AdSessionDeliveryEventType,
-    AdSessionPlayerErrorCode,
+    DeliveryEventDetails,
     DeliveryEventPayload,
     MeasurementFinalizationReason,
 } from '@cpmind/shared';
@@ -14,7 +14,10 @@ import {
     type SessionPayloadMeta,
     type SdkSignalConfig,
 } from '@cpmind/sdk';
-import type { DisplayQueueEntry } from './types.js';
+import type {
+    DisplayQueueEntry,
+    FrameInteractionSink,
+} from './types.js';
 
 export interface DisplaySessionContext {
     adSessionId: AdSessionId;
@@ -23,9 +26,11 @@ export interface DisplaySessionContext {
     measurementSession: MeasurementSession | null;
     deliveryEventEndpoint: string;
     bridgeCleanup: (() => void) | null;
+    frameConnect: ((sink: FrameInteractionSink) => void) | null;
 }
 
-// Создаёт контекст без measurement session — вызывать до render confirmation
+// Создаёт контекст без measurement session — вызывать до render confirmation.
+// Режим измерения определяет сервер — runtime его не переопределяет
 export function createDisplaySessionContext(
     entry: DisplayQueueEntry,
 ): DisplaySessionContext {
@@ -37,7 +42,7 @@ export function createDisplaySessionContext(
         creativeVersionUuid: entry.creativeVersionUuid,
         creativeType: entry.creativeType,
         deliveryMode: entry.deliveryMode,
-        measurementMode: 'full_direct_display',
+        measurementMode: entry.measurementMode,
     };
 
     const meta: SessionPayloadMeta = {
@@ -63,19 +68,34 @@ export function createDisplaySessionContext(
         measurementSession: null,
         deliveryEventEndpoint: entry.deliveryEventEndpoint,
         bridgeCleanup: null,
+        frameConnect: null,
     };
 }
 
-// Инициализирует SDK measurement session — вызывать строго после render confirmation
+// Инициализирует SDK measurement session — вызывать строго после render confirmation.
+// Взаимодействия HTML5-креатива передаются в сессию после её создания
 export function prepareDisplayMeasurement(
     ctx: DisplaySessionContext,
     creativeEl: HTMLElement,
 ): void {
     if (ctx.measurementSession !== null) return;
-    ctx.measurementSession = prepareMeasurementSession({
+
+    // Мост HTML5 освобождается при любом завершении измерения, включая удаление креатива из DOM
+    const session = prepareMeasurementSession({
         creativeEl,
         meta: ctx.meta,
         config: ctx.config,
+        onFinalized: (reason) => {
+            sendDisplayEvent(ctx, 'closed', { finalizationReason: reason });
+            ctx.bridgeCleanup?.();
+            ctx.bridgeCleanup = null;
+            ctx.frameConnect = null;
+        },
+    });
+
+    ctx.measurementSession = session;
+    ctx.frameConnect?.((kind, trust) => {
+        session.reportFrameInteraction(kind, trust);
     });
 }
 
@@ -84,7 +104,11 @@ export function startDisplayMeasurement(
     ctx: DisplaySessionContext,
     renderConfirmedAt: number,
 ): void {
-    ctx.measurementSession?.startMeasurement(renderConfirmedAt);
+    const session = ctx.measurementSession;
+    if (session === null) return;
+
+    session.startMeasurement(renderConfirmedAt);
+    sendDisplayEvent(ctx, 'measurement_started');
 }
 
 export function finalizeDisplaySession(
@@ -101,19 +125,20 @@ export function destroyDisplaySession(
     finalizeDisplaySession(ctx, reason);
     ctx.bridgeCleanup?.();
     ctx.bridgeCleanup = null;
+    ctx.frameConnect = null;
 }
 
 // Fire-and-forget: доставка событий не блокирует measurement flow
 export function sendDisplayEvent(
     ctx: DisplaySessionContext,
     eventType: AdSessionDeliveryEventType,
-    errorCode?: AdSessionPlayerErrorCode,
+    details: DeliveryEventDetails = {},
 ): void {
     const payload: DeliveryEventPayload = {
         adSessionId: ctx.adSessionId,
         eventType,
         timestampMs: Date.now(),
-        ...(errorCode !== undefined && { errorCode }),
+        ...details,
     };
     void sendDeliveryEvent(payload, ctx.deliveryEventEndpoint).catch(() => {
         // Delivery events — best-effort, не блокируют measurement

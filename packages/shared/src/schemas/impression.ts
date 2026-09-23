@@ -70,6 +70,9 @@ export const SignalsS5Schema = z.object({
   touch_start_end_delta_ms: z.number().min(0).nullable(),
   zoom: z.boolean().nullable(),
   swipe_count: z.number().min(0).nullable(),
+
+  // Диагностика HTML5: события моста креатива, не подтверждённые хостом. В Score не участвует
+  unconfirmed_frame_events: z.number().int().min(0).optional(),
 });
 
 // S7 Page Context + Position + Clutter
@@ -106,6 +109,11 @@ export const SignalsS6Schema = z.object({
   audible_quartile_100: z.boolean(),
   muted_throughout: z.boolean(),
   unmuted_by_user: z.boolean(),
+
+  // Действия зрителя и фактическое состояние звука на старте. Optional — бандлы тега,
+  // собранные до введения полей, их не отправляют
+  muted_by_user: z.boolean().optional(),
+  start_muted: z.boolean().optional(),
 });
 
 // F_Presence
@@ -149,6 +157,9 @@ export const ImpressionPayloadSchema = z
     measurement_mode: MeasurementModeSchema.optional(),
     delivery_timing: DeliveryTimingSchema.optional(),
     finalization_reason: MeasurementFinalizationReasonSchema.optional(),
+
+    // Промежуточный снимок сегмента — перезаписывается следующей отправкой того же impression_id
+    checkpoint: z.boolean().optional(),
   })
   .refine(
     (data) => data.timestamp_end >= data.timestamp_start,

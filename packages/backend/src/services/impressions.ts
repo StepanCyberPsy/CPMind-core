@@ -11,7 +11,13 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { impressions, tags, users } from '../db/schema.js';
+import {
+  impressions,
+  tags,
+  users,
+  campaigns,
+  creatives,
+} from '../db/schema.js';
 import type {
   ImpressionRow,
   ImpressionDetail,
@@ -47,6 +53,7 @@ export interface RangeValue {
 export interface ListFilters {
   sessionGroupId?: string;
   campaignId?: string;
+  campaignUuid?: string;
   creativeId?: string;
   publisherDomain?: string;
   deviceType?: string;
@@ -79,6 +86,7 @@ export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
   return and(
     filters.sessionGroupId !== undefined ? eq(impressions.sessionGroupId, filters.sessionGroupId) : undefined,
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
+    filters.campaignUuid !== undefined ? eq(campaigns.uuid, filters.campaignUuid) : undefined,
     filters.creativeId !== undefined ? eq(impressions.creativeId, filters.creativeId) : undefined,
     filters.publisherDomain !== undefined ? eq(impressions.publisherDomain, filters.publisherDomain) : undefined,
     filters.deviceType !== undefined ? eq(impressions.deviceType, filters.deviceType) : undefined,
@@ -96,6 +104,7 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
   const filters: ListFilters = {
     ...(queryParams['sessionGroupId'] !== undefined && { sessionGroupId: queryParams['sessionGroupId'] }),
     ...(queryParams['campaignId'] !== undefined && { campaignId: queryParams['campaignId'] }),
+    ...(queryParams['campaignUuid'] !== undefined && { campaignUuid: queryParams['campaignUuid'] }),
     ...(queryParams['creativeId'] !== undefined && { creativeId: queryParams['creativeId'] }),
     ...(queryParams['publisherDomain'] !== undefined && { publisherDomain: queryParams['publisherDomain'] }),
     ...(queryParams['deviceType'] !== undefined && { deviceType: queryParams['deviceType'] }),
@@ -152,6 +161,8 @@ export const USER_VISIBLE_COLUMNS = {
   impression_id: impressions.impressionId,
   campaign_id: impressions.campaignId,
   creative_id: impressions.creativeId,
+  campaign_name: campaigns.name,
+  creative_name: creatives.name,
   creative_type: impressions.creativeType,
   device_type: impressions.deviceType,
   publisher_domain: impressions.publisherDomain,
@@ -212,10 +223,19 @@ const OWNER_JOIN_COLUMNS = {
   tag_constants_version: impressions.tagConstantsVersion,
 };
 
+// Отображаемые названия из справочников. В показе хранятся ключи — неизменяемые
+// идентификаторы, поэтому переименование кампании отражается на всей истории.
+// Для показов legacy-тега ссылок нет и названия остаются null
+const REFERENCE_JOIN_COLUMNS = {
+  campaign_name: campaigns.name,
+  creative_name: creatives.name,
+};
+
 const ADMIN_LIST_COLUMNS = {
   ...USER_VISIBLE_COLUMNS,
   ...ADMIN_ONLY_COLUMNS,
   ...OWNER_JOIN_COLUMNS,
+  ...REFERENCE_JOIN_COLUMNS,
 };
 
 export const ADMIN_DETAIL_COLUMNS = {
@@ -237,6 +257,8 @@ export interface JoinedImpressionRow {
   tag_constants_version: string | null;
   campaign_id: string;
   creative_id: string;
+  campaign_name: string | null;
+  creative_name: string | null;
   creative_type: string;
   device_type: string;
   skippable: boolean | null;
@@ -290,6 +312,8 @@ export interface UserVisibleRow {
   impression_id: string;
   campaign_id: string;
   creative_id: string;
+  campaign_name: string | null;
+  creative_name: string | null;
   creative_type: string;
   device_type: string;
   publisher_domain: string | null;
@@ -340,6 +364,8 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     tag_constants_version: row.tag_constants_version,
     campaign_id: row.campaign_id,
     creative_id: row.creative_id,
+    campaign_name: row.campaign_name,
+    creative_name: row.creative_name,
     creative_type: row.creative_type,
     device_type: row.device_type,
     skippable: row.skippable ?? false,
@@ -443,6 +469,8 @@ export async function listImpressionsForAdmin(
       .from(impressions)
       .leftJoin(tags, eq(impressions.tagId, tags.id))
       .leftJoin(users, eq(impressions.userId, users.id))
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
+      .leftJoin(creatives, eq(impressions.creativeRefId, creatives.id))
       .where(where)
       .orderBy(orderExpr)
       .limit(params.limit)
@@ -450,6 +478,7 @@ export async function listImpressionsForAdmin(
 
     db.select({ total: count() })
       .from(impressions)
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
       .where(where),
   ]);
 
@@ -471,6 +500,8 @@ export async function listImpressionsForUser(
   const [rows, [countResult]] = await Promise.all([
     db.select(USER_VISIBLE_COLUMNS)
       .from(impressions)
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
+      .leftJoin(creatives, eq(impressions.creativeRefId, creatives.id))
       .where(where)
       .orderBy(orderExpr)
       .limit(params.limit)
@@ -478,6 +509,7 @@ export async function listImpressionsForUser(
 
     db.select({ total: count() })
       .from(impressions)
+      .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
       .where(where),
   ]);
 
@@ -494,6 +526,8 @@ export async function getImpressionForAdmin(id: string): Promise<ImpressionDetai
     .from(impressions)
     .leftJoin(tags, eq(impressions.tagId, tags.id))
     .leftJoin(users, eq(impressions.userId, users.id))
+    .leftJoin(campaigns, eq(impressions.campaignRefId, campaigns.id))
+    .leftJoin(creatives, eq(impressions.creativeRefId, creatives.id))
     .where(eq(impressions.id, id))
     .limit(1);
 

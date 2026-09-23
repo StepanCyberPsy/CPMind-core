@@ -223,8 +223,8 @@ async function prepareProcessedFiles(
             );
         }
 
-        // Многофайловый ассет разложен процессором самостоятельно: хеш, ключ и
-        // размер относятся к дереву целиком, повторная загрузка не требуется
+        // Многофайловый ассет разложен и выгружен процессором самостоятельно:
+        // хеш, ключ и размер относятся к дереву целиком
         const bundle = file.bundle;
 
         const sha256 = bundle
@@ -240,32 +240,31 @@ async function prepareProcessedFiles(
                 file.extension,
             );
 
+        const existing = await findAssetBySha256(
+            db,
+            sha256,
+        );
+
+        // Ключ существующего ассета авторитетен: расширение могло отличаться,
+        // а ссылки на этот ключ уже выданы в ранее опубликованных версиях
+        const effectiveKey = existing
+            ? existing.storageKey
+            : storageKey;
+
         const item: PreparedProcessedFile = {
             file,
             sha256,
             sizeBytes: bundle
                 ? bundle.sizeBytes
                 : fileStat.size,
-            storageKey,
+            storageKey: effectiveKey,
         };
-
-        const existing = await findAssetBySha256(
-            db,
-            sha256,
-        );
 
         if (existing) {
             assertExistingAssetCompatible(
                 existing,
                 item,
             );
-
-            prepared.push({
-                ...item,
-                storageKey: existing.storageKey,
-            });
-
-            continue;
         }
 
         if (bundle) {
@@ -275,9 +274,13 @@ async function prepareProcessedFiles(
 
         signal.throwIfAborted();
 
+        // Загрузка выполняется и при найденном ассете: между поиском по SHA-256
+        // и публикацией сборщик мусора мог удалить объект из хранилища, оставив
+        // версию креатива ready с ключом, по которому раздача отдаёт 404.
+        // Ключ контент-адресован, поэтому повторная запись тех же байт идемпотентна
         await uploadProcessedFile(
             file.localPath,
-            storageKey,
+            effectiveKey,
             file.mimeType,
         );
 

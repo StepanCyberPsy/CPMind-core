@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq, and, desc } from 'drizzle-orm';
+import { DatabaseError } from 'pg';
 import { db } from '../../db/index.js';
 import {
     uploadSessions,
@@ -26,9 +27,32 @@ import type {
 } from '@cpmind/shared';
 
 const PROCESSING_PROFILE_VERSION = 'v1.0';
+const UNIQUE_VIOLATION = '23505';
+const CREATIVE_KEY_CONSTRAINT = 'uidx_creatives_campaign_creative_key';
+
+// Ошибка сервиса загрузок с HTTP-статусом и кодом для ответа маршрута
+export class UploadServiceError extends Error {
+    constructor(
+        message: string,
+        public readonly statusCode: number,
+        public readonly code: string,
+    ) {
+        super(message);
+        this.name = 'UploadServiceError';
+    }
+}
 
 function generateCreativeKey(): string {
     return randomUUID().replace(/-/g, '').slice(0, 16);
+}
+
+function isUniqueViolation(
+    err: unknown,
+    constraint: string,
+): boolean {
+    return err instanceof DatabaseError &&
+        err.code === UNIQUE_VIOLATION &&
+        err.constraint === constraint;
 }
 
 function creativeNameFromFilename(filename: string): string {
@@ -43,6 +67,70 @@ export interface UploadSessionStatus {
     creativeUuid: string | null;
     creativeVersionUuid: string | null;
     expiresAt: string | null;
+}
+
+async function insertCreativeWithKey(
+    userId: number,
+    campaignId: string,
+    creativeKey: string,
+    payload: CreateUploadPayload,
+): Promise<{ id: string }> {
+    try {
+        const [created] = await db
+            .insert(creatives)
+            .values({
+                userId,
+                campaignId,
+                creativeKey,
+                creativeType: payload.creativeType,
+                name: creativeNameFromFilename(payload.filename),
+                status: 'draft',
+            })
+            .returning({ id: creatives.id });
+
+        if (!created) {
+            throw new Error('Creative insert returned no row');
+        }
+
+        return created;
+    } catch (err) {
+        if (isUniqueViolation(err, CREATIVE_KEY_CONSTRAINT)) {
+            throw new UploadServiceError(
+                'Идентификатор креатива уже используется в этой кампании',
+                409,
+                'CREATIVE_KEY_TAKEN',
+            );
+        }
+        throw err;
+    }
+}
+
+async function insertCreativeWithGeneratedKey(
+    userId: number,
+    campaignId: string,
+    payload: CreateUploadPayload,
+): Promise<{ id: string }> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const [created] = await db
+                .insert(creatives)
+                .values({
+                    userId,
+                    campaignId,
+                    creativeKey: generateCreativeKey(),
+                    creativeType: payload.creativeType,
+                    name: creativeNameFromFilename(payload.filename),
+                    status: 'draft',
+                })
+                .returning({ id: creatives.id });
+
+            if (created) return created;
+        } catch (err) {
+            if (!isUniqueViolation(err, CREATIVE_KEY_CONSTRAINT)) throw err;
+        }
+    }
+
+    throw new Error('Failed to generate unique creative key after retries');
 }
 
 export async function createUploadSession(
@@ -68,28 +156,21 @@ export async function createUploadSession(
     const stagingKey = stagingObjectKey(sessionUuid, payload.filename);
     const expiresAt = new Date(Date.now() + PRESIGNED_TTL_SECONDS * 1000);
 
-    // Создаём creative с retry на collision в creative_key
-    let creative: { id: string } | undefined;
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const creativeKey = generateCreativeKey();
-        const [created] = await db
-            .insert(creatives)
-            .values({
-                userId,
-                campaignId: campaign.id,
-                creativeKey,
-                creativeType: payload.creativeType,
-                name: creativeNameFromFilename(payload.filename),
-                status: 'draft',
-            })
-            .onConflictDoNothing()
-            .returning({ id: creatives.id });
-        if (created) { creative = created; break; }
-    }
-
-    if (!creative) {
-        throw new Error('Failed to generate unique creative key after retries');
-    }
+    // Пользовательский ключ занятым быть не должен: повтор с тем же значением
+    // результата не даст, поэтому конфликт возвращается пользователю.
+    // Системный ключ при коллизии перегенерируется
+    const creative = payload.creativeKey !== undefined
+        ? await insertCreativeWithKey(
+            userId,
+            campaign.id,
+            payload.creativeKey,
+            payload,
+        )
+        : await insertCreativeWithGeneratedKey(
+            userId,
+            campaign.id,
+            payload,
+        );
 
     const [creativeVersion] = await db
         .insert(creativeVersions)

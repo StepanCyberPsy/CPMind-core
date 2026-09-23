@@ -1,7 +1,19 @@
-import type { AdSessionId, MeasurementFinalizationReason } from '@cpmind/shared';
-import type { VideoMeasurementEvent, AudioConnection } from '@cpmind/shared';
-import type { Session, SdkSignalConfig } from './types.js';
+import type {
+    AdSessionId,
+    AudioConnection,
+    MeasurementFinalizationReason,
+    VideoMeasurementEvent,
+} from '@cpmind/shared';
+import type {
+    Session,
+    SdkSignalConfig,
+    S6AccumulatorState,
+} from './types.js';
 import type { SessionPayloadMeta } from './session.js';
+import type {
+    FrameInteractionKind,
+    FrameInteractionTrust,
+} from './signals/frame_trust.js';
 import { createSession } from './session.js';
 import { getPublisherDomain } from './utils/publisher_domain.js';
 import { MeasurementSurface } from './surface/surface.js';
@@ -33,14 +45,26 @@ export interface MeasurementSession {
     readonly state: MeasurementSessionState;
     startMeasurement(timestampMs?: number): void;
     reportVideoEvent(event: VideoMeasurementEvent): void;
+    reportFrameInteraction(kind: FrameInteractionKind, trust: FrameInteractionTrust): void;
     finalize(reason: MeasurementFinalizationReason): void;
     destroy(): void;
 }
 
+// Состояние видео на момент подготовки сессии — начальные значения S6 accumulator
+export interface VideoSessionInitialState {
+    muted: boolean;
+    volume: number;
+    durationSec: number | null;
+}
+
+// onFinalized вызывается один раз после отправки финального payload — в т.ч. при выгрузке
+// страницы и удалении креатива из DOM
 export interface PrepareMeasurementSessionInput {
     creativeEl: HTMLElement;
     meta: SessionPayloadMeta;
     config: SdkSignalConfig;
+    video?: VideoSessionInitialState;
+    onFinalized?: (reason: MeasurementFinalizationReason) => void;
 }
 
 // Внутреннее состояние video-плеера для корректной передачи в S6 accumulator
@@ -49,7 +73,9 @@ interface VideoPlaybackState {
     volume: number;
     isPaused: boolean;
     isEnded: boolean;
-    previouslyMuted: boolean;
+    currentTimeSec: number;
+    durationSec: number | null;
+    audioConnection: AudioConnection;
 }
 
 class MeasurementSessionImpl implements MeasurementSession {
@@ -58,16 +84,29 @@ class MeasurementSessionImpl implements MeasurementSession {
     private readonly measuredElement: MeasuredElement;
     private readonly session: Session;
     private readonly meta: SessionPayloadMeta;
-    private videoState: VideoPlaybackState = {
-        isMuted: true,
-        volume: 0,
-        isPaused: true,
-        isEnded: false,
-        previouslyMuted: true,
+    private readonly isVideo: boolean;
+    private readonly videoState: VideoPlaybackState;
+    private readonly onFinalized: ((reason: MeasurementFinalizationReason) => void) | null;
+
+    // Регистрируется до инициализации поверхности: обработчик выполняется раньше pagehide
+    // транспорта и снимает его, финальный payload отправляется один раз с причиной
+    private readonly onPageHide = (): void => {
+        this.finalize('page_unload');
     };
 
     constructor(input: PrepareMeasurementSessionInput) {
         this.meta = input.meta;
+        this.onFinalized = input.onFinalized ?? null;
+        this.isVideo = input.video !== undefined;
+        this.videoState = {
+            isMuted: input.video?.muted ?? true,
+            volume: input.video?.volume ?? 0,
+            isPaused: true,
+            isEnded: false,
+            currentTimeSec: 0,
+            durationSec: input.video?.durationSec ?? null,
+            audioConnection: 'unknown',
+        };
 
         this.session = createSession({
             publisherDomain: getPublisherDomain(),
@@ -78,12 +117,19 @@ class MeasurementSessionImpl implements MeasurementSession {
             () => this.finalize('creative_removed'),
         );
 
+        // Начало hosted-измерения задаёт runtime: момент подтверждённого первого кадра
         this.surface = new MeasurementSurface(
             input.creativeEl,
             this.session,
-            input.config,
+            {
+                ...input.config,
+                explicitStart: true,
+            },
             this.meta,
+            () => this.resetVideoSegment(),
         );
+
+        window.addEventListener('pagehide', this.onPageHide);
 
         this.surface.init();
     }
@@ -101,37 +147,62 @@ class MeasurementSessionImpl implements MeasurementSession {
 
         this._state = 'MEASURING';
 
-        // Устанавливаем timestampStart если не был установлен S1 (например instream без viewport)
+        const startedAt = timestampMs ?? Date.now();
+
         if (this.session.timestampStart === 0) {
-            this.session.timestampStart = timestampMs ?? Date.now();
+            this.session.timestampStart = startedAt;
+        }
+
+        // Видимость до старта измерения не учитывается
+        if (this.session.viewStart !== null && this.session.viewStart < startedAt) {
+            this.session.viewStart = startedAt;
+        }
+
+        if (this.isVideo) {
+            this.ensureVideoAccumulator();
         }
     }
 
     reportVideoEvent(event: VideoMeasurementEvent): void {
-        if (this._state !== 'MEASURING') return;
-
-        // Инициализируем S6 accumulator при первом видео-событии
-        if (this.session.s6 === null) {
-            this.session.s6 = createS6AccumulatorState('unknown', this.videoState.volume);
+        if (this._state === 'PREPARED') {
+            this.applyPreStartEvent(event);
+            return;
         }
 
-        const s6 = this.session.s6;
+        if (this._state !== 'MEASURING') return;
+
+        const s6 = this.ensureVideoAccumulator();
         const vs = this.videoState;
 
         switch (event.type) {
             case 'duration_known': {
+                vs.durationSec = event.durationSec;
                 onS6LoadedMetadata(s6, event.durationSec);
                 break;
             }
-            case 'play': {
-                vs.isPaused = false;
-                vs.isEnded = false;
-                onS6Play(s6, vs.isMuted, vs.volume);
-                break;
-            }
+            case 'play':
             case 'resume': {
                 vs.isPaused = false;
-                onS6Play(s6, vs.isMuted, vs.volume);
+                vs.isEnded = false;
+                onS6Play(
+                    s6,
+                    vs.isMuted,
+                    vs.volume,
+                    vs.currentTimeSec,
+                );
+                break;
+            }
+            case 'replay': {
+                // Повторный запуск после завершения — replay_count увеличивается в onS6Play
+                vs.isPaused = false;
+                vs.isEnded = false;
+                vs.currentTimeSec = 0;
+                onS6Play(
+                    s6,
+                    vs.isMuted,
+                    vs.volume,
+                    0,
+                );
                 break;
             }
             case 'pause': {
@@ -141,11 +212,13 @@ class MeasurementSessionImpl implements MeasurementSession {
             }
             case 'complete': {
                 vs.isEnded = true;
-                vs.isPaused = false;
+                vs.isPaused = true;
+                vs.currentTimeSec = vs.durationSec ?? vs.currentTimeSec;
                 onS6Ended(s6, vs.isMuted, vs.volume);
                 break;
             }
             case 'progress': {
+                vs.currentTimeSec = event.currentTimeSec;
                 onS6TimeUpdate(
                     s6,
                     event.currentTimeSec,
@@ -155,38 +228,31 @@ class MeasurementSessionImpl implements MeasurementSession {
                 break;
             }
             case 'seek': {
+                vs.currentTimeSec = event.toSec;
                 onS6Seeking(s6);
-                onS6Seeked(s6, event.toSec);
-                break;
-            }
-            case 'mute': {
-                vs.previouslyMuted = vs.isMuted;
-                vs.isMuted = true;
-                onS6VolumeChange(
+                onS6Seeked(
                     s6,
-                    true,
-                    vs.volume,
-                    vs.isPaused,
-                    vs.isEnded,
-                    vs.previouslyMuted,
+                    event.toSec,
+                    event.fromSec,
                 );
                 break;
             }
+            case 'mute':
             case 'unmute': {
-                vs.previouslyMuted = vs.isMuted;
-                vs.isMuted = false;
+                const previouslyMuted = vs.isMuted;
+                vs.isMuted = event.type === 'mute';
                 onS6VolumeChange(
                     s6,
-                    false,
+                    vs.isMuted,
                     vs.volume,
                     vs.isPaused,
                     vs.isEnded,
-                    vs.previouslyMuted,
+                    previouslyMuted,
+                    event.source === 'user',
                 );
                 break;
             }
             case 'volume': {
-                vs.previouslyMuted = vs.isMuted;
                 vs.volume = event.volume;
                 onS6VolumeChange(
                     s6,
@@ -194,7 +260,8 @@ class MeasurementSessionImpl implements MeasurementSession {
                     event.volume,
                     vs.isPaused,
                     vs.isEnded,
-                    vs.previouslyMuted,
+                    vs.isMuted,
+                    event.source === 'user',
                 );
                 break;
             }
@@ -202,63 +269,42 @@ class MeasurementSessionImpl implements MeasurementSession {
                 onS6Skip(s6);
                 break;
             }
-            case 'replay': {
-                // Полный сброс accumulator при replay — пользователь перезапустил видео
-                resetS6Accumulator(
-                    s6,
-                    0,
-                    false,
-                    false,
-                    vs.isMuted,
-                    vs.volume,
-                );
-                vs.isPaused = false;
-                vs.isEnded = false;
-                break;
-            }
             case 'quartile': {
-                // Прямое проставление quartile флагов без зависимости от progress events
-                const audible = !vs.isMuted && vs.volume > 0;
-                if (event.value >= 25 && !s6.quartile_25) {
-                    s6.quartile_25 = true;
-                    if (audible) s6.audible_quartile_25 = true;
-                }
-                if (event.value >= 50 && !s6.quartile_50) {
-                    s6.quartile_50 = true;
-                    if (audible) s6.audible_quartile_50 = true;
-                }
-                if (event.value >= 75 && !s6.quartile_75) {
-                    s6.quartile_75 = true;
-                    if (audible) s6.audible_quartile_75 = true;
-                }
-                if (event.value === 100 && !s6.completion) {
-                    s6.completion = true;
-                    s6.completion_rate_pct = 100;
-                    if (audible) s6.audible_quartile_100 = true;
-                }
+                // Квартили вычисляются по просмотренному отрезку из progress-событий
                 break;
             }
             case 'audio_connection': {
-                onS6AudioConnectionDetected(s6, event.connection as AudioConnection);
+                vs.audioConnection = event.connection;
+                onS6AudioConnectionDetected(s6, event.connection);
                 break;
             }
         }
+    }
+
+    reportFrameInteraction(
+        kind: FrameInteractionKind,
+        trust: FrameInteractionTrust,
+    ): void {
+        if (this._state !== 'MEASURING') return;
+        this.surface.reportFrameInteraction(kind, trust);
     }
 
     finalize(reason: MeasurementFinalizationReason): void {
         if (this._state !== 'MEASURING' && this._state !== 'PREPARED') return;
 
         this._state = 'FINALIZING';
-
-        this.session.timestampEnd = Date.now();
-        this.surface.finalize();
-
-        this._state = 'FINALIZED';
-        this.measuredElement.dispose();
+        window.removeEventListener('pagehide', this.onPageHide);
 
         if (this.session.s6 !== null && reason === 'skip') {
             onS6Skip(this.session.s6);
         }
+
+        this.session.timestampEnd = Date.now();
+        this.surface.finalize(reason);
+
+        this._state = 'FINALIZED';
+        this.measuredElement.dispose();
+        this.onFinalized?.(reason);
     }
 
     destroy(): void {
@@ -269,8 +315,76 @@ class MeasurementSessionImpl implements MeasurementSession {
         }
 
         this._state = 'DESTROYED';
+        window.removeEventListener('pagehide', this.onPageHide);
         this.surface.destroy();
         this.measuredElement.dispose();
+    }
+
+    private ensureVideoAccumulator(): S6AccumulatorState {
+        if (this.session.s6 === null) {
+            const vs = this.videoState;
+            const s6 = createS6AccumulatorState(vs.audioConnection, vs.volume);
+            if (vs.durationSec !== null) {
+                onS6LoadedMetadata(s6, vs.durationSec);
+            }
+            this.session.s6 = s6;
+        }
+        return this.session.s6;
+    }
+
+    // До старта измерения фиксируется только состояние видео — накопители S6 не затрагиваются
+    private applyPreStartEvent(event: VideoMeasurementEvent): void {
+        const vs = this.videoState;
+
+        switch (event.type) {
+            case 'duration_known': {
+                vs.durationSec = event.durationSec;
+                break;
+            }
+            case 'mute': {
+                vs.isMuted = true;
+                break;
+            }
+            case 'unmute': {
+                vs.isMuted = false;
+                break;
+            }
+            case 'volume': {
+                vs.volume = event.volume;
+                break;
+            }
+            case 'progress': {
+                vs.currentTimeSec = event.currentTimeSec;
+                break;
+            }
+            case 'seek': {
+                vs.currentTimeSec = event.toSec;
+                break;
+            }
+            case 'audio_connection': {
+                vs.audioConnection = event.connection;
+                break;
+            }
+            default: {
+                break;
+            }
+        }
+    }
+
+    // Сброс S6 при разрыве сегмента по простою — по фактическому состоянию видео
+    private resetVideoSegment(): void {
+        const s6 = this.session.s6;
+        if (s6 === null) return;
+
+        const vs = this.videoState;
+        resetS6Accumulator(
+            s6,
+            vs.currentTimeSec,
+            vs.isPaused,
+            vs.isEnded,
+            vs.isMuted,
+            vs.volume,
+        );
     }
 }
 

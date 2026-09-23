@@ -17,7 +17,7 @@ function createObserver(
             const inView = entry.intersectionRatio >= 0.75;
             const pixelsPct = Math.round(entry.intersectionRatio * 100);
 
-            if (hasEnteredViewport && session.timestampStart === 0) {
+            if (hasEnteredViewport && session.timestampStart === 0 && config.explicitStart !== true) {
                 session.timestampStart = now;
 
                 if (config.debug) {
@@ -91,6 +91,12 @@ export function initS1(
     }, { once: true });
 }
 
+// Отключение наблюдения при завершении измерения
+export function disposeS1(creativeEl: HTMLElement): void {
+    resetters.get(creativeEl)?.disconnect();
+    resetters.delete(creativeEl);
+}
+
 export function resetSegmentS1(
     creativeEl: HTMLElement,
     session: Session,
@@ -101,7 +107,10 @@ export function resetSegmentS1(
     session.visiblePixelsPct = 0;
     session.mrcCompliant = false;
     session.viewStart = null;
-    session.timestampStart = 0;
+
+    // Явный старт: новый сегмент начинается в момент разрыва, даже если креатив вне viewport.
+    // Иначе начало сегмента — первое попадание во viewport, как у legacy-тега
+    session.timestampStart = config.explicitStart === true ? Date.now() : 0;
 
     resetters.get(creativeEl)?.disconnect();
 

@@ -1,41 +1,36 @@
 import {
     prepareMeasurementSession,
-    createS6AccumulatorState,
-    onS6Play,
-    onS6Pause,
-    onS6Ended,
-    onS6TimeUpdate,
-    onS6Seeking,
-    onS6Seeked,
-    onS6VolumeChange,
-    onS6Skip,
-    onS6LoadedMetadata,
-    onS6AudioConnectionDetected,
     sendDeliveryEvent,
 } from '@cpmind/sdk';
 import type {
     MeasurementSession,
+    SdkSignalConfig,
+    SessionPayloadMeta,
 } from '@cpmind/sdk';
-import {
-    AdSessionIdSchema,
-    type AudioConnection,
-    type DeliveryRuntimeConfig,
-    type MeasurementFinalizationReason,
-    type VideoMeasurementEvent,
-    type PlayerTerminalOutcome,
-    type PlayerActionSource,
-    type AdSessionDeliveryEventType,
-    type AdSessionPlayerErrorCode,
+import type {
+    AdSessionAutoplayOutcome,
+    AdSessionDeliveryEventType,
+    AdSessionId,
+    AudioConnection,
+    DeliveryEventDetails,
+    DeliveryEventPayload,
+    MeasurementFinalizationReason,
+    PlayerActionSource,
+    PlayerTerminalOutcome,
+    VideoMeasurementEvent,
 } from '@cpmind/shared';
 import type { VideoPlaybackState } from '../vast/types.js';
+import type { ResolvedDeliveryConfig } from '../types.js';
 import { ACTION_SOURCE_WINDOW_MS } from '../player-config.js';
+
+const VOLUME_EPSILON = 0.01;
 
 interface PendingAction {
     source: PlayerActionSource;
     setAt: number;
 }
 
-function terminalOutcomeToFinalizationReason(
+export function terminalOutcomeToFinalizationReason(
     outcome: PlayerTerminalOutcome,
 ): MeasurementFinalizationReason {
     switch (outcome.type) {
@@ -52,154 +47,257 @@ function terminalOutcomeToFinalizationReason(
 
 export interface SdkBridgeOptions {
     creativeEl: HTMLElement;
-    deliveryConfig: DeliveryRuntimeConfig;
-    adSessionId: string;
+    video: HTMLVideoElement;
+    deliveryConfig: ResolvedDeliveryConfig;
+}
+
+export interface AutoplayReport {
+    outcome: AdSessionAutoplayOutcome;
+    requestedMuted: boolean;
+    finallyMuted: boolean;
 }
 
 export interface SdkBridge {
-    // Запускает измерение — вызвать после render_confirmed
+    readonly adSessionId: AdSessionId;
+    // Результат первой попытки автозапуска — фиксируется в ad_session однократно
+    reportAutoplay(report: AutoplayReport): void;
+    // Создаёт measurement-сессию и запускает измерение — вызывать после первого кадра
     startMeasurement(renderConfirmedAt: number): void;
     // Обрабатывает video DOM событие с атрибуцией source
-    handleVideoEvent(type: string, video: HTMLVideoElement): void;
-    // Устанавливает pending source для следующего matching события (100ms window)
-    setPendingSource(eventType: string, source: PlayerActionSource): void;
+    handleVideoEvent(type: string): void;
+    // Устанавливает pending source для следующего события (100ms window)
+    setPendingSource(source: PlayerActionSource): void;
     reportAudioConnection(connection: AudioConnection): void;
     // Финализирует сессию
     finalize(outcome: PlayerTerminalOutcome): void;
     // Отправляет delivery event (fire-and-forget)
     sendEvent(
         eventType: AdSessionDeliveryEventType,
-        errorCode?: AdSessionPlayerErrorCode,
+        details?: DeliveryEventDetails,
     ): void;
-    readonly adSessionId: string;
     destroy(): void;
 }
 
+// Measurement-сессия создаётся в момент подтверждённого старта воспроизведения: окно
+// измерения начинается с первого кадра, видео без старта показом не считается.
+// Состояние видео ведётся с создания элемента и передаётся сессии как начальное
 export function createSdkBridge(opts: SdkBridgeOptions): SdkBridge {
-    const { deliveryConfig, adSessionId } = opts;
+    const {
+        creativeEl,
+        video,
+        deliveryConfig,
+    } = opts;
+    const adSessionId = deliveryConfig.adSessionId;
 
-    const adSessionIdBranded = AdSessionIdSchema.parse(adSessionId);
-
-    const meta = {
+    const meta: SessionPayloadMeta = {
         tagUuid: deliveryConfig.tagUuid,
         tagConstantsVersion: deliveryConfig.tagConstantsVersion,
-        campaignId: deliveryConfig.placementUuid,
-        creativeId: deliveryConfig.creativeVersionUuid,
+        campaignId: deliveryConfig.campaignId,
+        creativeId: deliveryConfig.creativeId,
         creativeType: deliveryConfig.creativeType,
         skippable: deliveryConfig.skippable,
         endpoint: deliveryConfig.collectEndpoint,
         adSessionIdentity: {
-            adSessionId: adSessionIdBranded,
+            adSessionId,
             placementUuid: deliveryConfig.placementUuid,
             creativeVersionUuid: deliveryConfig.creativeVersionUuid,
             creativeType: deliveryConfig.creativeType,
             deliveryMode: deliveryConfig.deliveryMode,
-            measurementMode: 'full_cpmind_player' as const,
+            measurementMode: deliveryConfig.measurementMode,
         },
     };
 
-    const config = {
-        debug: typeof window !== 'undefined' &&
-            window.location.search.includes('cpmind_debug=1'),
+    const config: SdkSignalConfig = {
+        debug: window.location.search.includes('cpmind_debug=1'),
         constants: deliveryConfig.tagConstants,
     };
 
-    const session: MeasurementSession = prepareMeasurementSession({
-        creativeEl: opts.creativeEl,
-        meta,
-        config,
-    });
-
-    const s6 = createS6AccumulatorState('unknown', 0);
-
     const vs: VideoPlaybackState = {
-        isMuted: deliveryConfig.initialMuted,
-        volume: deliveryConfig.initialMuted ? 0 : 1,
-        isPaused: true,
-        isEnded: false,
-        previouslyMuted: deliveryConfig.initialMuted,
+        isMuted: video.muted,
+        volume: video.volume,
+        isPaused: video.paused,
+        isEnded: video.ended,
+        previouslyMuted: video.muted,
         durationSec: 0,
-        currentTimeSec: 0,
+        currentTimeSec: video.currentTime,
     };
 
+    let session: MeasurementSession | null = null;
     let pendingAction: PendingAction | null = null;
+    let startSource: PlayerActionSource = 'player';
+    let audioConnection: AudioConnection | null = null;
+    let isSeeking = false;
+    let seekFromSec = 0;
+    let autoplayReported = false;
     let finalized = false;
 
-    function consumePendingSource(eventType: string): PlayerActionSource {
+    function consumePendingSource(): PlayerActionSource {
         if (pendingAction === null) return 'unknown';
         const age = Date.now() - pendingAction.setAt;
-        if (age > ACTION_SOURCE_WINDOW_MS) {
-            pendingAction = null;
-            return 'browser';
-        }
-        const src = pendingAction.source;
+        const source = age > ACTION_SOURCE_WINDOW_MS ? 'browser' : pendingAction.source;
         pendingAction = null;
-        return src;
+        return source;
     }
 
     function reportEvent(event: VideoMeasurementEvent): void {
-        if (finalized) return;
+        if (finalized || session === null) return;
         session.reportVideoEvent(event);
+    }
+
+    // Длительность читается из элемента, а не только по событию loadedmetadata:
+    // подписка на события видео регистрируется после ожидания canplay, поэтому
+    // loadedmetadata к этому моменту уже произошло и обработчик его не получает.
+    // Без длительности прогресс не передаётся в S6 и квартили не фиксируются
+    function syncDuration(nowMs: number): boolean {
+        if (vs.durationSec > 0) return true;
+
+        const durationSec = video.duration;
+        if (!Number.isFinite(durationSec) || durationSec <= 0) return false;
+
+        vs.durationSec = durationSec;
+        reportEvent({
+            type: 'duration_known',
+            durationSec,
+            timestampMs: nowMs,
+        });
+        return true;
+    }
+
+    function sendEvent(
+        eventType: AdSessionDeliveryEventType,
+        details: DeliveryEventDetails = {},
+    ): void {
+        const payload: DeliveryEventPayload = {
+            adSessionId,
+            eventType,
+            timestampMs: Date.now(),
+            ...details,
+        };
+        void sendDeliveryEvent(payload, deliveryConfig.deliveryEventEndpoint).catch(() => {
+            // Delivery events — best-effort
+        });
     }
 
     return {
         adSessionId,
 
-        startMeasurement(renderConfirmedAt: number): void {
-            session.startMeasurement(renderConfirmedAt);
+        reportAutoplay(report: AutoplayReport): void {
+            if (autoplayReported) return;
+            autoplayReported = true;
+            // Отказ автозапуска фиксируется наравне с успехом: откат в беззвучный режим
+            // выполняется в policy до повторной попытки и при полной блокировке тоже
+            sendEvent('autoplay_resolved', {
+                autoplayOutcome: report.outcome,
+                startMuted: report.finallyMuted,
+                mutedByBrowser: !report.requestedMuted && report.finallyMuted,
+            });
         },
 
-        handleVideoEvent(type: string, video: HTMLVideoElement): void {
+        startMeasurement(renderConfirmedAt: number): void {
+            if (finalized || session !== null) return;
+
+            vs.isMuted = video.muted;
+            vs.volume = video.volume;
+            vs.currentTimeSec = video.currentTime;
+
+            // Сессия ещё не создана, событие duration_known отбрасывается —
+            // длительность передаётся в неё начальным состоянием видео
+            syncDuration(performance.now());
+
+            const prepared = prepareMeasurementSession({
+                creativeEl,
+                meta,
+                config,
+                video: {
+                    muted: vs.isMuted,
+                    volume: vs.volume,
+                    durationSec: vs.durationSec > 0 ? vs.durationSec : null,
+                },
+            });
+
+            session = prepared;
+            prepared.startMeasurement(renderConfirmedAt);
+
+            const nowMs = performance.now();
+
+            if (vs.durationSec > 0) {
+                prepared.reportVideoEvent({
+                    type: 'progress',
+                    currentTimeSec: vs.currentTimeSec,
+                    durationSec: vs.durationSec,
+                    timestampMs: nowMs,
+                });
+            }
+
+            if (!video.paused && !video.ended) {
+                vs.isPaused = false;
+                prepared.reportVideoEvent({
+                    type: 'play',
+                    source: startSource,
+                    timestampMs: nowMs,
+                });
+            }
+
+            if (audioConnection !== null) {
+                prepared.reportVideoEvent({
+                    type: 'audio_connection',
+                    connection: audioConnection,
+                    timestampMs: nowMs,
+                });
+            }
+
+            sendEvent('measurement_started');
+        },
+
+        handleVideoEvent(type: string): void {
             if (finalized) return;
             const nowMs = performance.now();
 
             switch (type) {
                 case 'loadedmetadata': {
-                    vs.durationSec = video.duration;
-                    onS6LoadedMetadata(s6, video.duration);
-                    reportEvent({
-                        type: 'duration_known',
-                        durationSec: video.duration,
-                        timestampMs: nowMs,
-                    });
+                    syncDuration(nowMs);
                     break;
                 }
                 case 'play': {
                     const wasEnded = vs.isEnded;
+                    const source = consumePendingSource();
                     vs.isPaused = false;
                     vs.isEnded = false;
-                    onS6Play(s6, vs.isMuted, vs.volume);
+
+                    if (session === null) {
+                        startSource = source;
+                        break;
+                    }
 
                     if (wasEnded) {
                         reportEvent({
                             type: 'replay',
-                            source: consumePendingSource('play'),
+                            source,
                             timestampMs: nowMs,
                         });
                     } else {
                         reportEvent({
                             type: 'play',
-                            source: consumePendingSource('play'),
+                            source,
                             timestampMs: nowMs,
                         });
                     }
                     break;
                 }
                 case 'pause': {
-                    if (vs.isEnded) break;
+                    // Браузер генерирует pause перед ended — завершение паузой не является
+                    if (video.ended || vs.isEnded) break;
                     vs.isPaused = true;
-                    onS6Pause(s6);
                     reportEvent({
                         type: 'pause',
-                        source: consumePendingSource('pause'),
+                        source: consumePendingSource(),
                         timestampMs: nowMs,
                     });
                     break;
                 }
                 case 'ended': {
                     vs.isEnded = true;
-                    vs.isPaused = false;
-                    onS6Ended(s6, vs.isMuted, vs.volume);
+                    vs.isPaused = true;
                     reportEvent({
                         type: 'complete',
                         timestampMs: nowMs,
@@ -207,13 +305,15 @@ export function createSdkBridge(opts: SdkBridgeOptions): SdkBridge {
                     break;
                 }
                 case 'timeupdate': {
+                    if (isSeeking) break;
                     vs.currentTimeSec = video.currentTime;
-                    onS6TimeUpdate(s6, video.currentTime, vs.isMuted, vs.volume);
 
-                    if (vs.durationSec > 0) {
+                    // Длительность может стать известна позже первого timeupdate:
+                    // прогресс начинает передаваться с того момента, как она появилась
+                    if (syncDuration(nowMs)) {
                         reportEvent({
                             type: 'progress',
-                            currentTimeSec: video.currentTime,
+                            currentTimeSec: Math.min(video.currentTime, vs.durationSec),
                             durationSec: vs.durationSec,
                             timestampMs: nowMs,
                         });
@@ -221,63 +321,68 @@ export function createSdkBridge(opts: SdkBridgeOptions): SdkBridge {
                     break;
                 }
                 case 'seeking': {
-                    onS6Seeking(s6);
+                    // Исходная позиция фиксируется один раз на серию перемоток
+                    if (!isSeeking) {
+                        isSeeking = true;
+                        seekFromSec = vs.currentTimeSec;
+                    }
                     break;
                 }
                 case 'seeked': {
-                    onS6Seeked(s6, video.currentTime);
-                    const direction = video.currentTime >= vs.currentTimeSec
-                        ? 'seek_forward'
-                        : 'rewind';
-                    void direction;
+                    isSeeking = false;
+                    const toSec = video.currentTime;
                     reportEvent({
                         type: 'seek',
-                        fromSec: vs.currentTimeSec,
-                        toSec: video.currentTime,
-                        source: consumePendingSource('seek'),
+                        fromSec: seekFromSec,
+                        toSec,
+                        source: consumePendingSource(),
                         timestampMs: nowMs,
                     });
-                    vs.currentTimeSec = video.currentTime;
+                    vs.currentTimeSec = toSec;
                     break;
                 }
                 case 'volumechange': {
                     const nowMuted = video.muted;
                     const nowVolume = video.volume;
-                    const source = consumePendingSource('volumechange');
-
-                    onS6VolumeChange(
-                        s6,
-                        nowMuted,
-                        nowVolume,
-                        vs.isPaused,
-                        vs.isEnded,
-                        vs.previouslyMuted,
-                    );
-
+                    const source = consumePendingSource();
                     const muteChanged = nowMuted !== vs.isMuted;
-                    const volumeChanged = Math.abs(nowVolume - vs.volume) > 0.01;
-
-                    if (muteChanged) {
-                        if (nowMuted) {
-                            reportEvent({ type: 'mute', source, timestampMs: nowMs });
-                        } else {
-                            reportEvent({ type: 'unmute', source, timestampMs: nowMs });
-                        }
-                    } else if (volumeChanged) {
-                        reportEvent({ type: 'volume', volume: nowVolume, source, timestampMs: nowMs });
-                    }
+                    const volumeChanged = Math.abs(nowVolume - vs.volume) > VOLUME_EPSILON;
 
                     vs.previouslyMuted = vs.isMuted;
                     vs.isMuted = nowMuted;
                     vs.volume = nowVolume;
+
+                    // Громкость передаётся до смены mute: время со звуком считается по итоговому состоянию
+                    if (volumeChanged) {
+                        reportEvent({
+                            type: 'volume',
+                            volume: nowVolume,
+                            source,
+                            timestampMs: nowMs,
+                        });
+                    }
+
+                    if (muteChanged) {
+                        reportEvent({
+                            type: nowMuted ? 'mute' : 'unmute',
+                            source,
+                            timestampMs: nowMs,
+                        });
+                    }
                     break;
                 }
             }
         },
 
+        setPendingSource(source: PlayerActionSource): void {
+            pendingAction = {
+                source,
+                setAt: Date.now(),
+            };
+        },
+
         reportAudioConnection(connection: AudioConnection): void {
-            if (finalized) return;
-            onS6AudioConnectionDetected(s6, connection);
+            audioConnection = connection;
             reportEvent({
                 type: 'audio_connection',
                 connection,
@@ -285,53 +390,22 @@ export function createSdkBridge(opts: SdkBridgeOptions): SdkBridge {
             });
         },
 
-        setPendingSource(eventType: string, source: PlayerActionSource): void {
-            pendingAction = {
-                source,
-                setAt: Date.now(),
-            };
-            void eventType;
-        },
-
         finalize(outcome: PlayerTerminalOutcome): void {
             if (finalized) return;
             finalized = true;
 
-            if (outcome.type === 'skipped') {
-                onS6Skip(s6);
-                session.reportVideoEvent({
-                    type: 'skip',
-                    source: 'type' in outcome && 'source' in outcome
-                        ? (outcome as { type: string; source: PlayerActionSource }).source
-                        : 'user',
-                    timestampMs: performance.now(),
-                });
-            }
+            if (session === null) return;
 
-            const reason = terminalOutcomeToFinalizationReason(outcome);
-            session.finalize(reason);
+            session.finalize(terminalOutcomeToFinalizationReason(outcome));
+            session.destroy();
         },
 
-        sendEvent(
-            eventType: AdSessionDeliveryEventType,
-            errorCode?: AdSessionPlayerErrorCode,
-        ): void {
-            const payload = {
-                adSessionId: adSessionIdBranded,
-                eventType,
-                timestampMs: Date.now(),
-                ...(errorCode !== undefined && { errorCode }),
-            };
-            void sendDeliveryEvent(payload, deliveryConfig.deliveryEventEndpoint).catch(() => {
-                // Delivery events — best-effort
-            });
-        },
+        sendEvent,
 
         destroy(): void {
-            if (!finalized) {
-                finalized = true;
-                session.destroy();
-            }
+            if (finalized) return;
+            finalized = true;
+            session?.destroy();
         },
     };
 }

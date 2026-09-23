@@ -6,6 +6,8 @@ export const USER_VISIBLE_IMPRESSION_FIELDS = [
   'impression_id',
   'campaign_id',
   'creative_id',
+  'campaign_name',
+  'creative_name',
   'creative_type',
   'device_type',
   'publisher_domain',

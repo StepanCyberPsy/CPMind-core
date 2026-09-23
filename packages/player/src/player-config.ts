@@ -45,6 +45,20 @@ export const ICON_SKIP =
     `<path d="M5.58 5.14v13.72a1 1 0 0 0 1.5.86l9-6.02V19a1 1 0 0 0 2 0V5a1 1 0 0 0-2 0v5.3l-9-6.02a1 1 0 0 0-1.5.86z"/>` +
     `</svg>`;
 
+// Seek back: стрелка против часовой стрелки с меткой шага
+export const ICON_SEEK_BACK =
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">` +
+    `<path d="M3.5 5.5v5h5"/>` +
+    `<path d="M4.2 10.5a8 8 0 1 1 .6 5.2"/>` +
+    `</svg>`;
+
+// Seek forward: зеркальная стрелка по часовой стрелке
+export const ICON_SEEK_FORWARD =
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">` +
+    `<path d="M20.5 5.5v5h-5"/>` +
+    `<path d="M19.8 10.5a8 8 0 1 0-.6 5.2"/>` +
+    `</svg>`;
+
 // Close: тонкий крест (×) — Google Material style
 export const ICON_CLOSE =
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" xmlns="http://www.w3.org/2000/svg">` +
@@ -67,6 +81,16 @@ export const PLAYBACK_THRESHOLD = 0.5;
 
 export const OUTSTREAM_ASPECT_RATIO = 16 / 9;
 export const OUTSTREAM_MIN_HEIGHT_PX = 180;
+
+// Sticky surface
+
+export const STICKY_DEFAULT_WIDTH_PX = 320;
+export const STICKY_DEFAULT_OFFSET_PX = 16;
+export const STICKY_DEFAULT_CORNER = 'bottom_right';
+
+// Цикл короче этого порога означает ролик нулевой длительности либо отказ media:
+// зацикливание в таком случае превратилось бы в непрерывный поток запросов VAST
+export const STICKY_MIN_CYCLE_MS = 1000;
 
 // For bridge
 
@@ -366,5 +390,14 @@ export const PLAYER_CSS = `
   background: rgba(0,0,0,0.8);
   border-color: rgba(255,255,255,0.5);
   color: #fff;
+}
+
+[data-cpmind-surface][data-cpmind-sticky] {
+  position: fixed;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  border-radius: 4px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  z-index: 2147483000;
 }
 `.trim();

@@ -1,4 +1,10 @@
-import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+  lte,
+  isNotNull,
+} from 'drizzle-orm';
 import { DEFAULT_LOGISTIC_PARAMS, type LogisticParams } from '@cpmind/shared';
 import { db } from '../../db/index.js';
 import { s3LogisticConfigs, type S3LogisticConfigSelect } from '../../db/schema.js';
@@ -31,8 +37,11 @@ export function invalidateS3LogisticCache(): void {
   cache.clear();
 }
 
+// Активная модель сегмента. С версией констант — модель, обученная на данных этой версии,
+// без версии — последняя обученная из активных моделей сегмента
 async function queryActiveBySegmentKey(
   segmentKey: string,
+  tagConstantsVersion: string | null,
 ): Promise<S3LogisticConfigSelect | null> {
   const rows = await db
     .select()
@@ -40,9 +49,29 @@ async function queryActiveBySegmentKey(
     .where(and(
       eq(s3LogisticConfigs.segmentKey, segmentKey),
       eq(s3LogisticConfigs.isActive, true),
+      tagConstantsVersion !== null
+        ? eq(s3LogisticConfigs.tagConstantsVersion, tagConstantsVersion)
+        : undefined,
     ))
+    .orderBy(desc(s3LogisticConfigs.fittedAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+// Первая найденная модель по цепочке сегментов: на каждом уровне модель версии констант
+// показа приоритетнее модели сегмента без учёта версии
+async function resolveBySegmentChain(
+  segmentKeys: readonly string[],
+  tagConstantsVersion: string,
+): Promise<S3LogisticConfigSelect | null> {
+  for (const segmentKey of segmentKeys) {
+    const versioned = await queryActiveBySegmentKey(segmentKey, tagConstantsVersion);
+    if (versioned !== null) return versioned;
+
+    const latest = await queryActiveBySegmentKey(segmentKey, null);
+    if (latest !== null) return latest;
+  }
+  return null;
 }
 
 function rowToParams(row: S3LogisticConfigSelect): LogisticParams {
@@ -76,56 +105,38 @@ function rowToParams(row: S3LogisticConfigSelect): LogisticParams {
 }
 
 /**
- * Возвращает активные логистические параметры S3 для сегмента с fallback-цепочкой:
+ * Возвращает активные логистические параметры S3 для сегмента и версии констант с fallback-цепочкой:
  *   device_type|creative_group → creative_group → global → DEFAULT_LOGISTIC_PARAMS
+ * На каждом уровне модель, обученная на версии констант показа, приоритетнее остальных.
  *
- * Результат кэшируется по запрошенному segmentKey.
+ * Результат кэшируется по сегменту и версии констант.
  */
 export async function getActiveS3LogisticParams(
   segmentKey: string,
+  tagConstantsVersion: string,
 ): Promise<S3LogisticConfigResolution> {
-  const cached = cache.get(segmentKey);
+  const cacheKey = `${tagConstantsVersion}::${segmentKey}`;
+  const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached;
-
-  const exactRow = await queryActiveBySegmentKey(segmentKey);
-  if (exactRow !== null) {
-    const resolution: S3LogisticConfigResolution = {
-      params: rowToParams(exactRow),
-      modelVersion: exactRow.id,
-    };
-    cache.set(segmentKey, resolution);
-    return resolution;
-  }
 
   const creativeGroup = segmentKey.includes('|')
     ? (segmentKey.split('|')[1] ?? segmentKey)
     : segmentKey;
 
-  const groupRow = await queryActiveBySegmentKey(creativeGroup);
-  if (groupRow !== null) {
-    const resolution: S3LogisticConfigResolution = {
-      params: rowToParams(groupRow),
-      modelVersion: groupRow.id,
-    };
-    cache.set(segmentKey, resolution);
-    return resolution;
-  }
+  const row = await resolveBySegmentChain(
+    Array.from(new Set([
+      segmentKey,
+      creativeGroup,
+      'global',
+    ])),
+    tagConstantsVersion,
+  );
 
-  const globalRow = await queryActiveBySegmentKey('global');
-  if (globalRow !== null) {
-    const resolution: S3LogisticConfigResolution = {
-      params: rowToParams(globalRow),
-      modelVersion: globalRow.id,
-    };
-    cache.set(segmentKey, resolution);
-    return resolution;
-  }
+  const resolution: S3LogisticConfigResolution = row !== null
+    ? { params: rowToParams(row), modelVersion: row.id }
+    : { params: DEFAULT_LOGISTIC_PARAMS, modelVersion: 'default' };
 
-  const resolution: S3LogisticConfigResolution = {
-    params: DEFAULT_LOGISTIC_PARAMS,
-    modelVersion: 'default',
-  };
-  cache.set(segmentKey, resolution);
+  cache.set(cacheKey, resolution);
   return resolution;
 }
 
@@ -141,7 +152,7 @@ export async function listS3LogisticConfigs(): Promise<S3LogisticConfigSelect[]>
 
 /**
  * Активирует версию логистической конфигурации S3 по id.
- * Транзакция гарантирует инвариант: ровно одна is_active=true на segment_key.
+ * Транзакция гарантирует инвариант: ровно одна is_active=true на пару segment_key + tag_constants_version.
  * Нельзя активировать конфигурацию, запланированную к удалению.
  */
 export async function activateS3LogisticConfig(id: string): Promise<void> {
@@ -173,7 +184,10 @@ export async function activateS3LogisticConfig(id: string): Promise<void> {
     await tx
       .update(s3LogisticConfigs)
       .set({ isActive: false })
-      .where(eq(s3LogisticConfigs.segmentKey, row.segmentKey));
+      .where(and(
+        eq(s3LogisticConfigs.segmentKey, row.segmentKey),
+        eq(s3LogisticConfigs.tagConstantsVersion, row.tagConstantsVersion),
+      ));
 
     await tx
       .update(s3LogisticConfigs)

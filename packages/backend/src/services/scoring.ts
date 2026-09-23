@@ -16,13 +16,16 @@ import type {
 import type { ImpressionInsert } from '../db/schema.js';
 import type { ActiveTagOwner } from './tag/tags.js';
 import type { IvtListEntry, IvtThresholds } from '@cpmind/shared';
+import type { ImpressionDeliveryContext } from './delivery/impression_context_rules.js';
 
 /**
  * Запускает полный pipeline расчета CPMind Score для одного импрессена.
  * Принимает активную конфигурацию весов из weights_config.ts, владельца,
- * полученного через resolveActiveTagOwner(), и presence-порог активной версии
- * констант тега (resolveActiveTagConstantsVersion в tag_constants.ts) — все три
+ * полученного через resolveActiveTagOwner(), и presence-порог версии констант
+ * тега показа (resolveTagConstantsVersion в tag_constants.ts) — все три
  * резолвятся до вызова этой функции, сама processImpression не обращается к БД.
+ * deliveryContext — контекст hosted-показа из ad_session (null для legacy): атрибуция,
+ * тип креатива и skippable берутся из него, а не из payload.
  */
 export function processImpression(
   payload: ImpressionPayload,
@@ -44,6 +47,7 @@ export function processImpression(
   ivtList: IvtListEntry[] | null,
   ivtThresholds: IvtThresholds,
   userAgent: string,
+  deliveryContext: ImpressionDeliveryContext | null,
 ): ImpressionInsert {
   const result = computeScore(
     payload,
@@ -63,6 +67,8 @@ export function processImpression(
     userAgent
   );
   const fIvt: 0 | 1 = (ivt.ivt_verdict === 'givt' || ivt.ivt_verdict === 'sivt_confirmed') ? 0 : 1;
+  const creativeType = deliveryContext?.creativeType ?? payload.creative_type;
+  const skippable = deliveryContext?.skippable ?? payload.skippable;
 
   return {
     impressionId: payload.impression_id,
@@ -70,10 +76,10 @@ export function processImpression(
     segmentIndex: payload.segment_index ?? 0,
     tagId: owner.tagId,
     userId: owner.userId,
-    tagConstantsVersion: payload.tag_constants_version,
-    campaignId: payload.campaign_id,
-    creativeId: payload.creative_id,
-    creativeType: payload.creative_type,
+    tagConstantsVersion: deliveryContext?.tagConstantsVersion ?? payload.tag_constants_version,
+    campaignId: deliveryContext?.campaignLabel ?? payload.campaign_id,
+    creativeId: deliveryContext?.creativeLabel ?? payload.creative_id,
+    creativeType,
     deviceType: payload.device_type,
     timestampStart: payload.timestamp_start,
     timestampEnd: payload.timestamp_end,
@@ -113,9 +119,9 @@ export function processImpression(
     s6CompletionRatePct: payload.signals.s6?.completion_rate_pct ?? null,
     s6AudibleTimeSec: payload.signals.s6?.audible_time_sec ?? null,
     s6DurationSec: payload.signals.s6?.duration_sec ?? null,
-    s6Skippable: payload.skippable ?? null,
+    s6Skippable: creativeType === 'video_creative' ? skippable : null,
     s7ModelVersion: s7ModelVersion,
-    publisherDomain: payload.publisher_domain,
+    publisherDomain: deliveryContext?.publisherDomain ?? payload.publisher_domain,
 
     noEvents: result.no_events,
     tabMostlyHidden: result.tab_mostly_hidden,
@@ -130,5 +136,40 @@ export function processImpression(
     ivtSignals: ivt.ivt_signals.length > 0
       ? ivt.ivt_signals as unknown as Record<string, unknown>[]
       : null,
+
+    adSessionId: deliveryContext?.adSessionId ?? null,
+    campaignRefId: deliveryContext?.campaignRefId ?? null,
+    creativeRefId: deliveryContext?.creativeRefId ?? null,
+    creativeVersionId: deliveryContext?.creativeVersionId ?? null,
+    placementId: deliveryContext?.placementId ?? null,
+    deliveryMode: deliveryContext?.deliveryMode ?? null,
+    format: deliveryContext?.format ?? null,
+    subtype: deliveryContext?.subtype ?? null,
+    videoShowIndex: deliveryContext?.videoShowIndex ?? null,
+    measurementMode: deliveryContext?.measurementMode ?? 'legacy_tag',
+    finalizationReason: payload.finalization_reason ?? null,
+    contextViolations: deliveryContext !== null && deliveryContext.contextViolations.length > 0
+      ? deliveryContext.contextViolations
+      : null,
+    isCheckpoint: payload.checkpoint === true,
   };
+}
+
+// Идентичность сегмента и владение не меняются при перезаписи промежуточного снимка
+const CHECKPOINT_IMMUTABLE_FIELDS: ReadonlySet<string> = new Set([
+  'impressionId',
+  'sessionGroupId',
+  'segmentIndex',
+  'tagId',
+  'userId',
+  'adSessionId',
+]);
+
+// Набор полей для ON CONFLICT DO UPDATE: все вычисленные значения, кроме неизменяемых
+export function buildCheckpointUpdateSet(
+  record: ImpressionInsert,
+): Partial<ImpressionInsert> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([field]) => !CHECKPOINT_IMMUTABLE_FIELDS.has(field)),
+  ) as Partial<ImpressionInsert>;
 }

@@ -1,6 +1,7 @@
 import type { Session, SdkSignalConfig } from '../types.js';
 
 const resetters = new WeakMap<HTMLElement, () => void>();
+const disposers = new WeakMap<HTMLElement, () => void>();
 
 interface RunningStats {
     count: number;
@@ -66,6 +67,7 @@ export function initS3(
     let lastScrollTime = performance.now();
     let lastDirection = 0;
     let rafScheduled = false;
+    let disposed = false;
 
     let pauseTimeout: ReturnType<typeof setTimeout> | null = null;
     let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -78,17 +80,23 @@ export function initS3(
     let isTouchActive = false;
     let touchEndTime = 0;
 
-    window.addEventListener('touchstart', () => {
+    function onTouchStart(): void {
         isTouchActive = true;
-    }, { passive: true });
+    }
 
-    window.addEventListener('touchend', () => {
+    function onTouchEnd(): void {
         isTouchActive = false;
         touchEndTime = performance.now();
-    }, { passive: true });
+    }
+
+    function clearPauseTimers(): void {
+        if (pauseTimeout !== null) { clearTimeout(pauseTimeout); pauseTimeout = null; }
+        if (pauseCheckInterval !== null) { clearInterval(pauseCheckInterval); pauseCheckInterval = null; }
+    }
 
     function processScrollFrame(): void {
         rafScheduled = false;
+        if (disposed) return;
 
         if (!isInScrollZone(creativeEl, SCROLL_ZONE_PX)) {
             lastScrollY = window.scrollY;
@@ -170,6 +178,8 @@ export function initS3(
         }
 
         pauseTimeout = setTimeout(() => {
+            pauseTimeout = null;
+            if (disposed) return;
             if (!isInScrollZone(creativeEl, SCROLL_ZONE_PX)) return;
 
             pauseStart = performance.now();
@@ -177,8 +187,10 @@ export function initS3(
                 session.s3.pause_count = (session.s3.pause_count ?? 0) + 1;
             }
 
+            if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
+
             pauseCheckInterval = setInterval(() => {
-                if (pauseStart === null) {
+                if (pauseStart === null || disposed) {
                     if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
                     pauseCheckInterval = null;
                     return;
@@ -218,13 +230,23 @@ export function initS3(
         requestAnimationFrame(processScrollFrame);
     }
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-
-    window.addEventListener('pagehide', () => {
+    function dispose(): void {
+        if (disposed) return;
+        disposed = true;
         window.removeEventListener('scroll', onScroll);
-        if (pauseTimeout !== null) { clearTimeout(pauseTimeout); pauseTimeout = null; }
-        if (pauseCheckInterval !== null) { clearInterval(pauseCheckInterval); pauseCheckInterval = null; }
-    }, { once: true });
+        window.removeEventListener('touchstart', onTouchStart);
+        window.removeEventListener('touchend', onTouchEnd);
+        window.removeEventListener('pagehide', dispose);
+        clearPauseTimers();
+        pauseStart = null;
+        disposers.delete(creativeEl);
+        resetters.delete(creativeEl);
+    }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('pagehide', dispose, { once: true });
 
     function resetState(): void {
         speedStats.count = 0;
@@ -236,8 +258,7 @@ export function initS3(
         recentEventTimes.length = 0;
         slowScrollStart = null;
 
-        if (pauseTimeout !== null) { clearTimeout(pauseTimeout); pauseTimeout = null; }
-        if (pauseCheckInterval !== null) { clearInterval(pauseCheckInterval); pauseCheckInterval = null; }
+        clearPauseTimers();
         pauseStart = null;
 
         if (session.s3 !== null) {
@@ -254,9 +275,15 @@ export function initS3(
     }
 
     resetters.set(creativeEl, resetState);
+    disposers.set(creativeEl, dispose);
     resetState();
 }
 
 export function resetSegmentS3(creativeEl: HTMLElement): void {
     resetters.get(creativeEl)?.();
+}
+
+// Снятие обработчиков скролла и таймеров пауз при завершении измерения
+export function disposeS3(creativeEl: HTMLElement): void {
+    disposers.get(creativeEl)?.();
 }

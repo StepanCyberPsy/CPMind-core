@@ -2,10 +2,12 @@
  * Определение домена площадки для каждого показа.
  *
  * Приоритет источников:
- *   1. TagConfig.publisherDomain — явно задан при создании тега (самый надёжный)
- *   2. document.referrer hostname — родительская страница в iframe-контексте
- *   3. window.location.hostname — direct embed без iframe
- *   4. unknown_{hash} — детерминированный fallback по контексту страницы
+ *   1. Явно заданный домен (TagConfig.publisherDomain, площадка placement) — самый надёжный
+ *   2. window.location.hostname — страница верхнего уровня, прямое встраивание
+ *   3. location.ancestorOrigins — origin страницы верхнего уровня из iframe (Chromium, Safari)
+ *   4. document.referrer hostname — родительская страница в iframe без ancestorOrigins (Firefox)
+ *   5. window.location.hostname — iframe без доступной информации о родителе
+ *   6. unknown_{hash} — детерминированный fallback по контексту страницы
  *
  * Hash: djb2 по строке `href + referrer`, 6 hex-символов.
  * Детерминированность: одна и та же площадка всегда даёт одинаковый hash,
@@ -81,19 +83,69 @@ function buildUnknownDomain(): string {
 }
 
 /**
+ * Страница верхнего уровня. Сравнение window.top допустимо и из cross-origin iframe.
+ */
+function isTopLevelWindow(): boolean {
+  try {
+    return window.top === window.self;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hostname страницы верхнего уровня из location.ancestorOrigins — последний элемент списка.
+ * Возвращает null, если API недоступен (Firefox) или origin непрозрачный.
+ */
+function getTopAncestorHostname(): string | null {
+  try {
+    const ancestors = (window.location as { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+    if (ancestors === undefined || ancestors.length === 0) return null;
+    return extractHostname(ancestors.item(ancestors.length - 1) ?? '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Валидный hostname текущего документа или null.
+ */
+function readLocationHostname(): string | null {
+  try {
+    const host = window.location.hostname.toLowerCase();
+    return host !== '' && isValidPublisherDomain(host) ? host : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Возвращает publisher_domain для текущего показа.
  *
- * @param configDomain — значение из TagConfig.publisherDomain (задаётся при создании тега)
+ * @param configDomain — явно заданный домен (TagConfig.publisherDomain, площадка placement)
  */
 export function getPublisherDomain(configDomain?: string): string {
-  // Приоритет 1: явно заданный домен в TagConfig
+  // Приоритет 1: явно заданный домен
   if (configDomain !== undefined && configDomain.trim() !== '') {
     const normalized = configDomain.trim().toLowerCase();
     if (isValidPublisherDomain(normalized)) return normalized;
     // Невалидный configDomain — не падаем, продолжаем цепочку
   }
 
-  // Приоритет 2: referrer родительской страницы (iframe-контекст)
+  const locationHost = readLocationHostname();
+
+  // Приоритет 2: страница верхнего уровня — referrer здесь указывает на источник перехода, а не на площадку
+  if (isTopLevelWindow() && locationHost !== null) {
+    return locationHost;
+  }
+
+  // Приоритет 3: origin страницы верхнего уровня из iframe
+  const ancestorHost = getTopAncestorHostname();
+  if (ancestorHost !== null && isValidPublisherDomain(ancestorHost)) {
+    return ancestorHost;
+  }
+
+  // Приоритет 4: referrer родительской страницы
   try {
     const referrerHost = extractHostname(document.referrer);
     if (referrerHost !== null && isValidPublisherDomain(referrerHost)) {
@@ -103,16 +155,11 @@ export function getPublisherDomain(configDomain?: string): string {
     // document.referrer недоступен — продолжаем
   }
 
-  // Приоритет 3: hostname текущей страницы (direct embed)
-  try {
-    const locationHost = window.location.hostname.toLowerCase();
-    if (locationHost && isValidPublisherDomain(locationHost)) {
-      return locationHost;
-    }
-  } catch {
-    // window.location недоступен — продолжаем
+  // Приоритет 5: hostname текущего документа
+  if (locationHost !== null) {
+    return locationHost;
   }
 
-  // Приоритет 4: детерминированный unknown-идентификатор
+  // Приоритет 6: детерминированный unknown-идентификатор
   return buildUnknownDomain();
 }

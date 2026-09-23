@@ -1,9 +1,14 @@
 import { FastifyPluginAsync } from 'fastify';
 import {
+    DeliveryAdvanceRequestSchema,
     DeliveryEventPayloadSchema,
     DeliverySessionRequestSchema,
 } from '@cpmind/shared';
-import { issueAdSession, resolveEmbedScript } from '../services/delivery/embed.js';
+import {
+    advanceAdSessionCreative,
+    issueAdSession,
+    resolveEmbedScript,
+} from '../services/delivery/embed.js';
 import { processDeliveryEvent } from '../services/delivery/events.js';
 import { extractPublisherDomain } from '../services/delivery/publisher.js';
 
@@ -65,6 +70,26 @@ export const deliveryRoute: FastifyPluginAsync = async (app) => {
         }
 
         return reply.send({ adSessionId });
+    });
+
+    // POST /api/delivery/advance — следующий ролик набора в той же сессии
+    app.post('/api/delivery/advance', async (request, reply) => {
+        const parsed = DeliveryAdvanceRequestSchema.safeParse(request.body);
+
+        if (!parsed.success) {
+            return reply.status(422).send({ errors: parsed.error.flatten() });
+        }
+
+        const advanced = await advanceAdSessionCreative(
+            parsed.data.deliveryToken,
+            parsed.data.adSessionId,
+        );
+
+        if (advanced === null) {
+            return reply.status(404).send({ error: 'Ad session not available' });
+        }
+
+        return reply.send(advanced);
     });
 
     // POST /api/delivery/event — SDK lifecycle events

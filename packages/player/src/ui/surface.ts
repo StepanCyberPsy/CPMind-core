@@ -1,3 +1,4 @@
+import type { StickyCorner } from '@cpmind/shared';
 import { ensurePlayerStyles } from './styles.js';
 import { COMPACT_BREAKPOINT_PX } from '../player-config.js';
 
@@ -10,16 +11,56 @@ export interface AdSurface {
     destroy(): void;
 }
 
-// Создаёт DOM-структуру рекламной поверхности и монтирует в container.
+// Способ размещения поверхности. overlay перекрывает содержимое контейнера —
+// требуется для in-stream, где реклама показывается поверх content video.
+// sticky закрепляется в углу окна и не занимает места в потоке страницы
+export type SurfaceMount =
+    | { kind: 'inline' }
+    | { kind: 'overlay' }
+    | {
+        kind: 'sticky';
+        corner: StickyCorner;
+        offsetX: number;
+        offsetY: number;
+    };
+
+// Отступ от края складывается с безопасной зоной устройства: на экранах с вырезом
+// поверхность иначе уходит под системную панель
+function applyStickyPosition(
+    wrapper: HTMLDivElement,
+    corner: StickyCorner,
+    offsetX: number,
+    offsetY: number,
+): void {
+    const isTop = corner.startsWith('top');
+    const isLeft = corner.endsWith('left');
+
+    const horizontal = `calc(${offsetX}px + env(safe-area-inset-${isLeft ? 'left' : 'right'}, 0px))`;
+    const vertical = `calc(${offsetY}px + env(safe-area-inset-${isTop ? 'top' : 'bottom'}, 0px))`;
+
+    if (isTop) {
+        wrapper.style.top = vertical;
+    } else {
+        wrapper.style.bottom = vertical;
+    }
+
+    if (isLeft) {
+        wrapper.style.left = horizontal;
+    } else {
+        wrapper.style.right = horizontal;
+    }
+}
+
+// Создаёт DOM-структуру рекламной поверхности и монтирует её.
 // CSS-prefix изоляция — без Shadow DOM.
-// overlay: поверхность перекрывает содержимое контейнера вместо занятия места
-// в потоке. Требуется для in-stream — реклама показывается поверх content video,
-// а не под ним. Контейнер при этом обязан иметь position отличный от static
+// Закреплённая поверхность монтируется в body: любой родитель контейнера
+// с transform, filter или perspective становится containing block,
+// и fixed начал бы позиционироваться относительно него, а не окна
 export function createAdSurface(
     container: HTMLElement,
     width: number | null,
     height: number | null,
-    overlay: boolean,
+    mount: SurfaceMount,
 ): AdSurface {
     ensurePlayerStyles();
 
@@ -31,13 +72,18 @@ export function createAdSurface(
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-cpmind-surface', '');
 
-    if (overlay) {
+    if (mount.kind === 'overlay') {
         wrapper.style.position = 'absolute';
         wrapper.style.top = '0';
         wrapper.style.left = '0';
         wrapper.style.width = '100%';
         wrapper.style.height = '100%';
         wrapper.style.zIndex = '2147483000';
+    } else if (mount.kind === 'sticky') {
+        wrapper.setAttribute('data-cpmind-sticky', '');
+        wrapper.style.width = width !== null ? `${width}px` : '100%';
+        wrapper.style.height = height !== null ? `${height}px` : 'auto';
+        applyStickyPosition(wrapper, mount.corner, mount.offsetX, mount.offsetY);
     } else {
         wrapper.style.position = 'relative';
         wrapper.style.width = width !== null ? `${width}px` : '100%';
@@ -78,7 +124,12 @@ export function createAdSurface(
     controlsBar.appendChild(btnRow);
 
     wrapper.appendChild(controlsBar);
-    container.appendChild(wrapper);
+
+    if (mount.kind === 'sticky') {
+        document.body.appendChild(wrapper);
+    } else {
+        container.appendChild(wrapper);
+    }
 
     const ro = new ResizeObserver((entries) => {
         const entry = entries[0];

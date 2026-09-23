@@ -1,5 +1,15 @@
-import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
-import { DEFAULT_S5_DESKTOP, DEFAULT_S5_MOBILE_TABLET, type S5LogisticParams } from '@cpmind/shared';
+import {
+  eq,
+  and,
+  desc,
+  lte,
+  isNotNull,
+} from 'drizzle-orm';
+import {
+  DEFAULT_S5_DESKTOP,
+  DEFAULT_S5_MOBILE_TABLET,
+  type S5LogisticParams,
+} from '@cpmind/shared';
 import { db } from '../../db/index.js';
 import { s5LogisticConfigs, type S5LogisticConfigSelect } from '../../db/schema.js';
 
@@ -31,8 +41,11 @@ export function invalidateS5LogisticCache(): void {
   cache.clear();
 }
 
+// Активная модель сегмента. С версией констант — модель, обученная на данных этой версии,
+// без версии — последняя обученная из активных моделей сегмента
 async function queryActiveBySegmentKey(
   segmentKey: string,
+  tagConstantsVersion: string | null,
 ): Promise<S5LogisticConfigSelect | null> {
   const rows = await db
     .select()
@@ -40,9 +53,29 @@ async function queryActiveBySegmentKey(
     .where(and(
       eq(s5LogisticConfigs.segmentKey, segmentKey),
       eq(s5LogisticConfigs.isActive, true),
+      tagConstantsVersion !== null
+        ? eq(s5LogisticConfigs.tagConstantsVersion, tagConstantsVersion)
+        : undefined,
     ))
+    .orderBy(desc(s5LogisticConfigs.fittedAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+// Первая найденная модель по цепочке сегментов: на каждом уровне модель версии констант
+// показа приоритетнее модели сегмента без учёта версии
+async function resolveBySegmentChain(
+  segmentKeys: readonly string[],
+  tagConstantsVersion: string,
+): Promise<S5LogisticConfigSelect | null> {
+  for (const segmentKey of segmentKeys) {
+    const versioned = await queryActiveBySegmentKey(segmentKey, tagConstantsVersion);
+    if (versioned !== null) return versioned;
+
+    const latest = await queryActiveBySegmentKey(segmentKey, null);
+    if (latest !== null) return latest;
+  }
+  return null;
 }
 
 function rowToParams(
@@ -61,46 +94,37 @@ function rowToParams(
 }
 
 /**
- * Возвращает активные логистические параметры S5 для сегмента с fallback-цепочкой:
+ * Возвращает активные логистические параметры S5 для сегмента и версии констант с fallback-цепочкой:
  *   desktop | mobile_tablet → global → DEFAULT_S5_DESKTOP | DEFAULT_S5_MOBILE_TABLET
+ * На каждом уровне модель, обученная на версии констант показа, приоритетнее остальных.
  *
- * Результат кэшируется по запрошенному segmentKey.
+ * Результат кэшируется по сегменту и версии констант.
  */
 export async function getActiveS5LogisticParams(
   segmentKey: 'desktop' | 'mobile_tablet',
+  tagConstantsVersion: string,
 ): Promise<S5LogisticConfigResolution> {
-  const cached = cache.get(segmentKey);
+  const cacheKey = `${tagConstantsVersion}::${segmentKey}`;
+  const cached = cache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  const exactRow = await queryActiveBySegmentKey(segmentKey);
-  if (exactRow !== null) {
-    const resolution: S5LogisticConfigResolution = {
-      params: rowToParams(exactRow, segmentKey),
-      modelVersion: exactRow.id,
-    };
-    cache.set(segmentKey, resolution);
-    return resolution;
-  }
-
-  const globalRow = await queryActiveBySegmentKey('global');
-  if (globalRow !== null) {
-    const resolution: S5LogisticConfigResolution = {
-      params: rowToParams(globalRow, segmentKey),
-      modelVersion: globalRow.id,
-    };
-    cache.set(segmentKey, resolution);
-    return resolution;
-  }
+  const row = await resolveBySegmentChain(
+    [
+      segmentKey,
+      'global',
+    ],
+    tagConstantsVersion,
+  );
 
   const defaultParams = segmentKey === 'desktop'
     ? DEFAULT_S5_DESKTOP
     : DEFAULT_S5_MOBILE_TABLET;
 
-  const resolution: S5LogisticConfigResolution = {
-    params: defaultParams,
-    modelVersion: 'default',
-  };
-  cache.set(segmentKey, resolution);
+  const resolution: S5LogisticConfigResolution = row !== null
+    ? { params: rowToParams(row, segmentKey), modelVersion: row.id }
+    : { params: defaultParams, modelVersion: 'default' };
+
+  cache.set(cacheKey, resolution);
   return resolution;
 }
 
@@ -116,7 +140,7 @@ export async function listS5LogisticConfigs(): Promise<S5LogisticConfigSelect[]>
 
 /**
  * Активирует версию логистической конфигурации S5 по id.
- * Транзакция гарантирует инвариант: ровно одна is_active=true на segment_key.
+ * Транзакция гарантирует инвариант: ровно одна is_active=true на пару segment_key + tag_constants_version.
  * Нельзя активировать конфигурацию, запланированную к удалению.
  */
 export async function activateS5LogisticConfig(id: string): Promise<void> {
@@ -148,7 +172,10 @@ export async function activateS5LogisticConfig(id: string): Promise<void> {
     await tx
       .update(s5LogisticConfigs)
       .set({ isActive: false })
-      .where(eq(s5LogisticConfigs.segmentKey, row.segmentKey));
+      .where(and(
+        eq(s5LogisticConfigs.segmentKey, row.segmentKey),
+        eq(s5LogisticConfigs.tagConstantsVersion, row.tagConstantsVersion),
+      ));
 
     await tx
       .update(s5LogisticConfigs)

@@ -11,12 +11,20 @@ export interface KeyboardControlsCallbacks {
     onSeekBackward(source: PlayerActionSource): void;
 }
 
+// Разрешённые действия с клавиатуры. Набор повторяет состав экранных контролов:
+// out-stream не даёт управления паузой и позицией, только звуком
+export interface KeyboardControlsPermissions {
+    playPause: boolean;
+    seek: boolean;
+}
+
 const SEEK_STEP_SEC = 5;
 
 // Keyboard controls — Space/K (play/pause), M (mute), ←/→ (seek ±5s)
 // Привязывается к surface element для изоляции от глобальных shortcuts страницы
 export function createKeyboardControls(
     surface: HTMLElement,
+    permissions: KeyboardControlsPermissions,
     callbacks: KeyboardControlsCallbacks,
 ): KeyboardControls {
     // tabIndex = 0 чтобы surface мог принимать фокус
@@ -36,6 +44,7 @@ export function createKeyboardControls(
         switch (e.code) {
             case 'Space':
             case 'KeyK': {
+                if (!permissions.playPause) break;
                 e.preventDefault();
                 callbacks.onPlayPause(source);
                 break;
@@ -46,11 +55,13 @@ export function createKeyboardControls(
                 break;
             }
             case 'ArrowRight': {
+                if (!permissions.seek) break;
                 e.preventDefault();
                 callbacks.onSeekForward(source);
                 break;
             }
             case 'ArrowLeft': {
+                if (!permissions.seek) break;
                 e.preventDefault();
                 callbacks.onSeekBackward(source);
                 break;

@@ -2,11 +2,15 @@ import { ICON_SKIP } from '../player-config.js';
 
 export interface SkipButton {
     el: HTMLDivElement;
-    update(currentTimeSec: number, durationSec: number): void;
+    update(watchedFrontierSec: number): void;
+    isReady(): boolean;
     destroy(): void;
 }
 
-// Skip button — countdown до skipOffset, затем кнопка активна
+// Skip button — обратный отсчёт до skipOffset, затем кнопка активна.
+// Отсчёт ведётся по максимально достигнутой позиции, а не по текущей:
+// перемотка назад не запускает таймер заново, перемотка вперёд не приближает
+// разблокировку — ожидание соответствует фактически просмотренному отрезку
 export function createSkipButton(
     container: HTMLElement,
     skipOffsetSec: number,
@@ -34,16 +38,24 @@ export function createSkipButton(
 
     return {
         el,
-        update(currentTimeSec: number): void {
-            const remaining = skipOffsetSec - currentTimeSec;
+
+        update(watchedFrontierSec: number): void {
+            const remaining = skipOffsetSec - watchedFrontierSec;
+
             if (remaining <= 0) {
                 el.setAttribute('data-cpmind-skip-ready', '');
                 labelSpan.textContent = 'Пропустить';
-            } else {
-                el.removeAttribute('data-cpmind-skip-ready');
-                labelSpan.textContent = `Пропустить через ${Math.ceil(remaining)} с`;
+                return;
             }
+
+            el.removeAttribute('data-cpmind-skip-ready');
+            labelSpan.textContent = `Пропустить через ${Math.ceil(remaining)} с`;
         },
+
+        isReady(): boolean {
+            return el.hasAttribute('data-cpmind-skip-ready');
+        },
+
         destroy(): void {
             el.removeEventListener('pointerup', onPointerUp);
             el.remove();

@@ -1,4 +1,8 @@
-import { eq, and, desc } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+} from 'drizzle-orm';
 import {
   DEFAULT_BANNER_WEIGHTS,
   DEFAULT_VIDEO_WEIGHTS,

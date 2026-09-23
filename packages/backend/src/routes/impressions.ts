@@ -1,13 +1,18 @@
 import { z } from 'zod';
+import { sql } from 'drizzle-orm';
 import { FastifyPluginAsync } from 'fastify';
 import {
   ImpressionPayloadSchema,
   UserUuidSchema,
+  resolveS6SegmentKeys,
   type CreativeCategory
 } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
-import { processImpression } from '../services/scoring.js';
+import {
+  processImpression,
+  buildCheckpointUpdateSet,
+} from '../services/scoring.js';
 import { getActiveWeightsConfig } from '../services/configs/weights_config.js';
 import { getActiveWeibullParams } from '../services/configs/weibull_config.js';
 import { getActiveS3LogisticParams } from '../services/configs/logistic_config.js';
@@ -18,7 +23,8 @@ import { getActiveS7Thresholds } from '../services/configs/s7_quantile_config.js
 import { getActiveIvtList } from '../services/ivt/ivt_list.js';
 import { getActiveIvtThresholds } from '../services/ivt/ivt_thresholds.js';
 import { resolveActiveTagOwner } from '../services/tag/tags.js';
-import { resolveActiveTagConstantsVersion } from '../services/tag/tag_constants.js';
+import { resolveTagConstantsVersion } from '../services/tag/tag_constants.js';
+import { resolveImpressionContext } from '../services/delivery/impression_context.js';
 import {
   listImpressionsForAdmin,
   listImpressionsForUser,
@@ -49,6 +55,7 @@ const ImpressionListQuerySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).default('desc'),
   sessionGroupId: z.string().uuid().optional(),
   campaignId: z.string().min(1).optional(),
+  campaignUuid: z.string().uuid().optional(),
   creativeId: z.string().min(1).optional(),
   publisherDomain: z.string().min(1).optional(),
   deviceType: z.enum(['desktop', 'mobile', 'tablet']).optional(),
@@ -98,16 +105,65 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       return reply.status(422).send({ error: 'Unknown or inactive tag' });
     }
 
-    const constantsVersionResolution = await resolveActiveTagConstantsVersion(
-      parsed.data.tag_constants_version,
+    const contextResolution = await resolveImpressionContext(parsed.data, owner.userId);
+
+    if (contextResolution.kind === 'rejected') {
+      request.log.warn(
+        {
+          impressionId: parsed.data.impression_id,
+          adSessionId: parsed.data.ad_session_id,
+          code: contextResolution.reason,
+        },
+        'Rejected impression — invalid delivery context',
+      );
+      return reply.status(422).send({
+        error: 'Invalid delivery context',
+        code: contextResolution.reason,
+      });
+    }
+
+    const deliveryContext = contextResolution.kind === 'hosted'
+      ? contextResolution.context
+      : null;
+
+    if (deliveryContext !== null && deliveryContext.contextViolations.length > 0) {
+      request.log.warn(
+        {
+          impressionId: parsed.data.impression_id,
+          adSessionId: deliveryContext.adSessionId,
+          violations: deliveryContext.contextViolations,
+        },
+        'Impression accepted with delivery context violations',
+      );
+    }
+
+    // Версия констант hosted-показа — выданная сессии: показы идущих сессий принимаются
+    // в пределах окна приёма и после деактивации версии
+    const tagConstantsVersion = deliveryContext?.tagConstantsVersion ?? parsed.data.tag_constants_version;
+    const allowInactiveConstants = deliveryContext !== null && deliveryContext.tagConstantsVersion !== null;
+
+    const constantsVersionResolution = await resolveTagConstantsVersion(
+      tagConstantsVersion,
+      allowInactiveConstants,
     );
 
     if (!constantsVersionResolution) {
       request.log.warn(
-        { tagConstantsVersion: parsed.data.tag_constants_version, code: 'UNKNOWN_TAG_CONSTANTS_VERSION' },
+        { tagConstantsVersion, code: 'UNKNOWN_TAG_CONSTANTS_VERSION' },
         'Rejected impression — unknown or inactive tag constants version',
       );
       return reply.status(422).send({ error: 'Unknown or inactive tag constants version' });
+    }
+
+    if (!constantsVersionResolution.isActive) {
+      request.log.info(
+        {
+          impressionId: parsed.data.impression_id,
+          adSessionId: deliveryContext?.adSessionId,
+          tagConstantsVersion,
+        },
+        'Impression accepted for deactivated tag constants version within ad session window',
+      );
     }
 
     request.log.info(
@@ -115,24 +171,31 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       'Impression received',
     );
 
+    const creativeType = deliveryContext?.creativeType ?? parsed.data.creative_type;
+    const skippable = deliveryContext?.skippable ?? parsed.data.skippable;
+
     const creativeCategory: CreativeCategory =
-      parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
+      creativeType === 'video_creative' ? 'video' : 'banner';
 
     const creativeGroup =
-      parsed.data.creative_type === 'banner_gif' || parsed.data.creative_type === 'banner_html5'
+      creativeType === 'banner_gif' || creativeType === 'banner_html5'
         ? 'animated'
-        : parsed.data.creative_type === 'video_creative'
+        : creativeType === 'video_creative'
           ? 'video'
           : 'static';
 
     const segmentKey = `${parsed.data.device_type}|${creativeGroup}`;
 
     const s4Device = parsed.data.device_type === 'tablet' ? 'mobile' : parsed.data.device_type;
-    const s4Creative = parsed.data.creative_type === 'video_creative' ? 'video' : 'banner';
+    const s4Creative = creativeType === 'video_creative' ? 'video' : 'banner';
     const s4Segment = `${s4Device}_${s4Creative}`;
     const s5Segment = parsed.data.device_type === 'desktop' ? 'desktop' : 'mobile_tablet';
-    const s6Segment = parsed.data.creative_type === 'video_creative'
-      ? `${parsed.data.device_type}|${parsed.data.skippable ? 'skippable' : 'non_skippable'}`
+    const s6SegmentKeys = creativeType === 'video_creative'
+      ? resolveS6SegmentKeys(
+        parsed.data.device_type,
+        deliveryContext?.format ?? null,
+        skippable,
+      )
       : null;
 
     const [
@@ -148,10 +211,10 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     ] = await Promise.all([
       getActiveWeightsConfig(creativeCategory),
       getActiveWeibullParams(segmentKey),
-      getActiveS3LogisticParams(segmentKey),
+      getActiveS3LogisticParams(segmentKey, tagConstantsVersion),
       getActiveS4Config(s4Segment),
-      getActiveS5LogisticParams(s5Segment),
-      getActiveS6LogisticParams(s6Segment),
+      getActiveS5LogisticParams(s5Segment, tagConstantsVersion),
+      getActiveS6LogisticParams(s6SegmentKeys, tagConstantsVersion),
       getActiveS7Thresholds(parsed.data.device_type),
       getActiveIvtList(),
       getActiveIvtThresholds(),
@@ -178,17 +241,28 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ivtList,
       ivtThresholds,
       userAgent,
+      deliveryContext,
     );
 
+    // Промежуточный снимок перезаписывается только более свежим снимком того же
+    // владельца и той же ad_session. Финальная запись неизменяема
     try {
       await db.insert(impressions)
         .values(record)
-        .onConflictDoNothing({ target: impressions.impressionId });
+        .onConflictDoUpdate({
+          target: impressions.impressionId,
+          set: buildCheckpointUpdateSet(record),
+          setWhere: sql`${impressions.isCheckpoint} = true
+            AND ${impressions.tagId} = ${record.tagId}
+            AND ${impressions.adSessionId} IS NOT DISTINCT FROM ${record.adSessionId}
+            AND ${impressions.timestampEnd} <= ${record.timestampEnd}`,
+        });
     } catch (err) {
       request.log.error(
         { err, payload: parsed.data },
         'DB write failed — payload logged for recovery',
       );
+      return reply.status(503).send({ error: 'Impression storage unavailable' });
     }
 
     return reply.status(202).send({ ok: true });
@@ -213,6 +287,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       sortDir,
       sessionGroupId,
       campaignId,
+      campaignUuid,
       creativeId,
       publisherDomain,
       deviceType,
@@ -259,6 +334,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       page, limit, sortBy, sortDir,
       ...(sessionGroupId !== undefined && { sessionGroupId }),
       ...(campaignId !== undefined && { campaignId }),
+      ...(campaignUuid !== undefined && { campaignUuid }),
       ...(creativeId !== undefined && { creativeId }),
       ...(publisherDomain !== undefined && { publisherDomain }),
       ...(deviceType !== undefined && { deviceType }),

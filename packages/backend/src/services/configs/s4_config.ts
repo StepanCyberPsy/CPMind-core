@@ -1,4 +1,10 @@
-import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+  lte,
+  isNotNull,
+} from 'drizzle-orm';
 import { DEFAULT_S4_CONFIGS, type S4Config } from '@cpmind/shared';
 import { db } from '../../db/index.js';
 import { s4Configs, type S4ConfigSelect } from '../../db/schema.js';

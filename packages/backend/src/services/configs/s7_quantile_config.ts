@@ -1,4 +1,10 @@
-import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+  lte,
+  isNotNull,
+} from 'drizzle-orm';
 import { DEFAULT_S7_THRESHOLDS, type S7Thresholds } from '@cpmind/shared';
 import { db } from '../../db/index.js';
 import { s7QuantileConfigs, type S7QuantileConfigSelect } from '../../db/schema.js';

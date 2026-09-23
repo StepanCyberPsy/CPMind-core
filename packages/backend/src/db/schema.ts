@@ -222,15 +222,27 @@ export const impressions = pgTable('impressions', {
   fpHash: text('fp_hash'),
   ivtSignals: jsonb('ivt_signals'),
 
-  // Delivery context
-  adSessionId: uuid('ad_session_id').references(() => adSessions.adSessionId),
+  // Delivery context. ad_session — родитель hosted-показа: удаление сессии с показами запрещено
+  adSessionId: uuid('ad_session_id').references(() => adSessions.adSessionId, { onDelete: 'restrict' }),
   campaignRefId: uuid('campaign_ref_id').references(() => campaigns.id),
   creativeRefId: uuid('creative_ref_id').references(() => creatives.id),
   creativeVersionId: uuid('creative_version_id').references(() => creativeVersions.id),
   placementId: uuid('placement_id').references(() => placements.id),
   deliveryMode: deliveryModeEnum('delivery_mode'),
+
+  // Формат и подтип показа. Для показов legacy-тега остаются пустыми
+  format: text('format'),
+  subtype: text('subtype'),
+
+  // Порядковый номер показа ролика в рекламной сессии
+  videoShowIndex: integer('video_show_index'),
+
   measurementMode: measurementModeEnum('measurement_mode').notNull().default('legacy_tag'),
   finalizationReason: text('finalization_reason'),
+  contextViolations: text('context_violations').array(),
+
+  // Промежуточный снимок сегмента перезаписывается следующей отправкой, финальный — неизменяем
+  isCheckpoint: boolean('is_checkpoint').notNull().default(false),
 
   // Системное
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -256,6 +268,9 @@ export const impressions = pgTable('impressions', {
       .on(t.adSessionId)
       .where(sql`${t.adSessionId} IS NOT NULL`),
     measurementModeIdx: index('idx_impressions_measurement_mode').on(t.measurementMode),
+    formatSubtypeIdx: index('idx_impressions_format_subtype')
+      .on(t.format, t.subtype)
+      .where(sql`${t.format} IS NOT NULL`),
     creativeVersionIdIdx: index('idx_impressions_creative_version_id')
       .on(t.creativeVersionId)
       .where(sql`${t.creativeVersionId} IS NOT NULL`),
@@ -270,6 +285,9 @@ export const tagConstantsConfigs = pgTable('tag_constants_configs', {
   description: text('description'),
   isActive: boolean('is_active').notNull().default(true),
 
+  // Версия для доставки плейсментам без закреплённой версии — ровно одна, всегда активна
+  isDefault: boolean('is_default').notNull().default(false),
+
   // Путь к собранному файлу и его размер — null когда файл физически отсутствует
   // (только что создана и еще не собрана, либо деактивирована и удалена с диска)
   scriptPath: text('script_path'),
@@ -278,6 +296,9 @@ export const tagConstantsConfigs = pgTable('tag_constants_configs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   isActiveIdx: index('idx_tag_constants_configs_is_active').on(t.isActive),
+  defaultIdx: uniqueIndex('uidx_tag_constants_configs_default')
+    .on(t.isDefault)
+    .where(sql`${t.isDefault} = true`),
 }));
 
 export const weightConfigs = pgTable('weight_configs', {
@@ -394,8 +415,9 @@ export const s3LogisticConfigs = pgTable('s3_logistic_configs', {
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
 }, (t) => ({
-  activeSegmentIdx: uniqueIndex('uidx_s3_logistic_active_segment')
-    .on(t.segmentKey)
+  // Активная модель — одна на пару сегмент + версия констант, на данных которой она обучена
+  activeSegmentIdx: uniqueIndex('uidx_s3_logistic_active_segment_version')
+    .on(t.segmentKey, t.tagConstantsVersion)
     .where(sql`${t.isActive} = true`),
   deletionScheduledAtIdx: index('idx_s3_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
 }));
@@ -429,8 +451,9 @@ export const s5LogisticConfigs = pgTable('s5_logistic_configs', {
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
 }, (t) => ({
-  activeSegmentIdx: uniqueIndex('uidx_s5_logistic_active_segment')
-    .on(t.segmentKey)
+  // Активная модель — одна на пару сегмент + версия констант, на данных которой она обучена
+  activeSegmentIdx: uniqueIndex('uidx_s5_logistic_active_segment_version')
+    .on(t.segmentKey, t.tagConstantsVersion)
     .where(sql`${t.isActive} = true`),
   deletionScheduledAtIdx: index('idx_s5_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
 }));
@@ -448,8 +471,9 @@ export const s6LogisticConfigs = pgTable('s6_logistic_configs', {
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
 }, (t) => ({
-  activeSegmentIdx: uniqueIndex('uidx_s6_logistic_active_segment')
-    .on(t.segmentKey)
+  // Активная модель — одна на пару сегмент + версия констант, на данных которой она обучена
+  activeSegmentIdx: uniqueIndex('uidx_s6_logistic_active_segment_version')
+    .on(t.segmentKey, t.tagConstantsVersion)
     .where(sql`${t.isActive} = true`),
   deletionScheduledAtIdx: index('idx_s6_logistic_deletion_scheduled_at').on(t.deletionScheduledAt),
 }));
@@ -570,17 +594,54 @@ export const placements = pgTable('placements', {
   tagId: bigint('tag_id', { mode: 'number' }).notNull().references(() => tags.id),
   deliveryToken: text('delivery_token').notNull(),
   mode: deliveryModeEnum('mode').notNull(),
+
+  // Формат и подтип размещения. Пара заменяет delivery_mode: banner без подтипа,
+  // instream — preroll, midroll, postroll, pauseroll, outstream — inpage, sticky.
+  // Nullable до завершения перехода, ограничение NOT NULL ставится после него
+  format: text('format'),
+  subtype: text('subtype'),
+
   plcmt: integer('plcmt'),
   width: integer('width'),
   height: integer('height'),
+
+  // Параметры закреплённого видео. Угол привязки и смещение от него в пикселях,
+  // размер поверхности. На узком экране ширина ограничивается клиентом
+  stickyCorner: text('sticky_corner'),
+  stickyOffsetX: integer('sticky_offset_x'),
+  stickyOffsetY: integer('sticky_offset_y'),
+  stickyWidth: integer('sticky_width'),
+  stickyHeight: integer('sticky_height'),
+
   autoplayMode: autoplayModeEnum('autoplay_mode'),
   initialMuted: boolean('initial_muted').notNull().default(true),
   skippable: boolean('skippable').notNull().default(false),
   skipOffsetSec: real('skip_offset_sec'),
   allowedDomains: text('allowed_domains').array(),
+
+  // Режим применения allowed_domains: off — не проверять, monitor — принимать
+  // с отметкой нарушения, block — отказывать в выдаче. Домен, который не удалось
+  // определить, нарушением не считается ни в одном режиме
+  domainEnforcement: text('domain_enforcement').notNull().default('monitor'),
+
+  // Переопределение домена площадки. null — домен определяется сервером и SDK
+  publisherDomain: text('publisher_domain'),
+
   slotId: text('slot_id'),
   videoSelector: text('video_selector'),
   clickUrl: text('click_url'),
+
+  // Закреплённая версия констант сбора. null — версия по умолчанию на момент выдачи
+  tagConstantsConfigId: uuid('tag_constants_config_id').references(() => tagConstantsConfigs.id),
+
+  // Явный выбор пользователя против умолчания по формату: при false значение
+  // initial_muted пересчитывается сервером из режима доставки
+  initialMutedOverridden: boolean('initial_muted_overridden').notNull().default(false),
+
+  // Порядок выбора ролика из набора: взвешенный случайный либо последовательный
+  // по кругу. Для набора из одного ролика значения равносильны
+  rotationMode: text('rotation_mode').notNull().default('weighted_random'),
+
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -590,6 +651,27 @@ export const placements = pgTable('placements', {
   userIdIdx: index('idx_placements_user_id').on(t.userId),
   campaignIdIdx: index('idx_placements_campaign_id').on(t.campaignId),
   creativeIdIdx: index('idx_placements_creative_id').on(t.creativeId),
+  tagConstantsConfigIdIdx: index('idx_placements_tag_constants_config_id').on(t.tagConstantsConfigId),
+}));
+
+// Набор роликов плейсмента. Только для видео: баннер остаётся с одним креативом.
+// Сумма весов строго 100 — проверяется в транзакции сервиса, CHECK по агрегату
+// в Postgres невозможен
+export const placementCreativeSet = pgTable('placement_creative_set', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  placementId: uuid('placement_id').notNull().references(() => placements.id, { onDelete: 'cascade' }),
+  creativeId: uuid('creative_id').notNull().references(() => creatives.id),
+
+  // Вероятность показа в процентах для взвешенного выбора
+  weightPct: real('weight_pct').notNull(),
+
+  // Позиция в последовательном порядке
+  displayOrder: integer('display_order').notNull().default(0),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  placementCreativeIdx: uniqueIndex('uidx_pcs_placement_creative').on(t.placementId, t.creativeId),
+  placementOrderIdx: index('idx_pcs_placement_order').on(t.placementId, t.displayOrder),
 }));
 
 export const uploadSessions = pgTable('upload_sessions', {
@@ -666,13 +748,28 @@ export const adSessions = pgTable('ad_sessions', {
   tagId: bigint('tag_id', { mode: 'number' }).references(() => tags.id),
   creativeType: creativeTypeEnum('creative_type').notNull(),
   deliveryMode: deliveryModeEnum('delivery_mode').notNull(),
+
+  // Формат и подтип рекламной возможности, зафиксированные при выдаче
+  format: text('format'),
+  subtype: text('subtype'),
+
   measurementMode: measurementModeEnum('measurement_mode').notNull().default('legacy_tag'),
   publisherDomain: text('publisher_domain'),
+
+  // Версия констант, выданная сессии: показы принимаются по ней в пределах окна приёма даже после деактивации
+  tagConstantsVersion: text('tag_constants_version').references(() => tagConstantsConfigs.version),
+
   playerRuntimeVersion: text('player_runtime_version'),
   sdkRuntimeVersion: text('sdk_runtime_version'),
   autoplayRequested: boolean('autoplay_requested'),
   initialMuted: boolean('initial_muted'),
   autoplayOutcome: autoplayOutcomeEnum('autoplay_outcome'),
+  startMuted: boolean('start_muted'),
+  mutedByBrowser: boolean('muted_by_browser'),
+
+  // Порядковый номер показа ролика внутри рекламной сессии. Out-stream проигрывает
+  // набор по кругу, каждый цикл — отдельный показ с собственной сессией измерения
+  videoShowIndex: integer('video_show_index'),
 
   // Тайминги доставки
   requestedAt: timestamp('requested_at', { withTimezone: true }).defaultNow().notNull(),
@@ -752,6 +849,8 @@ export type CreativeVersionAssetInsert = typeof creativeVersionAssets.$inferInse
 export type CreativeVersionAssetSelect = typeof creativeVersionAssets.$inferSelect;
 export type PlacementInsert = typeof placements.$inferInsert;
 export type PlacementSelect = typeof placements.$inferSelect;
+export type PlacementCreativeSetInsert = typeof placementCreativeSet.$inferInsert;
+export type PlacementCreativeSetSelect = typeof placementCreativeSet.$inferSelect;
 export type UploadSessionInsert = typeof uploadSessions.$inferInsert;
 export type UploadSessionSelect = typeof uploadSessions.$inferSelect;
 export type CreativeProcessingJobInsert = typeof creativeProcessingJobs.$inferInsert;

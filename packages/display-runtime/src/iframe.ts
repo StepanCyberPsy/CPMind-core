@@ -30,14 +30,16 @@ export async function runHtml5Flow(
     const iframe = createSandboxIframe();
     entry.container.appendChild(iframe);
 
-    const { renderConfirmedAt, cleanup } = await waitForHtml5Ready(
+    const frame = await waitForHtml5Ready({
         iframe,
-        entry.assetUrl,
-        entry.clickUrl,
-        () => sendDisplayEvent(ctx, 'creative_ready'),
+        assetUrl: entry.assetUrl,
+        clickUrl: entry.clickUrl,
+        constants: entry.tagConstants,
+        onCreativeReady: () => sendDisplayEvent(ctx, 'creative_ready'),
         signal,
-    );
+    });
 
-    ctx.bridgeCleanup = cleanup;
-    return renderConfirmedAt;
+    ctx.bridgeCleanup = frame.cleanup;
+    ctx.frameConnect = frame.connect;
+    return frame.renderConfirmedAt;
 }

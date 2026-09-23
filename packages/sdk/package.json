@@ -14,12 +14,14 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "dev": "tsc --project tsconfig.json --watch"
+    "dev": "tsc --project tsconfig.json --watch",
+    "test": "vitest run"
   },
   "dependencies": {
     "@cpmind/shared": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
   }
 }

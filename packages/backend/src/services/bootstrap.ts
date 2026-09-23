@@ -2,6 +2,7 @@ import {
   eq,
   isNull,
   and,
+  desc,
 } from 'drizzle-orm';
 import {
   DEFAULT_TAG_CONSTANTS,
@@ -15,7 +16,10 @@ import {
   DEFAULT_BANNER_WEIGHTS,
   DEFAULT_VIDEO_WEIGHTS,
 } from '@cpmind/shared';
-import type { TagConstantsValues } from '@cpmind/shared';
+import type {
+  TagConstantsConfigId,
+  TagConstantsValues,
+} from '@cpmind/shared';
 import { db } from '../db/index.js';
 import {
   users,
@@ -30,7 +34,10 @@ import {
   s6LogisticConfigs,
   s7QuantileConfigs,
 } from '../db/schema.js';
-import { createTagConstantsConfig } from './tag/tag_constants.js';
+import {
+  createTagConstantsConfig,
+  setDefaultTagConstantsConfig,
+} from './tag/tag_constants.js';
 import { buildTagArtifact, hasTagArtifact } from './tag/tag_builder.js';
 
 const LEGACY_TAG_LABEL = 'legacy_default';
@@ -135,22 +142,50 @@ export async function bootstrapAdmin(): Promise<void> {
   await backfillLegacyImpressions(userId, tagId);
 }
 
-// Создает v0 с исходными хардкод-значениями при пустой таблице — гарантирует,
-// что после деплоя версионирования всегда существует рабочая версия констант,
-// идентичная по поведению уже размещенному у клиентов нативному тегу. Идемпотентно:
-// при существующих записях ничего не делает, в т.ч. не пытается повторно собрать файл
+// Создает v0 с исходными хардкод-значениями при пустой таблице и назначает её версией
+// по умолчанию — гарантирует, что после деплоя всегда существует рабочая версия констант,
+// идентичная по поведению уже размещенному у клиентов нативному тегу. При существующих
+// записях файл повторно не собирается; если версия по умолчанию отсутствует, ею становится
+// последняя активная версия — восстановление после ручного вмешательства в БД
 export async function bootstrapTagConstants(): Promise<void> {
   const [existing] = await db
     .select({ id: tagConstantsConfigs.id })
     .from(tagConstantsConfigs)
     .limit(1);
 
-  if (existing) return;
+  if (!existing) {
+    const created = await createTagConstantsConfig(
+      {
+        constants: DEFAULT_TAG_CONSTANTS,
+        description: 'Бутстрап-версия: значения, действовавшие до введения версионирования',
+      },
+      null,
+    );
 
-  await createTagConstantsConfig({
-    constants: DEFAULT_TAG_CONSTANTS,
-    description: 'Бутстрап-версия: значения, действовавшие до введения версионирования',
-  });
+    await setDefaultTagConstantsConfig(created.id, null);
+    return;
+  }
+
+  const [defaultRow] = await db
+    .select({ id: tagConstantsConfigs.id })
+    .from(tagConstantsConfigs)
+    .where(eq(tagConstantsConfigs.isDefault, true))
+    .limit(1);
+
+  if (defaultRow) return;
+
+  const [latestActive] = await db
+    .select({ id: tagConstantsConfigs.id })
+    .from(tagConstantsConfigs)
+    .where(eq(tagConstantsConfigs.isActive, true))
+    .orderBy(desc(tagConstantsConfigs.createdAt))
+    .limit(1);
+
+  if (!latestActive) {
+    throw new Error('No active tag constants version available to become the default version');
+  }
+
+  await setDefaultTagConstantsConfig(latestActive.id as TagConstantsConfigId, null);
 }
 
 // Восстанавливает физические артефакты активных версий тега. buildTagArtifact
@@ -335,7 +370,17 @@ export async function bootstrapS6Default(): Promise<void> {
 
   if (existing) return;
 
+  // Сегменты по группе размещения и сегменты предыдущей схемы — резервный уровень выбора модели
   const segments = [
+    'desktop|instream_skippable',
+    'desktop|instream_non_skippable',
+    'desktop|outstream',
+    'mobile|instream_skippable',
+    'mobile|instream_non_skippable',
+    'mobile|outstream',
+    'tablet|instream_skippable',
+    'tablet|instream_non_skippable',
+    'tablet|outstream',
     'desktop|skippable',
     'desktop|non_skippable',
     'mobile|skippable',

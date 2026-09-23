@@ -1,7 +1,10 @@
 import {
     AdSessionIdSchema,
-    SELF_MOUNTED_DELIVERY_MODES,
+    isInstreamFormat,
+    isSelfMountedFormat,
+    type AdSessionId,
     type DeliveryRuntimeConfig,
+    type InstreamSubtype,
 } from '@cpmind/shared';
 import { CPMindPlayer } from './public_api.js';
 import { observeContentVideos } from './lifecycle/discovery.js';
@@ -10,8 +13,6 @@ import { observeContentVideos } from './lifecycle/discovery.js';
 // DeliveryRuntimeConfig теми же runtime-полями, что и в display-runtime
 export interface PlayerQueueEntry extends DeliveryRuntimeConfig {
     container: HTMLElement;
-    campaignId: string;
-    creativeId: string;
     assetUrl: string;
 }
 
@@ -21,19 +22,51 @@ declare global {
     }
 }
 
-// mid-roll и post-roll требуют точки вставки по timeupdate и события ended —
-// bindNativeContent реализует перехват play, то есть исключительно pre-roll.
-// Поэтому INSTREAM_DELIVERY_MODES здесь не используется: из трёх in-stream
-// режимов автоматически монтируется только pre-roll
-const INSTREAM_PREROLL_MODE = 'instream_preroll';
+// Подтип in-stream задаёт точку вставки. Отсутствие подтипа в конфигурации
+// приводится к pre-roll — прежнему единственному поддерживаемому варианту
+const DEFAULT_INSTREAM_SUBTYPE: InstreamSubtype = 'preroll';
+
+function resolveInstreamSubtype(entry: PlayerQueueEntry): InstreamSubtype {
+    const subtype = entry.subtype;
+
+    return subtype === 'preroll' ||
+        subtype === 'midroll' ||
+        subtype === 'postroll' ||
+        subtype === 'pauseroll'
+        ? subtype
+        : DEFAULT_INSTREAM_SUBTYPE;
+}
 
 // Защита от повторного монтирования: mountOutstream создаёт video-элемент и
 // IntersectionObserver, повторная обработка того же entry дала бы два плеера
 const mounted = new WeakSet<PlayerQueueEntry>();
 
+// Наблюдатели и контроллеры живут до выгрузки страницы: MutationObserver на
+// documentElement с subtree сканирует DOM издателя на каждой мутации, а привязка
+// к content video держит слушатель на чужом элементе
+const releasables: Array<{ destroy(): void }> = [];
+let unloadHandlerAttached = false;
+
+function registerReleasable(releasable: { destroy(): void }): void {
+    releasables.push(releasable);
+
+    if (unloadHandlerAttached) return;
+    unloadHandlerAttached = true;
+
+    window.addEventListener('pagehide', () => {
+        for (const item of releasables.splice(0)) {
+            try {
+                item.destroy();
+            } catch {
+                // Сбой освобождения одного ресурса не прерывает остальные
+            }
+        }
+    }, { once: true });
+}
+
 async function requestAdSessionId(
     entry: PlayerQueueEntry,
-): Promise<DeliveryRuntimeConfig['adSessionId']> {
+): Promise<AdSessionId> {
     const response = await fetch(entry.sessionEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -50,38 +83,61 @@ async function requestAdSessionId(
     return AdSessionIdSchema.parse(data.adSessionId);
 }
 
-// Привязка pre-roll ко всем content video, попадающим под селектор placement.
+// Привязка in-stream ко всем content video, попадающим под селектор placement.
 // Ad-сессия запрашивается в момент старта рекламы, а не привязки: иначе каждое
 // найденное видео создавало бы сессию, которая в большинстве случаев не воспроизведётся
-function attachPreroll(entry: PlayerQueueEntry): void {
-    observeContentVideos({
+function attachInstream(entry: PlayerQueueEntry): void {
+    const subtype = resolveInstreamSubtype(entry);
+
+    const discovery = observeContentVideos({
         selector: entry.videoSelector,
         onVideoFound(contentVideo: HTMLVideoElement): void {
             try {
-                CPMindPlayer.attachNative({
+                const controller = CPMindPlayer.attachNative({
                     contentVideo,
                     deliveryConfig: entry,
+                    subtype,
                     resolveAdSessionId: () => requestAdSessionId(entry),
                 });
+                registerReleasable(controller);
             } catch {
                 // Сбой привязки одного элемента не прерывает наблюдение
             }
         },
     });
+
+    registerReleasable(discovery);
 }
 
 function processEntry(entry: PlayerQueueEntry): void {
     if (entry.creativeType !== 'video_creative') return;
     if (mounted.has(entry)) return;
 
-    if (SELF_MOUNTED_DELIVERY_MODES.has(entry.deliveryMode)) {
+    if (isSelfMountedFormat(entry.format)) {
+        const adSessionId = entry.adSessionId;
+
+        // Self-mounted форматы получают сессию вместе с embed-скриптом
+        if (adSessionId === null) return;
+
         mounted.add(entry);
 
+        const deliveryConfig = {
+            ...entry,
+            adSessionId,
+        };
+
         try {
-            CPMindPlayer.mountOutstream({
-                container: entry.container,
-                deliveryConfig: entry,
-            });
+            const controller = entry.subtype === 'sticky'
+                ? CPMindPlayer.mountSticky({
+                    container: entry.container,
+                    deliveryConfig,
+                })
+                : CPMindPlayer.mountOutstream({
+                    container: entry.container,
+                    deliveryConfig,
+                });
+
+            registerReleasable(controller);
         } catch {
             // Сбой одной сессии не прерывает обработку остальных entry
         }
@@ -89,9 +145,9 @@ function processEntry(entry: PlayerQueueEntry): void {
         return;
     }
 
-    if (entry.deliveryMode === INSTREAM_PREROLL_MODE) {
+    if (isInstreamFormat(entry.format)) {
         mounted.add(entry);
-        attachPreroll(entry);
+        attachInstream(entry);
     }
 }
 

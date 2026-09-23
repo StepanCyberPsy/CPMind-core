@@ -1,3 +1,7 @@
+const HOUR_MS = 60 * 60 * 1000;
+const DEFAULT_AD_SESSION_TTL_HOURS = 24;
+const MAX_AD_SESSION_TTL_HOURS = 168;
+
 export function requireEnv(name: string): string {
     const value = process.env[name];
     if (value === undefined || value === '') {
@@ -53,6 +57,16 @@ export function getDisplayRuntimeVersion(): string {
 
 export function getPlayerRuntimeVersion(): string {
     return process.env['PLAYER_RUNTIME_VERSION'] ?? '1';
+}
+
+export function getAdSessionTtlMs(): number {
+    const raw = process.env['AD_SESSION_TTL_HOURS'];
+    if (!raw) return DEFAULT_AD_SESSION_TTL_HOURS * HOUR_MS;
+    const value = parseInt(raw, 10);
+    if (Number.isNaN(value) || value < 1 || value > MAX_AD_SESSION_TTL_HOURS) {
+        return DEFAULT_AD_SESSION_TTL_HOURS * HOUR_MS;
+    }
+    return value * HOUR_MS;
 }
 
 export function getDbPoolMax(): number {

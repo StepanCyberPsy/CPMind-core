@@ -125,12 +125,19 @@ import type { TagConfig } from './types.js';
       initS6Legacy(container, session);
       initS7(container, session, sdkConfig);
 
+      // S6 сбрасывается после отправки завершённого сегмента — иначе сегмент уходит с обнулённым S6
       const presenceHandle: PresenceHandle = initPresence(
         session,
         sdkConfig,
         () => {
-          resetSegmentS6Legacy(container);
-          startNewSegment(container, session, sdkConfig, meta, presenceHandle);
+          startNewSegment(
+            container,
+            session,
+            sdkConfig,
+            meta,
+            presenceHandle,
+            () => resetSegmentS6Legacy(container),
+          );
         },
       );
 

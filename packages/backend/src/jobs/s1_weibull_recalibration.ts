@@ -9,11 +9,19 @@ import { db } from '../db/index.js';
 import { impressions, s1WeibullConfigs } from '../db/schema.js';
 import { fitWeibullMLE } from '@cpmind/shared';
 import pino from 'pino';
+import {
+  buildTrainableImpressionFilter,
+  countSampleExclusions,
+  type TrainingSampleOptions,
+} from './recalibration_sample.js';
 
 const logger = pino({ name: 's1-weibull-recalibration-job' });
 
 const RECALIBRATION_WINDOW_DAYS = 30;
 const MIN_SAMPLE_SIZE = 1000;
+
+// Окно измерения S1 в SDK начинается с первого кадра — данные legacy-тега несопоставимы
+const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: true };
 
 const CREATIVE_GROUP_MAP: Record<string, string> = {
   banner_static: 'static',
@@ -36,17 +44,23 @@ export async function recalibrateS1Weibull(): Promise<void> {
         .filter(([, group]) => group === creativeGroup)
         .map(([creativeType]) => creativeType);
 
-      const rows = await db
-        .select({ t: impressions.s1RawTimeInView })
-        .from(impressions)
-        .where(
-          and(
-            eq(impressions.deviceType, deviceType),
-            inArray(impressions.creativeType, matchingCreativeTypes),
-            gte(impressions.createdAt, windowStart),
-            eq(impressions.isSuspicious, false),
-          ),
-        );
+      const baseWhere = and(
+        eq(impressions.deviceType, deviceType),
+        inArray(impressions.creativeType, matchingCreativeTypes),
+        gte(impressions.createdAt, windowStart),
+        eq(impressions.isSuspicious, false),
+      );
+
+      const [rows, exclusions] = await Promise.all([
+        db
+          .select({ t: impressions.s1RawTimeInView })
+          .from(impressions)
+          .where(and(
+            baseWhere,
+            buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+          )),
+        countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+      ]);
 
       const times = rows
         .map((r) => r.t)
@@ -54,7 +68,12 @@ export async function recalibrateS1Weibull(): Promise<void> {
 
       if (times.length < MIN_SAMPLE_SIZE) {
         logger.warn(
-          { segmentKey, sampleSize: times.length, minRequired: MIN_SAMPLE_SIZE },
+          {
+            segmentKey,
+            sampleSize: times.length,
+            minRequired: MIN_SAMPLE_SIZE,
+            sampleExclusions: exclusions,
+          },
           'S1 Weibull recalibration skipped — insufficient sample size',
         );
         continue;
@@ -78,6 +97,7 @@ export async function recalibrateS1Weibull(): Promise<void> {
             lambda: fit.lambda.toFixed(3),
             sampleSize: fit.sampleSize,
             converged: fit.converged,
+            sampleExclusions: exclusions,
           },
           'S1 Weibull segment fitted — draft saved, awaiting manual activation',
         );

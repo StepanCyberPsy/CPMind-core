@@ -7,18 +7,29 @@ export interface SeekBar {
 }
 
 // Seek bar с drag через document pointermove.
-// Drag на document предотвращает потерю при быстром выходе за пределы bar
+// Drag на document предотвращает потерю при быстром выходе за пределы bar.
+// interactive = false оставляет индикатор прогресса без возможности перемотки:
+// out-stream показывает ход воспроизведения, но управление позицией не даёт
 export function createSeekBar(
     container: HTMLElement,
+    interactive: boolean,
     onSeek: (fraction: number, source: PlayerActionSource) => void,
 ): SeekBar {
     const bar = document.createElement('div');
     bar.setAttribute('data-cpmind-seek', '');
-    bar.setAttribute('role', 'slider');
-    bar.setAttribute('aria-label', 'Прогресс видео');
-    bar.setAttribute('aria-valuemin', '0');
-    bar.setAttribute('aria-valuemax', '100');
-    bar.setAttribute('aria-valuenow', '0');
+
+    if (interactive) {
+        bar.setAttribute('role', 'slider');
+        bar.setAttribute('aria-label', 'Прогресс видео');
+        bar.setAttribute('aria-valuemin', '0');
+        bar.setAttribute('aria-valuemax', '100');
+        bar.setAttribute('aria-valuenow', '0');
+    } else {
+        bar.setAttribute('role', 'progressbar');
+        bar.setAttribute('aria-label', 'Прогресс видео');
+        bar.style.pointerEvents = 'none';
+        bar.style.cursor = 'default';
+    }
 
     const fill = document.createElement('div');
     fill.setAttribute('data-cpmind-seek-fill', '');
@@ -40,6 +51,22 @@ export function createSeekBar(
         fill.style.width = pct;
         thumb.style.left = pct;
         bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+    }
+
+    if (!interactive) {
+        container.appendChild(bar);
+
+        return {
+            el: bar,
+
+            setProgress(fraction: number): void {
+                applyFraction(fraction);
+            },
+
+            destroy(): void {
+                bar.remove();
+            },
+        };
     }
 
     const onPointerDown = (e: PointerEvent): void => {

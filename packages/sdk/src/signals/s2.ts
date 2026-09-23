@@ -1,12 +1,12 @@
 import type { Session, SdkSignalConfig } from '../types.js';
 
+const disposers = new WeakMap<Session, () => void>();
+
 export function initS2(
     creativeEl: HTMLElement,
     session: Session,
     config: SdkSignalConfig,
 ): void {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-
     function sample(): void {
         if (session.sent) return;
         if (session.viewStart === null) return;
@@ -46,18 +46,25 @@ export function initS2(
         }
     }
 
-    intervalId = setInterval(sample, config.constants.S2_SAMPLE_INTERVAL_MS);
+    const intervalId = setInterval(sample, config.constants.S2_SAMPLE_INTERVAL_MS);
     sample();
 
-    window.addEventListener('pagehide', () => {
-        if (intervalId !== null) {
-            clearInterval(intervalId);
-            intervalId = null;
-        }
-    }, { once: true });
+    function dispose(): void {
+        clearInterval(intervalId);
+        window.removeEventListener('pagehide', dispose);
+        disposers.delete(session);
+    }
+
+    window.addEventListener('pagehide', dispose, { once: true });
+    disposers.set(session, dispose);
 }
 
 export function resetSegmentS2(session: Session): void {
     session.shareOfScreenSamples = [];
     session.shareOfScreenMax = 0;
+}
+
+// Остановка сэмплирования при завершении измерения
+export function disposeS2(session: Session): void {
+    disposers.get(session)?.();
 }

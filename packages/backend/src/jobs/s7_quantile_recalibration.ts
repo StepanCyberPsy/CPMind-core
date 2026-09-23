@@ -4,26 +4,43 @@ import { db } from '../db/index.js';
 import { impressions, s7QuantileConfigs } from '../db/schema.js';
 import { fitS7Quantiles, type S7RawObservation } from '../services/configs/s7_quantile_fit.js';
 import pino from 'pino';
+import {
+  buildTrainableImpressionFilter,
+  countSampleExclusions,
+  type SampleExclusions,
+  type TrainingSampleOptions,
+} from './recalibration_sample.js';
 
 const logger = pino({ name: 's7-quantile-recalibration-job' });
 
 const RECALIBRATION_WINDOW_DAYS = 60;
 const MIN_SAMPLE_SIZE = 300;
 
+// Контекст страницы в SDK измеряется так же, как в legacy-теге — данные обоих режимов сопоставимы
+const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: false };
+
 const DEVICE_TYPES = ['desktop', 'mobile', 'tablet'] as const;
 
 async function fetchDeviceObservations(
   deviceType: string,
   windowStart: Date,
-): Promise<S7RawObservation[]> {
-  const rows = await db
-    .select({ signalsRaw: impressions.signalsRaw })
-    .from(impressions)
-    .where(and(
-      eq(impressions.deviceType, deviceType),
-      gte(impressions.createdAt, windowStart),
-      eq(impressions.isSuspicious, false),
-    ));
+): Promise<{ observations: S7RawObservation[]; exclusions: SampleExclusions }> {
+  const baseWhere = and(
+    eq(impressions.deviceType, deviceType),
+    gte(impressions.createdAt, windowStart),
+    eq(impressions.isSuspicious, false),
+  );
+
+  const [rows, exclusions] = await Promise.all([
+    db
+      .select({ signalsRaw: impressions.signalsRaw })
+      .from(impressions)
+      .where(and(
+        baseWhere,
+        buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+      )),
+    countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+  ]);
 
   const observations: S7RawObservation[] = [];
 
@@ -56,7 +73,7 @@ async function fetchDeviceObservations(
     });
   }
 
-  return observations;
+  return { observations, exclusions };
 }
 
 export async function recalibrateS7Quantiles(): Promise<void> {
@@ -67,11 +84,16 @@ export async function recalibrateS7Quantiles(): Promise<void> {
   logger.info({ windowDays: RECALIBRATION_WINDOW_DAYS }, 'S7 Quantile recalibration started');
 
   for (const deviceType of DEVICE_TYPES) {
-    const observations = await fetchDeviceObservations(deviceType, windowStart);
+    const { observations, exclusions } = await fetchDeviceObservations(deviceType, windowStart);
 
     if (observations.length < MIN_SAMPLE_SIZE) {
       logger.warn(
-        { deviceType, sampleSize: observations.length, minRequired: MIN_SAMPLE_SIZE },
+        {
+          deviceType,
+          sampleSize: observations.length,
+          minRequired: MIN_SAMPLE_SIZE,
+          sampleExclusions: exclusions,
+        },
         'S7 Quantile recalibration skipped — insufficient sample size',
       );
       continue;
@@ -89,7 +111,6 @@ export async function recalibrateS7Quantiles(): Promise<void> {
         sampleSize: fit.sampleSize,
         isActive: false,
       });
-
       logger.info(
         {
           deviceType,
@@ -98,6 +119,7 @@ export async function recalibrateS7Quantiles(): Promise<void> {
           relativeYMid: fit.relativeYMid.toFixed(3),
           clutterMid: fit.clutterMid.toFixed(1),
           clutterHigh: fit.clutterHigh.toFixed(1),
+          sampleExclusions: exclusions,
         },
         'S7 Quantile segment fitted — draft saved, awaiting manual activation',
       );

@@ -1,4 +1,8 @@
-import { eq, and, desc } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  desc,
+} from 'drizzle-orm';
 import { db } from '../../db/index.js';
 import { users, tags } from '../../db/schema.js';
 import type {

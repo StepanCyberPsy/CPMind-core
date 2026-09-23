@@ -81,6 +81,12 @@ export function initS4(
     });
 }
 
+// Снятие обработчиков видимости вкладки при завершении измерения
+export function disposeS4(session: Session): void {
+    cleanups.get(session)?.();
+    cleanups.delete(session);
+}
+
 export function resetSegmentS4(
     session: Session,
     config: SdkSignalConfig,
@@ -91,11 +97,9 @@ export function resetSegmentS4(
 
     session.tabActiveTimeMs = 0;
     session.tabSwitchesCount = 0;
-    session.tabSessionStart = Date.now();
-    session.visibilityStateHistory = [{
-        state: document.visibilityState === 'visible' ? 'visible' : 'hidden',
-        timestamp: Date.now(),
-    }];
+
+    // Начальную запись истории и tabSessionStart нового сегмента выставляет initS4
+    session.visibilityStateHistory = [];
 
     // Переинициализируем для нового сегмента
     initS4(session, config);

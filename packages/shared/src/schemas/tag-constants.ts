@@ -36,14 +36,28 @@ export const TagConstantsValuesSchema = z.object({
 
 export type TagConstantsValues = z.infer<typeof TagConstantsValuesSchema>;
 
+// Причина, по которой деактивация версии запрещена
+export const TagConstantsDeactivationBlockSchema = z.enum([
+  'DEFAULT_VERSION',
+  'PINNED_BY_PLACEMENTS',
+]);
+
+export type TagConstantsDeactivationBlock = z.infer<typeof TagConstantsDeactivationBlockSchema>;
+
 // Контракт версии констант для API — полный набор значений плюс метаданные сборки.
-// scriptPath — путь, который нужно вписать в <script src> на странице клиента
+// scriptPath — путь, который нужно вписать в <script src> на странице клиента.
+// isDefault — версия для плейсментов без закреплённой версии, pinnedPlacementsCount —
+// число плейсментов с закреплённой версией, deactivationBlockedReason — готовое для UI
+// объяснение запрета деактивации (null — деактивация разрешена или версия уже неактивна)
 export const TagConstantsConfigSchema = z.object({
   id: TagConstantsConfigIdSchema,
   version: z.string(),
   constants: TagConstantsValuesSchema,
   description: z.string().nullable(),
   isActive: z.boolean(),
+  isDefault: z.boolean(),
+  pinnedPlacementsCount: z.number().int().min(0),
+  deactivationBlockedReason: TagConstantsDeactivationBlockSchema.nullable(),
   scriptPath: z.string(),
   fileSizeBytes: z.number().int().min(0),
   createdAt: z.string(),

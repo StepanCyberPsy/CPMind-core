@@ -6,6 +6,7 @@ export type {
     MeasurementSession,
     MeasurementSessionState,
     PrepareMeasurementSessionInput,
+    VideoSessionInitialState,
 } from './public_api.js';
 
 // Types
@@ -25,7 +26,11 @@ export {
     resetSessionForNewSegment,
     computeActiveTimeMsInRange,
 } from './session.js';
-export type { SessionPayloadMeta, CreateSessionInput } from './session.js';
+export type {
+    SessionPayloadMeta,
+    CreateSessionInput,
+    BuildPayloadOptions,
+} from './session.js';
 
 // Segment
 export { startNewSegment } from './segment.js';
@@ -43,7 +48,11 @@ export { initS1, resetSegmentS1 } from './signals/s1.js';
 export { initS2, resetSegmentS2 } from './signals/s2.js';
 export { initS3, resetSegmentS3 } from './signals/s3.js';
 export { initS4, resetSegmentS4 } from './signals/s4.js';
-export { initS5, resetSegmentS5 } from './signals/s5.js';
+export {
+    initS5,
+    resetSegmentS5,
+    recordFrameInteraction,
+} from './signals/s5.js';
 export { initS7, resetSegmentS7 } from './signals/s7.js';
 export { initPresence } from './signals/presence.js';
 export type { PresenceHandle } from './signals/presence.js';
@@ -69,11 +78,26 @@ export {
 export { collectFpHash } from './signals/headless.js';
 export { waitForFirstFrame } from './signals/frame.js';
 
+// Signals — HTML5 frame interactions
+export {
+    classifyFrameInteraction,
+    FRAME_ENGAGEMENT_WINDOW_MS,
+} from './signals/frame_trust.js';
+export type {
+    FrameInteractionKind,
+    FrameInteractionTrust,
+    FrameTrustObservation,
+} from './signals/frame_trust.js';
+
 // Transport
 export {
     finalizeAndSend,
     attachUnloadHandlers,
     sendDeliveryEvent,
+} from './transport/send.js';
+export type {
+    SendKind,
+    SendOptions,
 } from './transport/send.js';
 
 // Utils

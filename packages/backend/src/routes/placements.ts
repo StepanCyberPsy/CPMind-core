@@ -10,7 +10,13 @@ import {
     getPlacementDetail,
     updatePlacement,
     setPlacementActive,
+    PlacementServiceError,
 } from '../services/placements.js';
+
+const TAG_CONSTANTS_PIN_FORBIDDEN = {
+    error: 'Pinning tag constants version requires admin role',
+    code: 'TAG_CONSTANTS_PIN_FORBIDDEN',
+} as const;
 
 export const placementsRoute: FastifyPluginAsync = async (app) => {
     app.post('/placements', { preHandler: requireAuth }, async (request, reply) => {
@@ -23,6 +29,11 @@ export const placementsRoute: FastifyPluginAsync = async (app) => {
             return reply.status(422).send({ errors: parsed.error.flatten() });
         }
 
+        // Закрепление версии констант — административная настройка
+        if (parsed.data.tagConstantsConfigId !== undefined && request.authUser.role !== 'admin') {
+            return reply.status(403).send(TAG_CONSTANTS_PIN_FORBIDDEN);
+        }
+
         try {
             const result = await createPlacement(parsed.data, request.authUser.id);
             if (!result) {
@@ -30,6 +41,9 @@ export const placementsRoute: FastifyPluginAsync = async (app) => {
             }
             return reply.status(201).send(result);
         } catch (err) {
+            if (err instanceof PlacementServiceError) {
+                return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+            }
             request.log.error({ err }, 'Failed to create placement');
             return reply.status(500).send({ error: 'Internal server error' });
         }
@@ -80,6 +94,11 @@ export const placementsRoute: FastifyPluginAsync = async (app) => {
             return reply.status(422).send({ errors: parsed.error.flatten() });
         }
 
+        // Закрепление и снятие закрепления версии констант — административная настройка
+        if (parsed.data.tagConstantsConfigId !== undefined && request.authUser.role !== 'admin') {
+            return reply.status(403).send(TAG_CONSTANTS_PIN_FORBIDDEN);
+        }
+
         try {
             const result = await updatePlacement(uuid, request.authUser.id, parsed.data);
             if (!result) {
@@ -87,6 +106,9 @@ export const placementsRoute: FastifyPluginAsync = async (app) => {
             }
             return reply.send(result);
         } catch (err) {
+            if (err instanceof PlacementServiceError) {
+                return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+            }
             request.log.error({ err, uuid }, 'Failed to update placement');
             return reply.status(500).send({ error: 'Internal server error' });
         }

@@ -1,7 +1,33 @@
 import { randomUUID } from 'node:crypto';
 import { sql, eq, and, asc } from 'drizzle-orm';
+import { DatabaseError } from 'pg';
 import { db } from '../db/index.js';
 import { campaigns, creatives } from '../db/schema.js';
+
+const UNIQUE_VIOLATION = '23505';
+const CAMPAIGN_KEY_CONSTRAINT = 'uidx_campaigns_user_campaign_key';
+const CAMPAIGN_NAME_CONSTRAINT = 'uidx_campaigns_user_lower_name';
+
+// Ошибка сервиса кампаний с HTTP-статусом и кодом для ответа маршрута
+export class CampaignServiceError extends Error {
+    constructor(
+        message: string,
+        public readonly statusCode: number,
+        public readonly code: string,
+    ) {
+        super(message);
+        this.name = 'CampaignServiceError';
+    }
+}
+
+function isUniqueViolation(
+    err: unknown,
+    constraint: string,
+): boolean {
+    return err instanceof DatabaseError &&
+        err.code === UNIQUE_VIOLATION &&
+        err.constraint === constraint;
+}
 
 export interface CampaignRow {
     uuid: string;
@@ -46,32 +72,64 @@ function toCampaignRow(row: {
     };
 }
 
+const CAMPAIGN_RETURNING_COLUMNS = {
+    uuid: campaigns.uuid,
+    campaignKey: campaigns.campaignKey,
+    name: campaigns.name,
+    status: campaigns.status,
+    createdAt: campaigns.createdAt,
+    updatedAt: campaigns.updatedAt,
+};
+
+// Занятое название и занятый ключ — разные отказы: по нарушенному ограничению
+// определяется, что именно исправлять пользователю. Системный ключ при коллизии
+// перегенерируется, пользовательский возвращается как конфликт
 export async function createCampaign(
     userId: number,
     name: string,
+    campaignKey?: string,
 ): Promise<CampaignRow> {
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const campaignKey = generateCampaignKey();
+    const attempts = campaignKey !== undefined ? 1 : 3;
 
-        const [row] = await db
-            .insert(campaigns)
-            .values({
-                userId,
-                campaignKey,
-                name,
-                status: 'active',
-            })
-            .onConflictDoNothing()
-            .returning({
-                uuid: campaigns.uuid,
-                campaignKey: campaigns.campaignKey,
-                name: campaigns.name,
-                status: campaigns.status,
-                createdAt: campaigns.createdAt,
-                updatedAt: campaigns.updatedAt,
-            });
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            const [row] = await db
+                .insert(campaigns)
+                .values({
+                    userId,
+                    campaignKey: campaignKey ?? generateCampaignKey(),
+                    name,
+                    status: 'active',
+                })
+                .returning(CAMPAIGN_RETURNING_COLUMNS);
 
-        if (row) return toCampaignRow(row);
+            if (!row) {
+                throw new Error('Campaign insert returned no row');
+            }
+
+            return toCampaignRow(row);
+        } catch (err) {
+            if (isUniqueViolation(err, CAMPAIGN_NAME_CONSTRAINT)) {
+                throw new CampaignServiceError(
+                    'Кампания с таким названием уже существует',
+                    409,
+                    'CAMPAIGN_NAME_TAKEN',
+                );
+            }
+
+            if (isUniqueViolation(err, CAMPAIGN_KEY_CONSTRAINT)) {
+                if (campaignKey !== undefined) {
+                    throw new CampaignServiceError(
+                        'Идентификатор кампании уже используется',
+                        409,
+                        'CAMPAIGN_KEY_TAKEN',
+                    );
+                }
+                continue;
+            }
+
+            throw err;
+        }
     }
 
     throw new Error('Failed to generate unique campaign key after retries');
