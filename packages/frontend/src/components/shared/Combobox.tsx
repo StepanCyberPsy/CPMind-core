@@ -16,7 +16,7 @@ export interface ComboboxOption {
 }
 
 interface ComboboxProps {
-  options: ComboboxOption[];
+  options: readonly ComboboxOption[];
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
@@ -46,7 +46,7 @@ export function Combobox({
     return options.filter((option) => option.label.toLowerCase().includes(normalized));
   }, [options, query]);
 
-  const rows = useMemo<ComboboxOption[]>(
+  const rows = useMemo<readonly ComboboxOption[]>(
     () => includeAll
       ? [{ value: '', label: allLabel }, ...filteredOptions]
       : filteredOptions,

@@ -44,6 +44,7 @@ function buildRow(
         format: 'outstream',
         subtype: 'inpage',
         videoShowIndex: 0,
+        sdkRuntimeVersion: 'player_v1',
         measurementMode: 'full_cpmind_player',
         tagConstantsVersion: 'v4',
         ...overrides,
@@ -160,6 +161,8 @@ describe('evaluateImpressionContext', () => {
             publisherDomain: PUBLISHER_DOMAIN,
             format: 'outstream',
             subtype: 'inpage',
+            videoShowIndex: 0,
+            sdkRuntimeVersion: 'player_v1',
             contextViolations: [],
         });
     });

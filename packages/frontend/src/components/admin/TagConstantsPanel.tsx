@@ -12,6 +12,7 @@ import {
   createTagConstantsConfig,
   activateTagConstantsConfig,
   deactivateTagConstantsConfig,
+  setDefaultTagConstantsConfig,
 } from '@/lib/admin/api';
 import cStyles from '@/styles/components.module.css';
 import styles from '@/styles/tag-constants.module.css';
@@ -141,12 +142,25 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} КБ`;
 }
 
+// Причина запрета деактивации приходит с сервера: версия по умолчанию
+// обязана оставаться активной, закреплённая за плейсментами — тоже
+function deactivationHint(cfg: TagConstantsConfig): string | null {
+  if (cfg.deactivationBlockedReason === 'DEFAULT_VERSION') {
+    return 'Версия по умолчанию — сначала назначьте другую';
+  }
+  if (cfg.deactivationBlockedReason === 'PINNED_BY_PLACEMENTS') {
+    return `Закреплена за плейсментами (${cfg.pinnedPlacementsCount}) — сначала снимите закрепление`;
+  }
+  return null;
+}
+
 export function TagConstantsPanel({ initialConfigs }: Props) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const [defaultingId, setDefaultingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [formFields, setFormFields] = useState<FormState>(initFormState);
   const [submitting, setSubmitting] = useState(false);
@@ -242,6 +256,21 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
     }
   }, [router]);
 
+  const handleSetDefault = useCallback(async (id: string) => {
+    if (!confirm(
+      'Сделать версией по умолчанию? Плейсменты без закреплённой версии начнут получать её при следующей выдаче.',
+    )) return;
+    setDefaultingId(id);
+    try {
+      await setDefaultTagConstantsConfig(id);
+      router.refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Ошибка назначения версии по умолчанию');
+    } finally {
+      setDefaultingId(null);
+    }
+  }, [router]);
+
   const handleDeactivate = useCallback(async (id: string) => {
     if (!confirm(
       'Деактивировать версию? Физический файл тега будет удалён, прием новых показов с этой версией заблокируется.',
@@ -285,6 +314,7 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
             <thead>
               <tr>
                 <th className={styles.th}>Версия</th>
+                <th className={styles.th}>Плейсменты</th>
                 <th className={styles.th}>Скрипт</th>
                 <th className={styles.th}>Размер</th>
                 <th className={styles.th}>Создана</th>
@@ -294,7 +324,7 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
             <tbody>
               {initialConfigs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className={styles.empty}>
+                  <td colSpan={6} className={styles.empty}>
                     Конфигурации не найдены
                   </td>
                 </tr>
@@ -318,7 +348,21 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
                               активна
                             </span>
                           )}
+                          {cfg.isDefault && (
+                            <span className={styles.defaultBadge}>
+                              по умолчанию
+                            </span>
+                          )}
                         </div>
+                      </td>
+                      <td className={styles.td}>
+                        {cfg.pinnedPlacementsCount > 0 ? (
+                          <span className={styles.pinnedCount}>
+                            {cfg.pinnedPlacementsCount}
+                          </span>
+                        ) : (
+                          <span className={styles.cellNull}>—</span>
+                        )}
                       </td>
                       <td className={styles.td}>
                         {cfg.scriptPath ? (
@@ -367,21 +411,44 @@ export function TagConstantsPanel({ initialConfigs }: Props) {
                               : 'Активировать'}
                           </button>
                           <button
+                            className={cStyles.ghostBtn}
+                            disabled={!cfg.isActive || cfg.isDefault || defaultingId === cfg.id}
+                            onClick={() => handleSetDefault(cfg.id)}
+                            title={cfg.isActive
+                              ? undefined
+                              : 'Версией по умолчанию может быть только активная версия'}
+                          >
+                            {defaultingId === cfg.id
+                              ? <span className={cStyles.spinner} />
+                              : 'Сделать по умолчанию'}
+                          </button>
+                          <button
                             className={cStyles.dangerBtn}
-                            disabled={!cfg.isActive || activatingId === cfg.id || deactivatingId === cfg.id}
+                            disabled={
+                              !cfg.isActive ||
+                              cfg.deactivationBlockedReason !== null ||
+                              activatingId === cfg.id ||
+                              deactivatingId === cfg.id
+                            }
                             onClick={() => handleDeactivate(cfg.id)}
+                            title={deactivationHint(cfg) ?? undefined}
                           >
                             {deactivatingId === cfg.id
                               ? <span className={cStyles.spinner} />
                               : 'Деактивировать'}
                           </button>
                         </div>
+                        {deactivationHint(cfg) !== null && (
+                          <div className={styles.blockedHint}>
+                            {deactivationHint(cfg)}
+                          </div>
+                        )}
                       </td>
                     </tr>
 
                     {expandedId === cfg.id && (
                       <tr className={styles.expandedRow}>
-                        <td colSpan={5} className={styles.expandedCell}>
+                        <td colSpan={6} className={styles.expandedCell}>
                           <div className={styles.constantsGrid}>
                             {CONSTANTS_META.map(meta => (
                               <div key={meta.key} className={styles.constantCard}>

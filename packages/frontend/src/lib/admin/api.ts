@@ -38,6 +38,9 @@ export interface ListParams {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  creativeType?: string;
+  format?: string;
+  subtype?: string;
   publisherDomain?: string;
   tagConstantsVersion?: string;
   weightsVersion?: string;
@@ -221,24 +224,48 @@ export interface PlacementListItem {
   updatedAt: string;
 }
 
+// Элемент набора роликов плейсмента
+export interface PlacementCreativeSetView {
+  creativeUuid: string;
+  creativeName: string;
+  weightPct: number;
+  displayOrder: number;
+}
+
+// Состав полей повторяет PlacementDetail сервиса плейсментов backend.
+// mode сохраняется до снятия прежней модели, источник истины — format и subtype
 export interface PlacementDetail {
   uuid: string;
   campaignUuid: string;
   creativeUuid: string;
   creativeName: string;
   creativeType: string;
+  rotationMode: string;
+  creativeSet: PlacementCreativeSetView[];
   mode: string;
+  format: string | null;
+  subtype: string | null;
   plcmt: number | null;
   width: number | null;
   height: number | null;
+  stickyCorner: string | null;
+  stickyOffsetX: number | null;
+  stickyOffsetY: number | null;
+  stickyWidth: number | null;
+  stickyHeight: number | null;
   autoplayMode: string | null;
   initialMuted: boolean;
+  initialMutedOverridden: boolean;
   skippable: boolean;
   skipOffsetSec: number | null;
   allowedDomains: string[] | null;
+  domainEnforcement: string;
+  publisherDomain: string | null;
   slotId: string | null;
   videoSelector: string | null;
   clickUrl: string | null;
+  tagConstantsConfigId: string | null;
+  tagConstantsVersion: string | null;
   isActive: boolean;
   deliveryToken: string;
   createdAt: string;
@@ -275,6 +302,9 @@ function buildQuery(params: ListParams): string {
   if (params.sessionGroupId) q.set('sessionGroupId', params.sessionGroupId);
   if (params.campaignId) q.set('campaignId', params.campaignId);
   if (params.creativeId) q.set('creativeId', params.creativeId);
+  if (params.creativeType) q.set('creativeType', params.creativeType);
+  if (params.format) q.set('format', params.format);
+  if (params.subtype) q.set('subtype', params.subtype);
   if (params.publisherDomain) q.set('publisherDomain', params.publisherDomain);
   if (params.tagConstantsVersion) q.set('tagConstantsVersion', params.tagConstantsVersion);
   if (params.weightsVersion) q.set('weightsVersion', params.weightsVersion);
@@ -441,6 +471,20 @@ export async function activateTagConstantsConfig(id: string): Promise<TagConstan
 
 export async function deactivateTagConstantsConfig(id: string): Promise<TagConstantsConfig> {
   const res = await fetch(`${CLIENT_BACKEND}/api/tag-constants/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? err?.message ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Версия по умолчанию выдаётся плейсментам без закреплённой версии.
+// Назначить можно только активную версию
+export async function setDefaultTagConstantsConfig(id: string): Promise<TagConstantsConfig> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/tag-constants/${id}/set-default`, {
     method: 'POST',
     credentials: 'include',
   });
@@ -1124,14 +1168,20 @@ export async function fetchCampaigns(
   return res.json();
 }
 
+// campaignKey задаётся пользователем для сверки с внешней системой.
+// Без него сервер генерирует системный ключ
 export async function createCampaign(
   name: string,
+  campaignKey?: string,
 ): Promise<CampaignRow> {
   const res = await fetch(`${CLIENT_BACKEND}/api/campaigns`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      ...(campaignKey !== undefined && campaignKey !== '' && { campaignKey }),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -52,6 +52,7 @@ async function loadAdSessionContextRow(
             format: adSessions.format,
             subtype: adSessions.subtype,
             videoShowIndex: adSessions.videoShowIndex,
+            sdkRuntimeVersion: adSessions.sdkRuntimeVersion,
             measurementMode: adSessions.measurementMode,
             tagConstantsVersion: adSessions.tagConstantsVersion,
         })

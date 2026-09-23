@@ -8,8 +8,24 @@ import {
 import { useRouter } from 'next/navigation';
 import { Combobox } from '@/components/shared/Combobox';
 import { ComboboxDatePicker } from '@/components/shared/ComboboxDatePicker';
+import {
+  CREATIVE_TYPE_KEYS,
+  CREATIVE_TYPE_LABELS,
+  PLACEMENT_FORMAT_LABELS,
+  FORMAT_SUBTYPE_OPTIONS,
+} from '@/lib/config';
 import type { UserFiltersProps } from '@/lib/user/types';
 import styles from '@/styles/filters.module.css';
+
+const CREATIVE_TYPE_OPTIONS = CREATIVE_TYPE_KEYS.map((value) => ({
+  value,
+  label: CREATIVE_TYPE_LABELS[value] ?? value,
+}));
+
+const FORMAT_OPTIONS = Object.entries(PLACEMENT_FORMAT_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 const DEVICE_OPTIONS = [
   { value: 'desktop', label: 'Desktop' },
@@ -40,6 +56,9 @@ export function UserFilters({
   const router = useRouter();
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
   const [creativeId, setCreativeId] = useState(current.creativeId ?? '');
+  const [creativeType, setCreativeType] = useState(current.creativeType ?? '');
+  const [format, setFormat] = useState(current.format ?? '');
+  const [subtype, setSubtype] = useState(current.subtype ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
 
   useEffect(() => {
@@ -53,6 +72,17 @@ export function UserFilters({
   const [dateFrom, setDateFrom] = useState(current.dateFrom ?? '');
   const [dateTo, setDateTo] = useState(current.dateTo ?? '');
 
+  // Подтипы принадлежат конкретному формату: смена формата делает выбранный
+  // подтип недопустимым, и фильтр вернул бы пустой результат
+  const onFormatChange = useCallback((value: string) => {
+    setFormat(value);
+    setSubtype('');
+  }, []);
+
+  const subtypeOptions = format !== ''
+    ? (FORMAT_SUBTYPE_OPTIONS[format] ?? [])
+    : [];
+
   const applyFilters = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.set('page', '1');
@@ -62,6 +92,9 @@ export function UserFilters({
     }
 
     creativeId ? url.searchParams.set('creativeId', creativeId) : url.searchParams.delete('creativeId');
+    creativeType ? url.searchParams.set('creativeType', creativeType) : url.searchParams.delete('creativeType');
+    format ? url.searchParams.set('format', format) : url.searchParams.delete('format');
+    subtype ? url.searchParams.set('subtype', subtype) : url.searchParams.delete('subtype');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
     isSuspicious ? url.searchParams.set('isSuspicious', isSuspicious) : url.searchParams.delete('isSuspicious');
     ivtVerdict ? url.searchParams.set('ivtVerdict', ivtVerdict) : url.searchParams.delete('ivtVerdict');
@@ -74,6 +107,9 @@ export function UserFilters({
     lockCampaignId,
     campaignId,
     creativeId,
+    creativeType,
+    format,
+    subtype,
     deviceType,
     isSuspicious,
     ivtVerdict,
@@ -84,6 +120,9 @@ export function UserFilters({
   const resetFilters = useCallback(() => {
     if (!lockCampaignId) setCampaignId('');
     setCreativeId('');
+    setCreativeType('');
+    setFormat('');
+    setSubtype('');
     setDeviceType('');
     setIsSuspicious('');
     setIvtVerdict('');
@@ -93,6 +132,9 @@ export function UserFilters({
     const url = new URL(window.location.href);
     [
       'creativeId',
+      'creativeType',
+      'format',
+      'subtype',
       'deviceType',
       'isSuspicious',
       'ivtVerdict',
@@ -174,6 +216,38 @@ export function UserFilters({
             placeholder="Все"
           />
         </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Тип креатива</label>
+          <Combobox
+            options={CREATIVE_TYPE_OPTIONS}
+            value={creativeType}
+            onChange={setCreativeType}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Формат размещения</label>
+          <Combobox
+            options={FORMAT_OPTIONS}
+            value={format}
+            onChange={onFormatChange}
+            placeholder="Все"
+          />
+        </div>
+
+        {subtypeOptions.length > 0 && (
+          <div className={styles.field}>
+            <label className={styles.label}>Тип размещения</label>
+            <Combobox
+              options={subtypeOptions}
+              value={subtype}
+              onChange={setSubtype}
+              placeholder="Все"
+            />
+          </div>
+        )}
 
         <div className={styles.field}>
           <label className={styles.label}>Устройство</label>

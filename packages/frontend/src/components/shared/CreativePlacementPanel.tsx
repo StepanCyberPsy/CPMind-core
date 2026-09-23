@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { setPlacementActive } from '@/lib/admin/api';
 import { CopyableText } from './CopyableText';
 import { PlacementEmbedModal } from './PlacementEmbedModal';
-import { formatDeliveryMode } from '@/lib/config';
+import { formatPlacement } from '@/lib/config';
 import type { PlacementDetail } from '@/lib/admin/api';
 import styles from '@/styles/creative-placement-panel.module.css';
 
@@ -40,9 +40,9 @@ export function CreativePlacementPanel({ placement }: Props): React.ReactElement
         <>
             <div className={styles.root}>
                 <div className={styles.infoRow}>
-                    <span className={styles.infoLabel}>Режим</span>
+                    <span className={styles.infoLabel}>Размещение</span>
                     <span className={styles.infoValue}>
-                        {formatDeliveryMode(placement.mode)}
+                        {formatPlacement(placement.format, placement.subtype)}
                     </span>
                 </div>
 

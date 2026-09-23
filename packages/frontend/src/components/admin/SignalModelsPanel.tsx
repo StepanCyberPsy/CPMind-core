@@ -285,11 +285,16 @@ function SegmentHeader({
     );
 }
 
-function ActiveBadge() {
+// Активная модель S1, S4 и S7 — одна на сегмент. У S3, S5 и S6 активная модель
+// одна на пару «сегмент + версия констант»: в одном сегменте несколько активных
+// моделей разных версий не конкурируют, каждая применяется к своим показам
+function ActiveBadge({ tagConstantsVersion }: { tagConstantsVersion?: string }) {
     return (
         <span className={styles.activeBadge}>
             <span className={styles.activeDot} />
-            активна
+            {tagConstantsVersion !== undefined
+                ? `активна для ${tagConstantsVersion}`
+                : 'активна'}
         </span>
     );
 }
@@ -568,7 +573,9 @@ function S3Table({
                                                 <td className={styles.td}>
                                                     <div className={styles.cellVersion}>
                                                         <span className={styles.cellMono}>{formatDate(cfg.fittedAt)}</span>
-                                                        {cfg.isActive && <ActiveBadge />}
+                                                        {cfg.isActive && (
+                                                            <ActiveBadge tagConstantsVersion={cfg.tagConstantsVersion} />
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className={styles.td}>
@@ -803,7 +810,9 @@ function S5Table({
                                                 <td className={styles.td}>
                                                     <div className={styles.cellVersion}>
                                                         <span className={styles.cellMono}>{formatDate(cfg.fittedAt)}</span>
-                                                        {cfg.isActive && <ActiveBadge />}
+                                                        {cfg.isActive && (
+                                                            <ActiveBadge tagConstantsVersion={cfg.tagConstantsVersion} />
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className={styles.td}>
@@ -936,7 +945,9 @@ function S6Table({
                                                 <td className={styles.td}>
                                                     <div className={styles.cellVersion}>
                                                         <span className={styles.cellMono}>{formatDate(cfg.fittedAt)}</span>
-                                                        {cfg.isActive && <ActiveBadge />}
+                                                        {cfg.isActive && (
+                                                            <ActiveBadge tagConstantsVersion={cfg.tagConstantsVersion} />
+                                                        )}
                                                     </div>
                                                 </td>
                                                 <td className={styles.td}>

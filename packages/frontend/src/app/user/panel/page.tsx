@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { fetchUserCampaigns } from '@/lib/user/api';
 import { UserCampaignsTable } from '@/components/user/UserCampaignsTable';
+import { LogoutButton } from '@/components/shared/LogoutButton';
 import styles from '@/styles/user_panel.module.css';
 
 export default async function UserPanelPage() {
@@ -21,9 +22,12 @@ export default async function UserPanelPage() {
           Импрешены:{' '}
           <span className={styles.headerCount}>{impressionsTotal.toLocaleString('ru-RU')}</span>
         </div>
-        <a href="/campaigns" className={styles.workspaceLink}>
-          Мои размещения →
-        </a>
+        <div className={styles.headerActions}>
+          <a href="/campaigns" className={styles.workspaceLink}>
+            Мои размещения →
+          </a>
+          <LogoutButton />
+        </div>
       </header>
 
       <div className={styles.content}>

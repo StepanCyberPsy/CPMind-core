@@ -237,6 +237,10 @@ export const impressions = pgTable('impressions', {
   // Порядковый номер показа ролика в рекламной сессии
   videoShowIndex: integer('video_show_index'),
 
+  // Версия рантайма, собравшего показ. Фиксируется в момент записи: изменение
+  // сессии задним числом не должно менять историю измерений
+  sdkRuntimeVersion: text('sdk_runtime_version'),
+
   measurementMode: measurementModeEnum('measurement_mode').notNull().default('legacy_tag'),
   finalizationReason: text('finalization_reason'),
   contextViolations: text('context_violations').array(),
@@ -271,6 +275,7 @@ export const impressions = pgTable('impressions', {
     formatSubtypeIdx: index('idx_impressions_format_subtype')
       .on(t.format, t.subtype)
       .where(sql`${t.format} IS NOT NULL`),
+    creativeTypeIdx: index('idx_impressions_creative_type').on(t.creativeType),
     creativeVersionIdIdx: index('idx_impressions_creative_version_id')
       .on(t.creativeVersionId)
       .where(sql`${t.creativeVersionId} IS NOT NULL`),

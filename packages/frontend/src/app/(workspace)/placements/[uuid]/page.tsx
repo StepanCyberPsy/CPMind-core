@@ -3,20 +3,15 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { fetchPlacementDetail } from '@/lib/admin/api';
 import { CreativeStatusBadge } from '@/components/shared/CreativeStatusBadge';
+import {
+    formatPlacement,
+    formatStickyCorner,
+    formatRotationMode,
+    formatDomainEnforcement,
+    formatAutoplayMode,
+} from '@/lib/config';
 import { PlacementActions } from './PlacementActions';
 import styles from '@/styles/placement-detail.module.css';
-
-function formatMode(mode: string): string {
-    switch (mode) {
-        case 'display': return 'Display';
-        case 'instream_preroll': return 'In-stream Pre-roll';
-        case 'instream_midroll': return 'In-stream Mid-roll';
-        case 'instream_postroll': return 'In-stream Post-roll';
-        case 'outstream': return 'Outstream';
-        case 'standalone_video': return 'Standalone Video';
-        default: return mode;
-    }
-}
 
 export default async function PlacementDetailPage({
     params,
@@ -31,6 +26,9 @@ export default async function PlacementDetailPage({
     if (placement === null) notFound();
 
     const isReady = placement.currentVersionStatus === 'ready';
+    const isVideo = placement.format === 'instream' || placement.format === 'outstream';
+    const isSticky = placement.subtype === 'sticky';
+    const hasCreativeSet = placement.creativeSet.length > 0;
 
     return (
         <div className={styles.page}>
@@ -53,7 +51,7 @@ export default async function PlacementDetailPage({
                             status={placement.currentVersionStatus ?? 'draft'}
                         />
                         {placement.currentVersionError !== null && (
-                            <span style={{ fontSize: 12, color: 'var(--negative)' }}>
+                            <span className={styles.errorText}>
                                 {placement.currentVersionError}
                             </span>
                         )}
@@ -69,13 +67,48 @@ export default async function PlacementDetailPage({
                     <div className={styles.cardTitle}>Параметры</div>
                     <div className={styles.metaGrid}>
                         <div className={styles.metaItem}>
-                            <span className={styles.metaLabel}>Режим</span>
-                            <span className={styles.metaValue}>{formatMode(placement.mode)}</span>
+                            <span className={styles.metaLabel}>Размещение</span>
+                            <span className={styles.metaValue}>
+                                {formatPlacement(placement.format, placement.subtype)}
+                            </span>
                         </div>
                         <div className={styles.metaItem}>
                             <span className={styles.metaLabel}>Тип creative</span>
                             <span className={styles.metaValue}>{placement.creativeType}</span>
                         </div>
+
+                        {isVideo && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Звук при старте</span>
+                                <span className={styles.metaValue}>
+                                    {placement.initialMuted ? 'Без звука' : 'Со звуком'}
+                                    {!placement.initialMutedOverridden && (
+                                        <span className={styles.metaNote}> — по умолчанию</span>
+                                    )}
+                                </span>
+                            </div>
+                        )}
+
+                        {placement.format === 'outstream' && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Запуск ролика</span>
+                                <span className={styles.metaValue}>
+                                    {formatAutoplayMode(placement.autoplayMode)}
+                                </span>
+                            </div>
+                        )}
+
+                        {placement.format === 'instream' && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Пропуск</span>
+                                <span className={styles.metaValue}>
+                                    {placement.skippable
+                                        ? `Через ${placement.skipOffsetSec ?? 0} с`
+                                        : 'Недоступен'}
+                                </span>
+                            </div>
+                        )}
+
                         {placement.width !== null && placement.height !== null && (
                             <div className={styles.metaItem}>
                                 <span className={styles.metaLabel}>Размер</span>
@@ -84,6 +117,30 @@ export default async function PlacementDetailPage({
                                 </span>
                             </div>
                         )}
+
+                        {isSticky && (
+                            <>
+                                <div className={styles.metaItem}>
+                                    <span className={styles.metaLabel}>Угол привязки</span>
+                                    <span className={styles.metaValue}>
+                                        {formatStickyCorner(placement.stickyCorner)}
+                                    </span>
+                                </div>
+                                <div className={styles.metaItem}>
+                                    <span className={styles.metaLabel}>Отступы</span>
+                                    <span className={styles.metaValue}>
+                                        {placement.stickyOffsetX ?? 0} × {placement.stickyOffsetY ?? 0} px
+                                    </span>
+                                </div>
+                                <div className={styles.metaItem}>
+                                    <span className={styles.metaLabel}>Размер поверхности</span>
+                                    <span className={styles.metaValue}>
+                                        {placement.stickyWidth ?? 0} × {placement.stickyHeight ?? 0} px
+                                    </span>
+                                </div>
+                            </>
+                        )}
+
                         {placement.slotId !== null && (
                             <div className={styles.metaItem}>
                                 <span className={styles.metaLabel}>ID слота</span>
@@ -96,6 +153,33 @@ export default async function PlacementDetailPage({
                                 <span className={styles.metaMono}>{placement.videoSelector}</span>
                             </div>
                         )}
+
+                        <div className={styles.metaItem}>
+                            <span className={styles.metaLabel}>Домен площадки</span>
+                            <span className={styles.metaValue}>
+                                {placement.publisherDomain ?? 'Определяется автоматически'}
+                            </span>
+                        </div>
+
+                        {placement.allowedDomains !== null && placement.allowedDomains.length > 0 && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Разрешённые домены</span>
+                                <span className={styles.metaValue}>
+                                    {placement.allowedDomains.join(', ')}
+                                    <span className={styles.metaNote}>
+                                        {' — '}{formatDomainEnforcement(placement.domainEnforcement)}
+                                    </span>
+                                </span>
+                            </div>
+                        )}
+
+                        {placement.tagConstantsVersion !== null && (
+                            <div className={styles.metaItem}>
+                                <span className={styles.metaLabel}>Версия констант</span>
+                                <span className={styles.metaMono}>{placement.tagConstantsVersion}</span>
+                            </div>
+                        )}
+
                         <div className={styles.metaItem}>
                             <span className={styles.metaLabel}>Delivery token</span>
                             <span className={styles.metaMono}>{placement.deliveryToken}</span>
@@ -108,6 +192,23 @@ export default async function PlacementDetailPage({
                         </div>
                     </div>
                 </div>
+
+                {hasCreativeSet && (
+                    <div className={styles.card}>
+                        <div className={styles.cardTitle}>
+                            Набор роликов · {formatRotationMode(placement.rotationMode)}
+                        </div>
+                        <div className={styles.setList}>
+                            {placement.creativeSet.map((item) => (
+                                <div key={item.creativeUuid} className={styles.setRow}>
+                                    <span className={styles.setOrder}>{item.displayOrder + 1}</span>
+                                    <span className={styles.setName}>{item.creativeName}</span>
+                                    <span className={styles.setWeight}>{item.weightPct}%</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <PlacementActions placement={placement} />
             </div>

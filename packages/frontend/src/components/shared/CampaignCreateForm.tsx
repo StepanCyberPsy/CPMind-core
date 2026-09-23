@@ -13,6 +13,8 @@ interface Props {
 export function CampaignCreateForm({ onSuccess, onCancel }: Props): React.ReactElement {
     const router = useRouter();
     const [name, setName] = useState('');
+    const [campaignKey, setCampaignKey] = useState('');
+    const [showKey, setShowKey] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +27,7 @@ export function CampaignCreateForm({ onSuccess, onCancel }: Props): React.ReactE
         setError(null);
 
         try {
-            await createCampaign(trimmed);
+            await createCampaign(trimmed, campaignKey.trim());
             router.refresh();
             onSuccess();
         } catch (err) {
@@ -69,6 +71,38 @@ export function CampaignCreateForm({ onSuccess, onCancel }: Props): React.ReactE
                         </button>
                     </div>
                 </div>
+                {showKey ? (
+                    <div className={styles.formRow}>
+                        <div className={styles.formInput}>
+                            <input
+                                type="text"
+                                placeholder="Идентификатор кампании"
+                                value={campaignKey}
+                                onChange={(e) => setCampaignKey(e.target.value)}
+                                maxLength={255}
+                                disabled={loading}
+                                aria-label="Идентификатор кампании"
+                            />
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        className={styles.keyToggle}
+                        onClick={() => setShowKey(true)}
+                        disabled={loading}
+                    >
+                        Задать свой идентификатор
+                    </button>
+                )}
+
+                {showKey && (
+                    <div className={styles.keyHint}>
+                        Попадает в отчёты как идентификатор кампании. Буквы, цифры,
+                        дефис и подчёркивание. Пустое поле — идентификатор создаётся автоматически.
+                    </div>
+                )}
+
                 {error !== null && (
                     <div className={styles.errorBox}>{error}</div>
                 )}

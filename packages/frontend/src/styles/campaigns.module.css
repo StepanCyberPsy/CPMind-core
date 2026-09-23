@@ -114,6 +114,35 @@
 
 /* Inline create form */
 
+.keyToggle {
+    align-self: flex-start;
+    margin-top: var(--space-2);
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.keyToggle:hover:not(:disabled) {
+    color: var(--accent-dark);
+    text-decoration: underline;
+}
+
+.keyToggle:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.keyHint {
+    margin-top: var(--space-1);
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
 .formWrapper {
     margin-bottom: var(--space-5);
     padding: var(--space-4) var(--space-5);

@@ -6,11 +6,6 @@ import {
     useRef,
     useState,
 } from 'react';
-import {
-    INSTREAM_DELIVERY_MODES,
-    VIDEO_DELIVERY_MODES,
-    type DeliveryMode,
-} from '@cpmind/shared';
 import type { PlacementDetail } from '@/lib/admin/api';
 import styles from '@/styles/placement-embed-modal.module.css';
 
@@ -70,8 +65,10 @@ export function PlacementEmbedModal({ placement, onClose }: Props): React.ReactE
     const [showDiagnostics, setShowDiagnostics] = useState(false);
     const overlayRef = useRef<HTMLDivElement>(null);
 
-    const isVideo = VIDEO_DELIVERY_MODES.has(placement.mode as DeliveryMode);
-    const isInstream = INSTREAM_DELIVERY_MODES.has(placement.mode as DeliveryMode);
+    // Формат — источник истины: прежняя модель не различает sticky и pause-roll
+    const isVideo = placement.format === 'instream' || placement.format === 'outstream';
+    const isInstream = placement.format === 'instream';
+    const isSticky = placement.subtype === 'sticky';
 
     // Close on Escape
     useEffect(() => {
@@ -133,11 +130,13 @@ export function PlacementEmbedModal({ placement, onClose }: Props): React.ReactE
                         <span className={styles.blockDesc}>
                             {isInstream
                                 ? placement.videoSelector !== null
-                                    ? `Вставьте в любое место страницы. Реклама показывается перед видео, попадающими под селектор ${placement.videoSelector}.`
-                                    : 'Вставьте в любое место страницы. Реклама показывается перед каждым видео на странице.'
-                                : placement.slotId !== null
-                                    ? 'Разместите div в нужном месте страницы, скрипт — в любом месте после него.'
-                                    : 'Вставьте в HTML-код страницы. Креатив добавляется в конец страницы.'}
+                                    ? `Вставьте в любое место страницы. Реклама привязывается к видео, попадающим под селектор ${placement.videoSelector}.`
+                                    : 'Вставьте в любое место страницы. Реклама привязывается ко всем видео на странице.'
+                                : isSticky
+                                    ? 'Вставьте в любое место страницы. Ролик закрепляется в углу окна и не занимает места в разметке.'
+                                    : placement.slotId !== null
+                                        ? 'Разместите div в нужном месте страницы, скрипт — в любом месте после него.'
+                                        : 'Вставьте в HTML-код страницы. Креатив добавляется в конец страницы.'}
                         </span>
                         <CodeBlock code={embedCode} />
                     </div>

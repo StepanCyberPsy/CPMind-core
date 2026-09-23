@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { TagBuilderModal } from '@/components/user/TagBuilderModal';
+// import { TagBuilderModal } from '@/components/user/TagBuilderModal';
 import { useRouter } from 'next/navigation';
 import type { UserCampaignStatsRow } from '@cpmind/shared';
 import type { UserCampaignsTableProps } from '@/lib/user/types';
@@ -92,7 +92,9 @@ function formatRatio(value: number): string {
 export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps) {
   const router = useRouter();
   const [sort, setSort] = useState<SortState>({ column: 'latest', dir: 'desc' });
-  const [tagBuilderOpen, setTagBuilderOpen] = useState(false);
+  // Конструктор legacy-тега отключён: теги больше не размещаются.
+  // Логика сохранена в TagBuilderModal и lib/shared/tag-builder
+  // const [tagBuilderOpen, setTagBuilderOpen] = useState(false);
 
   function handleSort(column: SortColumn): void {
     setSort((prev) => prev.column === column
@@ -118,7 +120,7 @@ export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps
 
   return (
     <>
-      <div className={styles.toolbar}>
+      {/* <div className={styles.toolbar}>
         <button
           type="button"
           className={styles.tagBuilderBtn}
@@ -126,7 +128,7 @@ export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps
         >
           Собрать код тега
         </button>
-      </div>
+      </div> */}
 
       <div className={styles.wrapper}>
         <button type="button" className={styles.allImpressionsRow} onClick={onAllImpressionsClick}>
@@ -198,10 +200,10 @@ export function UserCampaignsTable({ initialCampaigns }: UserCampaignsTableProps
           </table>
         </div>
       </div>
-      <TagBuilderModal
+      {/* <TagBuilderModal
         open={tagBuilderOpen}
         onClose={() => setTagBuilderOpen(false)}
-      />
+      /> */}
     </>
   );
 }

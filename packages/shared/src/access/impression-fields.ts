@@ -9,6 +9,8 @@ export const USER_VISIBLE_IMPRESSION_FIELDS = [
   'campaign_name',
   'creative_name',
   'creative_type',
+  'format',
+  'subtype',
   'device_type',
   'publisher_domain',
   'timestamp_start',

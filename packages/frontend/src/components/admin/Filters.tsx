@@ -4,8 +4,24 @@ import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Combobox } from '@/components/shared/Combobox';
 import { ComboboxDatePicker } from '@/components/shared/ComboboxDatePicker';
+import {
+  CREATIVE_TYPE_KEYS,
+  CREATIVE_TYPE_LABELS,
+  PLACEMENT_FORMAT_LABELS,
+  FORMAT_SUBTYPE_OPTIONS,
+} from '@/lib/config';
 import type { FiltersProps } from '@/lib/admin/types';
 import styles from '@/styles/filters.module.css';
+
+const CREATIVE_TYPE_OPTIONS = CREATIVE_TYPE_KEYS.map((value) => ({
+  value,
+  label: CREATIVE_TYPE_LABELS[value] ?? value,
+}));
+
+const FORMAT_OPTIONS = Object.entries(PLACEMENT_FORMAT_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 const DEVICE_OPTIONS = [
   { value: 'desktop', label: 'Десктоп' },
@@ -37,6 +53,9 @@ export function Filters({
   const router = useRouter();
   const [campaignId, setCampaignId] = useState(current.campaignId ?? '');
   const [creativeId, setCreativeId] = useState(current.creativeId ?? '');
+  const [creativeType, setCreativeType] = useState(current.creativeType ?? '');
+  const [format, setFormat] = useState(current.format ?? '');
+  const [subtype, setSubtype] = useState(current.subtype ?? '');
   const [tagConstantsVersion, setTagConstantsVersion] = useState(current.tagConstantsVersion ?? '');
   const [weightsVersion, setWeightsVersion] = useState(current.weightsVersion ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
@@ -47,6 +66,17 @@ export function Filters({
   const [ivtVerdict, setIvtVerdict] = useState(current.ivtVerdict ?? '');
   const [dateFrom, setDateFrom] = useState(current.dateFrom ?? '');
   const [dateTo, setDateTo] = useState(current.dateTo ?? '');
+
+  // Подтипы принадлежат конкретному формату: смена формата делает выбранный
+  // подтип недопустимым, и фильтр вернул бы пустой результат
+  const onFormatChange = useCallback((value: string) => {
+    setFormat(value);
+    setSubtype('');
+  }, []);
+
+  const subtypeOptions = format !== ''
+    ? (FORMAT_SUBTYPE_OPTIONS[format] ?? [])
+    : [];
 
   const exitSegmentView = useCallback(() => {
     const url = new URL(window.location.href);
@@ -80,6 +110,9 @@ export function Filters({
     url.searchParams.set('page', '1');
     campaignId ? url.searchParams.set('campaignId', campaignId) : url.searchParams.delete('campaignId');
     creativeId ? url.searchParams.set('creativeId', creativeId) : url.searchParams.delete('creativeId');
+    creativeType ? url.searchParams.set('creativeType', creativeType) : url.searchParams.delete('creativeType');
+    format ? url.searchParams.set('format', format) : url.searchParams.delete('format');
+    subtype ? url.searchParams.set('subtype', subtype) : url.searchParams.delete('subtype');
     tagConstantsVersion ? url.searchParams.set('tagConstantsVersion', tagConstantsVersion) : url.searchParams.delete('tagConstantsVersion');
     weightsVersion ? url.searchParams.set('weightsVersion', weightsVersion) : url.searchParams.delete('weightsVersion');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
@@ -92,6 +125,9 @@ export function Filters({
     router,
     campaignId,
     creativeId,
+    creativeType,
+    format,
+    subtype,
     tagConstantsVersion,
     weightsVersion,
     deviceType,
@@ -104,6 +140,9 @@ export function Filters({
   const resetFilters = useCallback(() => {
     setCampaignId('');
     setCreativeId('');
+    setCreativeType('');
+    setFormat('');
+    setSubtype('');
     setTagConstantsVersion('');
     setWeightsVersion('');
     setDeviceType('');
@@ -115,6 +154,9 @@ export function Filters({
     [
       'campaignId',
       'creativeId',
+      'creativeType',
+      'format',
+      'subtype',
       'tagConstantsVersion',
       'weightsVersion',
       'deviceType',
@@ -186,6 +228,38 @@ export function Filters({
             placeholder="Все"
           />
         </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Тип креатива</label>
+          <Combobox
+            options={CREATIVE_TYPE_OPTIONS}
+            value={creativeType}
+            onChange={setCreativeType}
+            placeholder="Все"
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>Формат размещения</label>
+          <Combobox
+            options={FORMAT_OPTIONS}
+            value={format}
+            onChange={onFormatChange}
+            placeholder="Все"
+          />
+        </div>
+
+        {subtypeOptions.length > 0 && (
+          <div className={styles.field}>
+            <label className={styles.label}>Тип размещения</label>
+            <Combobox
+              options={subtypeOptions}
+              value={subtype}
+              onChange={setSubtype}
+              placeholder="Все"
+            />
+          </div>
+        )}
 
         <div className={styles.field}>
           <label className={styles.label}>Версия тега</label>

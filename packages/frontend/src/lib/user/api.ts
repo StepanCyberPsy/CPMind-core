@@ -15,6 +15,9 @@ export interface UserListParams {
   limit?: number;
   campaignId?: string;
   creativeId?: string;
+  creativeType?: string;
+  format?: string;
+  subtype?: string;
   publisherDomain?: string;
   deviceType?: string;
   isSuspicious?: boolean;
@@ -65,6 +68,9 @@ function buildQuery(params: UserListParams): string {
   if (params.limit) q.set('limit', String(params.limit));
   if (params.campaignId) q.set('campaignId', params.campaignId);
   if (params.creativeId) q.set('creativeId', params.creativeId);
+  if (params.creativeType) q.set('creativeType', params.creativeType);
+  if (params.format) q.set('format', params.format);
+  if (params.subtype) q.set('subtype', params.subtype);
   if (params.publisherDomain) q.set('publisherDomain', params.publisherDomain);
   if (params.scoreMin !== undefined) q.set('scoreMin', String(params.scoreMin));
   if (params.scoreMax !== undefined) q.set('scoreMax', String(params.scoreMax));

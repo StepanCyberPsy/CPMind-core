@@ -23,6 +23,16 @@ export const ImpressionRowSchema = z.object({
   creative_name: z.string().nullable(),
 
   creative_type: z.string(),
+
+  // Таксономия размещения и порядковый номер показа ролика.
+  // null для показов legacy-тега
+  format: z.string().nullable(),
+  subtype: z.string().nullable(),
+  video_show_index: z.number().int().nullable(),
+
+  // Версия рантайма, собравшего показ. null для показов legacy-тега
+  sdk_runtime_version: z.string().nullable(),
+
   device_type: z.string(),
   skippable: z.boolean(),
   publisher_domain: z.string(),

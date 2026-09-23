@@ -54,6 +54,7 @@ export interface AdSessionContextRow {
     format: PlacementFormat;
     subtype: PlacementSubtype | null;
     videoShowIndex: number | null;
+    sdkRuntimeVersion: string | null;
     measurementMode: MeasurementMode;
     tagConstantsVersion: string | null;
 }
@@ -72,6 +73,7 @@ export interface ImpressionDeliveryContext {
     format: PlacementFormat;
     subtype: PlacementSubtype | null;
     videoShowIndex: number | null;
+    sdkRuntimeVersion: string | null;
     measurementMode: MeasurementMode;
     tagConstantsVersion: string | null;
     publisherDomain: string | null;
@@ -224,6 +226,7 @@ export function evaluateImpressionContext(
             format: row.format,
             subtype: row.subtype,
             videoShowIndex: row.videoShowIndex,
+            sdkRuntimeVersion: row.sdkRuntimeVersion,
             measurementMode: row.measurementMode,
             tagConstantsVersion: row.tagConstantsVersion,
             publisherDomain,

@@ -146,6 +146,7 @@ export function processImpression(
     format: deliveryContext?.format ?? null,
     subtype: deliveryContext?.subtype ?? null,
     videoShowIndex: deliveryContext?.videoShowIndex ?? null,
+    sdkRuntimeVersion: deliveryContext?.sdkRuntimeVersion ?? null,
     measurementMode: deliveryContext?.measurementMode ?? 'legacy_tag',
     finalizationReason: payload.finalization_reason ?? null,
     contextViolations: deliveryContext !== null && deliveryContext.contextViolations.length > 0

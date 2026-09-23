@@ -94,7 +94,7 @@ export default async function ImpressionsPage({
                 Калибровка весов
               </Link>
               <Link href="/admin/signals" className={styles.weightsBtn}>
-                Калибровка сигналов
+                Калибровка формул
               </Link>
               <Link href="/admin/ivt" className={styles.weightsBtn}>
                 Управление IVT

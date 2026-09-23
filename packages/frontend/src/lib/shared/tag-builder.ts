@@ -1,7 +1,18 @@
 import type { TagBuilderFormState, TagBuilderCreativeType } from '@/lib/user/types';
 
-export type TagBuilderPlatform = 'html' | 'bitrix' | 'bitrix_component' | 'wordpress' | 'tilda' | 'react' | 'python';
-export type TagBuilderFormat = 'html' | 'php' | 'jsx' | 'python';
+export type TagBuilderPlatform =
+  | 'html'
+  | 'bitrix'
+  | 'bitrix_component'
+  | 'wordpress'
+  | 'tilda'
+  | 'react'
+  | 'python';
+export type TagBuilderFormat =
+  | 'html'
+  | 'php'
+  | 'jsx'
+  | 'python';
 export type TagBuilderStep = 'params' | 'code';
 export type TagBuilderCopyTarget = 'container' | 'script';
 

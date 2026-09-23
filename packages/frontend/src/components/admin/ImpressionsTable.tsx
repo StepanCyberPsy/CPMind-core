@@ -13,6 +13,7 @@ import type { ImpressionRow, PublisherDomainAggregate } from '@cpmind/shared';
 import { usePopover } from '@/lib/shared/use-popover';
 import { buildSegmentColorMap, type SegmentColor } from '@/lib/admin/segment-color';
 import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
+import { formatCreativeType, formatPlacement } from '@/lib/config';
 import { SignalFilterModal } from './SignalFilterModal';
 import type { ImpressionsTableProps } from '@/lib/admin/types';
 import type { ListParams } from '@/lib/admin/api';
@@ -264,6 +265,23 @@ function buildColumns({
       header: 'ID Креатива',
       enableSorting: false,
       cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
+    }),
+    col.accessor('creative_type', {
+      header: 'Тип креатива',
+      enableSorting: false,
+      cell: ({ getValue }) => (
+        <span className={styles.cellDate}>{formatCreativeType(getValue())}</span>
+      ),
+    }),
+    col.display({
+      id: '__placement__',
+      header: 'Размещение',
+      cell: ({ row }) => {
+        const label = formatPlacement(row.original.format, row.original.subtype);
+        return label === '—'
+          ? <span className={styles.cellNull}>—</span>
+          : <span className={styles.cellDate}>{label}</span>;
+      },
     }),
     col.display({
       id: '__actions__',
@@ -520,8 +538,8 @@ function buildColumns({
   ] : [];
 
   const metaColumns = [
-    col.accessor('tag_constants_version', {
-      header: 'Версия тега',
+    col.accessor('sdk_runtime_version', {
+      header: 'Версия SDK',
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();

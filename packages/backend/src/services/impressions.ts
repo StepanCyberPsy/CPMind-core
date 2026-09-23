@@ -55,6 +55,9 @@ export interface ListFilters {
   campaignId?: string;
   campaignUuid?: string;
   creativeId?: string;
+  creativeType?: string;
+  format?: string;
+  subtype?: string;
   publisherDomain?: string;
   deviceType?: string;
   isSuspicious?: boolean;
@@ -88,6 +91,9 @@ export function buildWhereFromFilters(filters: ListFilters): SQL | undefined {
     filters.campaignId !== undefined ? eq(impressions.campaignId, filters.campaignId) : undefined,
     filters.campaignUuid !== undefined ? eq(campaigns.uuid, filters.campaignUuid) : undefined,
     filters.creativeId !== undefined ? eq(impressions.creativeId, filters.creativeId) : undefined,
+    filters.creativeType !== undefined ? eq(impressions.creativeType, filters.creativeType) : undefined,
+    filters.format !== undefined ? eq(impressions.format, filters.format) : undefined,
+    filters.subtype !== undefined ? eq(impressions.subtype, filters.subtype) : undefined,
     filters.publisherDomain !== undefined ? eq(impressions.publisherDomain, filters.publisherDomain) : undefined,
     filters.deviceType !== undefined ? eq(impressions.deviceType, filters.deviceType) : undefined,
     filters.isSuspicious !== undefined ? eq(impressions.isSuspicious, filters.isSuspicious) : undefined,
@@ -106,6 +112,9 @@ export function buildWhereClause(queryParams: Record<string, string>): SQL | und
     ...(queryParams['campaignId'] !== undefined && { campaignId: queryParams['campaignId'] }),
     ...(queryParams['campaignUuid'] !== undefined && { campaignUuid: queryParams['campaignUuid'] }),
     ...(queryParams['creativeId'] !== undefined && { creativeId: queryParams['creativeId'] }),
+    ...(queryParams['creativeType'] !== undefined && { creativeType: queryParams['creativeType'] }),
+    ...(queryParams['format'] !== undefined && { format: queryParams['format'] }),
+    ...(queryParams['subtype'] !== undefined && { subtype: queryParams['subtype'] }),
     ...(queryParams['publisherDomain'] !== undefined && { publisherDomain: queryParams['publisherDomain'] }),
     ...(queryParams['deviceType'] !== undefined && { deviceType: queryParams['deviceType'] }),
     ...(queryParams['isSuspicious'] !== undefined && {
@@ -164,6 +173,8 @@ export const USER_VISIBLE_COLUMNS = {
   campaign_name: campaigns.name,
   creative_name: creatives.name,
   creative_type: impressions.creativeType,
+  format: impressions.format,
+  subtype: impressions.subtype,
   device_type: impressions.deviceType,
   publisher_domain: impressions.publisherDomain,
   timestamp_start: impressions.timestampStart,
@@ -188,6 +199,8 @@ const ADMIN_ONLY_COLUMNS = {
   id: impressions.id,
   session_group_id: impressions.sessionGroupId,
   segment_index: impressions.segmentIndex,
+  video_show_index: impressions.videoShowIndex,
+  sdk_runtime_version: impressions.sdkRuntimeVersion,
   skippable: impressions.s6Skippable,
   publisher_domain: impressions.publisherDomain,
   s1_raw_time_in_view: impressions.s1RawTimeInView,
@@ -260,6 +273,10 @@ export interface JoinedImpressionRow {
   campaign_name: string | null;
   creative_name: string | null;
   creative_type: string;
+  format: string | null;
+  subtype: string | null;
+  video_show_index: number | null;
+  sdk_runtime_version: string | null;
   device_type: string;
   skippable: boolean | null;
   publisher_domain: string | null;
@@ -315,6 +332,8 @@ export interface UserVisibleRow {
   campaign_name: string | null;
   creative_name: string | null;
   creative_type: string;
+  format: string | null;
+  subtype: string | null;
   device_type: string;
   publisher_domain: string | null;
   timestamp_start: number;
@@ -367,6 +386,10 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     campaign_name: row.campaign_name,
     creative_name: row.creative_name,
     creative_type: row.creative_type,
+    format: row.format,
+    subtype: row.subtype,
+    video_show_index: row.video_show_index,
+    sdk_runtime_version: row.sdk_runtime_version,
     device_type: row.device_type,
     skippable: row.skippable ?? false,
     publisher_domain: row.publisher_domain ?? 'unknown',
