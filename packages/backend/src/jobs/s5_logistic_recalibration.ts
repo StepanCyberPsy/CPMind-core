@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import cron from 'node-cron';
 import {
     and,
@@ -18,6 +17,16 @@ import {
   type SampleExclusions,
   type TrainingSampleOptions,
 } from './recalibration_sample.js';
+import { splitDeterministically } from './sample_split.js';
+import {
+  MIN_POSITIVE_RATE,
+  MAX_POSITIVE_RATE,
+  L2_LAMBDA,
+  calculatePositiveRate,
+  calculateAccuracy,
+  calculateRocAuc,
+  predictProbability,
+} from './logistic_quality.js';
 
 const logger = pino({ name: 's5-logistic-recalibration-job' });
 
@@ -27,9 +36,6 @@ const TEST_SPLIT_RATIO = 0.2;
 const MIN_NON_ZERO_THRESHOLD_SAMPLES = 30;
 const HOVER_THRESHOLD_FALLBACK_MS = 300;
 const MOBILE_SWIPE_FALLBACK_COUNT = 2;
-const MIN_POSITIVE_RATE = 0.05;
-const MAX_POSITIVE_RATE = 0.95;
-const L2_LAMBDA = 1.0;
 
 // Сбор S5 на контейнере в SDK не отличается от legacy-тега — данные обоих режимов сопоставимы
 const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: false };
@@ -186,37 +192,6 @@ function percentileContinuous(
   return lower + (upper - lower) * (position - lowerIndex);
 }
 
-function splitFeaturesDeterministically(
-  features: S5Features[],
-): {
-  train: S5Features[];
-  test: S5Features[];
-} {
-  const ordered = features
-    .map((feature) => ({
-      feature,
-      key: createHash('sha256')
-        .update(feature.impressionId)
-        .digest('hex'),
-    }))
-    .sort((a, b) => {
-      const keyComparison = a.key.localeCompare(b.key);
-      if (keyComparison !== 0) return keyComparison;
-      return a.feature.impressionId.localeCompare(b.feature.impressionId);
-    })
-    .map(({ feature }) => feature);
-
-  const testSize = Math.max(
-    1,
-    Math.floor(ordered.length * TEST_SPLIT_RATIO),
-  );
-
-  return {
-    test: ordered.slice(0, testSize),
-    train: ordered.slice(testSize),
-  };
-}
-
 function resolveLabelThreshold(
   segment: S5Segment,
   features: S5Features[],
@@ -304,128 +279,6 @@ function buildFeatureMatrix(
   );
 }
 
-function calculatePositiveRate(labels: number[]): number {
-  if (labels.length === 0) return 0;
-
-  const positives = labels.reduce(
-    (sum, label) => sum + (label === 1 ? 1 : 0),
-    0,
-  );
-
-  return positives / labels.length;
-}
-
-function predictProbability(
-  features: number[],
-  beta: number[],
-): number {
-  const z = features.reduce(
-    (sum, value, index) => sum + value * (beta[index] ?? 0),
-    0,
-  );
-
-  if (z >= 0) {
-    return 1 / (1 + Math.exp(-z));
-  }
-
-  const expZ = Math.exp(z);
-  return expZ / (1 + expZ);
-}
-
-function calculateAccuracy(
-  probabilities: number[],
-  labels: number[],
-): number {
-  if (
-    probabilities.length === 0 ||
-    probabilities.length !== labels.length
-  ) {
-    throw new Error('calculateAccuracy: некорректные размеры выборки');
-  }
-
-  let correct = 0;
-
-  for (let i = 0; i < probabilities.length; i++) {
-    const probability = probabilities[i];
-    const label = labels[i];
-
-    if (probability === undefined || label === undefined) {
-      throw new Error('calculateAccuracy: внутренняя ошибка индексации');
-    }
-
-    const prediction = probability >= 0.5 ? 1 : 0;
-
-    if (prediction === label) {
-      correct++;
-    }
-  }
-
-  return correct / probabilities.length;
-}
-
-function calculateRocAuc(
-  probabilities: number[],
-  labels: number[],
-): number | null {
-  if (
-    probabilities.length === 0 ||
-    probabilities.length !== labels.length
-  ) {
-    return null;
-  }
-
-  const rows = probabilities
-    .map((probability, index) => ({
-      probability,
-      label: labels[index] ?? 0,
-    }))
-    .sort((a, b) => a.probability - b.probability);
-
-  const positiveCount = rows.reduce(
-    (sum, row) => sum + (row.label === 1 ? 1 : 0),
-    0,
-  );
-  const negativeCount = rows.length - positiveCount;
-
-  if (positiveCount === 0 || negativeCount === 0) {
-    return null;
-  }
-
-  let positiveRankSum = 0;
-  let start = 0;
-
-  while (start < rows.length) {
-    let end = start + 1;
-    const score = rows[start]!.probability;
-
-    while (
-      end < rows.length &&
-      rows[end]!.probability === score
-    ) {
-      end++;
-    }
-
-    const averageRank = (start + 1 + end) / 2;
-
-    for (let i = start; i < end; i++) {
-      if (rows[i]!.label === 1) {
-        positiveRankSum += averageRank;
-      }
-    }
-
-    start = end;
-  }
-
-  const auc = (
-    positiveRankSum -
-    positiveCount * (positiveCount + 1) / 2
-  ) / (
-    positiveCount * negativeCount
-  );
-
-  return Math.max(0, Math.min(1, auc));
-}
-
 export async function recalibrateS5Logistic(): Promise<void> {
   const windowStart = new Date(
     Date.now() -
@@ -467,7 +320,11 @@ export async function recalibrateS5Logistic(): Promise<void> {
     const {
       train: trainFeatures,
       test: testFeatures,
-    } = splitFeaturesDeterministically(features);
+    } = splitDeterministically(
+      features,
+      (feature) => feature.impressionId,
+      TEST_SPLIT_RATIO,
+    );
 
     const {
       threshold,
@@ -588,6 +445,7 @@ export async function recalibrateS5Logistic(): Promise<void> {
         },
         sampleSize: fit.sampleSize,
         accuracy: testAccuracy,
+        auc: testAuc,
         isActive: false,
       });
 

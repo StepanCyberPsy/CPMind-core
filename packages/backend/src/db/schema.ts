@@ -416,6 +416,14 @@ export const s3LogisticConfigs = pgTable('s3_logistic_configs', {
   featureStds: jsonb('feature_stds').notNull(),
   sampleSize: integer('sample_size').notNull(),
   accuracy: real('accuracy'),
+
+  // Площадь под ROC-кривой на отложенной выборке. Точность при несбалансированной
+  // метке совпадает с долей большего класса и не отличает выученную модель
+  // от константного предсказания — AUC отличает: 0.5 означает отсутствие связи.
+  // null для моделей, обученных до введения метрики, и для вырожденной
+  // тестовой выборки одного класса, где AUC не определён
+  auc: real('auc'),
+
   fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
@@ -452,6 +460,10 @@ export const s5LogisticConfigs = pgTable('s5_logistic_configs', {
   coefficients: jsonb('coefficients').notNull(),
   sampleSize: integer('sample_size').notNull(),
   accuracy: real('accuracy'),
+
+  // Площадь под ROC-кривой на отложенной выборке — см. комментарий в s3_logistic_configs
+  auc: real('auc'),
+
   fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
@@ -472,6 +484,10 @@ export const s6LogisticConfigs = pgTable('s6_logistic_configs', {
   featureStds: jsonb('feature_stds').notNull(),
   sampleSize: integer('sample_size').notNull(),
   accuracy: real('accuracy'),
+
+  // Площадь под ROC-кривой на отложенной выборке — см. комментарий в s3_logistic_configs
+  auc: real('auc'),
+
   fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),

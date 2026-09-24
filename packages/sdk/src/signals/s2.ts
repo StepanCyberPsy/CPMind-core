@@ -11,6 +11,12 @@ export function initS2(
         if (session.sent) return;
         if (session.viewStart === null) return;
 
+        // Вкладка скрыта: доля экрана не наблюдается зрителем. Тик фоновой вкладки
+        // весит в среднем наравне с обычным, хотя браузер троттлит setInterval
+        // до одного раза в секунду и реже — и засчитывал бы время, которое S4
+        // из того же показа вычитает как неактивное
+        if (document.visibilityState !== 'visible') return;
+
         const rect = creativeEl.getBoundingClientRect();
         const viewportW = window.innerWidth;
         const viewportH = window.innerHeight;

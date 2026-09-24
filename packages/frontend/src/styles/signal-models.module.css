@@ -173,6 +173,11 @@
     font-size: 12px;
 }
 
+.aucWeak {
+    color: var(--negative);
+    font-weight: 600;
+}
+
 .activeBadge {
     display: inline-flex;
     align-items: center;

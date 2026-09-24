@@ -21,6 +21,15 @@ import {
   splitDeterministically,
   type LabeledSample,
 } from './sample_split.js';
+import {
+  MIN_POSITIVE_RATE,
+  MAX_POSITIVE_RATE,
+  L2_LAMBDA,
+  calculatePositiveRate,
+  calculateAccuracy,
+  calculateRocAuc,
+  predictProbability,
+} from './logistic_quality.js';
 
 const logger = pino({ name: 's3-logistic-recalibration-job' });
 
@@ -232,8 +241,38 @@ export async function recalibrateS3Logistic(): Promise<void> {
       const XTest = test.map((sample) => sample.x);
       const yTest = test.map((sample) => sample.y);
 
+      const trainPositiveRate = calculatePositiveRate(yTrain);
+      const testPositiveRate = calculatePositiveRate(yTest);
+
+      // Выборка одного класса даёт модель, предсказывающую константу:
+      // сломана метка, а не данные однородны
+      if (
+        trainPositiveRate < MIN_POSITIVE_RATE ||
+        trainPositiveRate > MAX_POSITIVE_RATE
+      ) {
+        logger.error(
+          {
+            segmentKey,
+            tagConstantsVersion,
+            sampleSize: XTrain.length,
+            positiveRate: trainPositiveRate,
+            minAllowed: MIN_POSITIVE_RATE,
+            maxAllowed: MAX_POSITIVE_RATE,
+            medianTimeInView,
+          },
+          'S3 Logistic recalibration skipped — invalid target class balance',
+        );
+        continue;
+      }
+
       try {
-        const fit = fitLogisticMLE(XTrain, yTrain);
+        const fit = fitLogisticMLE(
+          XTrain,
+          yTrain,
+          1e-6,
+          100,
+          L2_LAMBDA,
+        );
 
         if (
           !fit.converged ||
@@ -253,17 +292,30 @@ export async function recalibrateS3Logistic(): Promise<void> {
           continue;
         }
 
-        // Accuracy на hold-out выборке
-        let correct = 0;
-        for (let i = 0; i < XTest.length; i++) {
-          const row = XTest[i];
-          const label = yTest[i] ?? 0;
-          if (row === undefined) continue;
-          const z = row.reduce((s, x, j) => s + x * (fit.beta[j] ?? 0), 0);
-          const pred = 1 / (1 + Math.exp(-z)) >= 0.5 ? 1 : 0;
-          if (pred === label) correct++;
+        const testProbabilities = XTest.map((row) =>
+          predictProbability(row, fit.beta),
+        );
+        const testAccuracy = calculateAccuracy(
+          testProbabilities,
+          yTest,
+        );
+        const testAuc = calculateRocAuc(
+          testProbabilities,
+          yTest,
+        );
+
+        if (testAuc === null) {
+          logger.error(
+            {
+              segmentKey,
+              tagConstantsVersion,
+              testSampleSize: XTest.length,
+              testPositiveRate,
+            },
+            'S3 Logistic recalibration skipped — test set contains a single class',
+          );
+          continue;
         }
-        const testAccuracy = XTest.length > 0 ? correct / XTest.length : fit.accuracy;
 
         await db.insert(s3LogisticConfigs).values({
           segmentKey,
@@ -294,6 +346,7 @@ export async function recalibrateS3Logistic(): Promise<void> {
           },
           sampleSize: fit.sampleSize,
           accuracy: testAccuracy,
+          auc: testAuc,
           isActive: false,
         });
 
@@ -303,8 +356,15 @@ export async function recalibrateS3Logistic(): Promise<void> {
             tagConstantsVersion,
             sampleSize: fit.sampleSize,
             testSampleSize: XTest.length,
-            trainAccuracy: fit.accuracy.toFixed(3),
-            testAccuracy: testAccuracy.toFixed(3),
+            trainPositiveRate,
+            testPositiveRate,
+            l2Lambda: L2_LAMBDA,
+            trainAccuracy: fit.accuracy,
+            testAccuracy,
+            testAuc,
+            alwaysOneBaselineAccuracy: testPositiveRate,
+            accuracyDeltaVsAlwaysOne: testAccuracy - testPositiveRate,
+            aucDeltaVsRandom: testAuc - 0.5,
             converged: fit.converged,
             sampleExclusions: exclusions,
           },

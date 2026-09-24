@@ -91,6 +91,11 @@ export interface S3LogisticConfigRow {
   featureStds: Record<string, number>;
   sampleSize: number;
   accuracy: number | null;
+
+  // Площадь под ROC-кривой на отложенной выборке. null — модель обучена
+  // до введения метрики
+  auc: number | null;
+
   fittedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;
@@ -116,6 +121,7 @@ export interface S5LogisticConfigRow {
   coefficients: Record<string, number>;
   sampleSize: number;
   accuracy: number | null;
+  auc: number | null;
   fittedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;
@@ -130,6 +136,7 @@ export interface S6LogisticConfigRow {
   featureStds: Record<string, number>;
   sampleSize: number;
   accuracy: number | null;
+  auc: number | null;
   fittedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;

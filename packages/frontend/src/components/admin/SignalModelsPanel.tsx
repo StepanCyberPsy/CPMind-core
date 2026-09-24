@@ -140,18 +140,23 @@ const S6_FEATURE_LABELS: Record<string, string> = {
 
 // Количество колонок по сигналу (для colSpan сегментных заголовков)
 // S1: дата(1) + k(1) + λ(1) + выборка(1) + ⋮(1)
-// S3: дата(1) + β×8 + means×5 + stds×5 + точность(1) + выборка(1) + версия(1) + ⋮(1)
+// S3: дата(1) + β×8 + means×5 + stds×5 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
 // S4: дата(1) + версия(1) + λ(1) + T_ref(1) + выборка(1) + ⋮(1)
-// S5: дата(1) + β×5 + точность(1) + выборка(1) + версия(1) + ⋮(1)
-// S6: дата(1) + β×9 + means×4 + stds×4 + точность(1) + выборка(1) + версия(1) + ⋮(1)
+// S5: дата(1) + β×5 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
+// S6: дата(1) + β×9 + means×4 + stds×4 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
 // S7: дата(1) + relYLow(1) + relYMid(1) + clutterMid(1) + clutterHigh(1) + выборка(1) + ⋮(1)
 
 const S1_COLS = 5;
-const S3_COLS = 1 + S3_BETA_KEYS.length + S3_FEATURE_KEYS.length + S3_FEATURE_KEYS.length + 4;
+const S3_COLS = 1 + S3_BETA_KEYS.length + S3_FEATURE_KEYS.length + S3_FEATURE_KEYS.length + 5;
 const S4_COLS = 6;
-const S5_COLS = 1 + S5_BETA_KEYS.length + 4;
-const S6_COLS = 1 + S6_BETA_KEYS.length + S6_FEATURE_KEYS.length + S6_FEATURE_KEYS.length + 4;
+const S5_COLS = 1 + S5_BETA_KEYS.length + 5;
+const S6_COLS = 1 + S6_BETA_KEYS.length + S6_FEATURE_KEYS.length + S6_FEATURE_KEYS.length + 5;
 const S7_COLS = 7;
+
+// Модель с AUC ниже порога предсказывает немногим лучше случайного выбора.
+// Точность при несбалансированной метке этого не показывает: она совпадает
+// с долей большего класса и у константной модели выглядит высокой
+const AUC_WEAK_THRESHOLD = 0.6;
 
 // Утилиты
 
@@ -183,6 +188,23 @@ function getVal(
 ): string {
     const v = obj[key];
     return v !== undefined ? v.toFixed(4) : '—';
+}
+
+function AucCell({ auc }: { auc: number | null }) {
+    if (auc === null) {
+        return <span className={styles.cellNull}>—</span>;
+    }
+
+    return (
+        <span
+            className={`${styles.cellMono} ${auc < AUC_WEAK_THRESHOLD ? styles.aucWeak : ''}`}
+            title={auc < AUC_WEAK_THRESHOLD
+                ? 'Предсказательная способность близка к случайной'
+                : undefined}
+        >
+            {auc.toFixed(3)}
+        </span>
+    );
 }
 
 interface SortableConfig {
@@ -513,6 +535,7 @@ function S3Table({
                         <tr>
                             <th className={styles.th} rowSpan={2}>Тип и дата</th>
                             <th className={styles.th} rowSpan={2}>Точность</th>
+                            <th className={styles.th} rowSpan={2}>AUC</th>
                             <th className={styles.th} rowSpan={2}>Выборка</th>
                             <th className={styles.th} rowSpan={2}>Версия констант</th>
                             <th className={`${styles.th} ${styles.thGroup}`} colSpan={S3_BETA_KEYS.length}>
@@ -586,6 +609,9 @@ function S3Table({
                                                     ) : (
                                                         <span className={styles.cellNull}>—</span>
                                                     )}
+                                                </td>
+                                                <td className={styles.td}>
+                                                    <AucCell auc={cfg.auc} />
                                                 </td>
                                                 <td className={styles.td}>
                                                     <span className={styles.cellMono}>
@@ -767,6 +793,7 @@ function S5Table({
                         <tr>
                             <th className={styles.th} rowSpan={2}>Тип и дата</th>
                             <th className={styles.th} rowSpan={2}>Точность</th>
+                            <th className={styles.th} rowSpan={2}>AUC</th>
                             <th className={styles.th} rowSpan={2}>Выборка</th>
                             <th className={styles.th} rowSpan={2}>Версия констант</th>
                             <th className={`${styles.th} ${styles.thGroup}`} colSpan={S5_BETA_KEYS.length}>
@@ -823,6 +850,9 @@ function S5Table({
                                                     ) : (
                                                         <span className={styles.cellNull}>—</span>
                                                     )}
+                                                </td>
+                                                <td className={styles.td}>
+                                                    <AucCell auc={cfg.auc} />
                                                 </td>
                                                 <td className={styles.td}>
                                                     <span className={styles.cellMono}>
@@ -886,6 +916,7 @@ function S6Table({
                         <tr>
                             <th className={styles.th} rowSpan={2}>Тип и дата</th>
                             <th className={styles.th} rowSpan={2}>Точность</th>
+                            <th className={styles.th} rowSpan={2}>AUC</th>
                             <th className={styles.th} rowSpan={2}>Выборка</th>
                             <th className={styles.th} rowSpan={2}>Версия констант</th>
                             <th className={`${styles.th} ${styles.thGroup}`} colSpan={S6_BETA_KEYS.length}>
@@ -958,6 +989,9 @@ function S6Table({
                                                     ) : (
                                                         <span className={styles.cellNull}>—</span>
                                                     )}
+                                                </td>
+                                                <td className={styles.td}>
+                                                    <AucCell auc={cfg.auc} />
                                                 </td>
                                                 <td className={styles.td}>
                                                     <span className={styles.cellMono}>
