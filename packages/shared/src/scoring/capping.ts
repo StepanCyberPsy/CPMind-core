@@ -32,8 +32,11 @@ function floor0N(value: number | null): number | null {
  *   share_of_screen_*_pct > 100 -> cap до 100
  *   scroll_speed_*_px_s > 50 000 -> cap до 50 000
  *   hover_duration_total_ms > 300 000 -> cap до 300 000
+ *   интервалы метки (*_max_ms) > 3 600 000 -> cap до 3 600 000
  *   любое числовое поле < 0 -> заменить на 0
  */
+const MAX_LABEL_INTERVAL_MS = 3_600_000;
+
 export function applyAnomalyCapping(payload: ImpressionPayload): CappingResult {
   const p: ImpressionPayload = JSON.parse(JSON.stringify(payload)) as ImpressionPayload;
   const anomaly_duration = p.signals.s1.time_in_view_sec > 3600;
@@ -56,12 +59,44 @@ export function applyAnomalyCapping(payload: ImpressionPayload): CappingResult {
     p.signals.s3.pause_duration_total_ms = floor0N(p.signals.s3.pause_duration_total_ms);
     p.signals.s3.scroll_streaks = floor0N(p.signals.s3.scroll_streaks);
     p.signals.s3.direction_changes = floor0N(p.signals.s3.direction_changes);
+
+    if (p.signals.s3.scroll_quiet_max_ms !== undefined) {
+      p.signals.s3.scroll_quiet_max_ms = capN(
+        p.signals.s3.scroll_quiet_max_ms,
+        0,
+        MAX_LABEL_INTERVAL_MS,
+      );
+    }
   }
 
   // S4 Tab Activity
   p.signals.s4.tab_active_time_ms = floor0(p.signals.s4.tab_active_time_ms);
   p.signals.s4.tab_total_time_ms = floor0(p.signals.s4.tab_total_time_ms);
   p.signals.s4.tab_switches_count = floor0(p.signals.s4.tab_switches_count);
+
+  if (p.signals.s4.tab_absent_max_ms !== undefined) {
+    p.signals.s4.tab_absent_max_ms = cap(
+      p.signals.s4.tab_absent_max_ms,
+      0,
+      MAX_LABEL_INTERVAL_MS,
+    );
+  }
+
+  if (p.signals.s4.window_unfocused_max_ms !== undefined) {
+    p.signals.s4.window_unfocused_max_ms = cap(
+      p.signals.s4.window_unfocused_max_ms,
+      0,
+      MAX_LABEL_INTERVAL_MS,
+    );
+  }
+
+  if (p.signals.s4.surface_absent_max_ms !== undefined) {
+    p.signals.s4.surface_absent_max_ms = capN(
+      p.signals.s4.surface_absent_max_ms,
+      0,
+      MAX_LABEL_INTERVAL_MS,
+    );
+  }
 
   // S5 Interaction Events
   p.signals.s5.hover_count = floor0N(p.signals.s5.hover_count);
@@ -73,6 +108,10 @@ export function applyAnomalyCapping(payload: ImpressionPayload): CappingResult {
   p.signals.s5.tap_count = floor0N(p.signals.s5.tap_count);
   p.signals.s5.touch_start_end_delta_ms = floor0N(p.signals.s5.touch_start_end_delta_ms);
   p.signals.s5.swipe_count = floor0N(p.signals.s5.swipe_count);
+
+  if (p.signals.s5.skip_zone_hover_ratio !== undefined) {
+    p.signals.s5.skip_zone_hover_ratio = capN(p.signals.s5.skip_zone_hover_ratio, 0, 1);
+  }
 
   // S6 Video Engagement & Audibility
   if (p.signals.s6 !== null && p.signals.s6 !== undefined) {

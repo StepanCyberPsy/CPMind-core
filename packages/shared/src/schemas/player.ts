@@ -123,6 +123,19 @@ export const VideoMeasurementEventSchema = z.discriminatedUnion('type', [
         timestampMs: PlayerEventTimestampMsSchema,
     }).strict(),
     z.object({
+        type: z.literal('close'),
+        source: PlayerActionSourceSchema,
+        timestampMs: PlayerEventTimestampMsSchema,
+    }).strict(),
+    z.object({
+        type: z.literal('viewport_enter'),
+        timestampMs: PlayerEventTimestampMsSchema,
+    }).strict(),
+    z.object({
+        type: z.literal('viewport_exit'),
+        timestampMs: PlayerEventTimestampMsSchema,
+    }).strict(),
+    z.object({
         type: z.literal('complete'),
         timestampMs: PlayerEventTimestampMsSchema,
     }).strict(),

@@ -7,6 +7,7 @@ import {
 } from './normalize.js';
 import type {
     WeibullParams,
+    S2Params,
     LogisticParams,
     S4Config,
     S5LogisticParams,
@@ -59,6 +60,7 @@ export function computeScore(
   payload: ImpressionPayload,
   weights: WeightsConfig,
   weibullParams: WeibullParams,
+  s2Params: S2Params,
   s3Params: LogisticParams,
   s4Config: S4Config,
   s5Params: S5LogisticParams,
@@ -70,10 +72,11 @@ export function computeScore(
   // 1. Кэппинг аномалий (time_in_view_sec > 3600 до кэппинга)
   const { payload: capped, anomaly_duration } = applyAnomalyCapping(payload);
 
-  // 2. Нормализация (S1 — Weibull CDF, S3 — логистика, S4 — нелинейная функция, S5 — логистика по device_type, S6 — логистика по device×skippable)
+  // 2. Нормализация (S1 — Weibull CDF, S2 — квантильная CDF, S3 — логистика, S4 — нелинейная функция, S5 — логистика по device_type, S6 — логистика по device×skippable)
   const normalized = normalizeAll(
     capped,
     weibullParams,
+    s2Params,
     s3Params,
     s4Config,
     s5Params,

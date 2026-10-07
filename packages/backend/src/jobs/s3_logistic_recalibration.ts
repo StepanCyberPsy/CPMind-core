@@ -7,6 +7,7 @@ import {
   sql,
   desc,
   inArray,
+  type SQL,
 } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { impressions, s3LogisticConfigs } from '../db/schema.js';
@@ -134,6 +135,228 @@ function extractFeatures(
   };
 }
 
+// Обучение одного уровня сегментации. Ключ и условие выборки задают уровень: лист —
+// устройство и группа креатива, родитель — только группа. Родительский уровень читает
+// резолвер, когда у листа нет активной модели, и обучается тем же проходом: иначе
+// ступень цепочки остаётся пустой и выбор падает сразу на нулевой global
+async function fitAndSaveSegment(
+  segmentKey: string,
+  baseWhere: SQL | undefined,
+  tagConstantsVersion: string,
+): Promise<void> {
+  const [rows, exclusions] = await Promise.all([
+    db
+      .select({
+        impressionId: impressions.impressionId,
+        s1RawTimeInView: impressions.s1RawTimeInView,
+        signalsRaw: impressions.signalsRaw,
+      })
+      .from(impressions)
+      .where(and(
+        baseWhere,
+        buildTrainableImpressionFilter(SAMPLE_OPTIONS),
+      )),
+    countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
+  ]);
+
+  if (rows.length < MIN_SAMPLE_SIZE) {
+    logger.warn(
+      {
+        segmentKey,
+        sampleSize: rows.length,
+        minRequired: MIN_SAMPLE_SIZE,
+        sampleExclusions: exclusions,
+      },
+      'S3 Logistic recalibration skipped — insufficient sample size',
+    );
+    return;
+  }
+
+  const features: S3Features[] = [];
+  for (const row of rows) {
+    const f = extractFeatures(row.impressionId, row.signalsRaw, row.s1RawTimeInView);
+    if (f !== null) features.push(f);
+  }
+
+  if (features.length < MIN_SAMPLE_SIZE) {
+    logger.warn(
+      { segmentKey, sampleSize: features.length },
+      'S3 Logistic recalibration skipped — insufficient valid features after extraction',
+    );
+    return;
+  }
+
+  // Медиана time_in_view для прокси-метки (§3.3)
+  const medianTimeInView = median(features.map((f) => f.timeInView));
+
+  // Z-score нормализация по каждому признаку
+  const speedZ = zscoreFeatures(features.map((f) => f.speed));
+  const stddevZ = zscoreFeatures(features.map((f) => f.stddev));
+  const pauseZ = zscoreFeatures(features.map((f) => f.pause));
+  const directionZ = zscoreFeatures(features.map((f) => f.direction));
+  const streakZ = zscoreFeatures(features.map((f) => f.streak));
+
+  // X = [intercept, speed_z, stddev_z, pause_z, direction_z, streak_z, reading, momentum]
+  // Прокси-метка: y=1 если clicked=1 ИЛИ time_in_view > median (§3.3)
+  const samples: LabeledSample[] = features.map((f, i) => ({
+    key: f.impressionId,
+    x: [
+      1,
+      speedZ.z[i] ?? 0,
+      stddevZ.z[i] ?? 0,
+      pauseZ.z[i] ?? 0,
+      directionZ.z[i] ?? 0,
+      streakZ.z[i] ?? 0,
+      f.reading,
+      f.momentum,
+    ],
+    y: f.clicked === 1 || f.timeInView > medianTimeInView ? 1 : 0,
+  }));
+
+  const { train, test } = splitDeterministically(
+    samples,
+    (sample) => sample.key,
+    TEST_SPLIT_RATIO,
+  );
+  const XTrain = train.map((sample) => sample.x);
+  const yTrain = train.map((sample) => sample.y);
+  const XTest = test.map((sample) => sample.x);
+  const yTest = test.map((sample) => sample.y);
+
+  const trainPositiveRate = calculatePositiveRate(yTrain);
+  const testPositiveRate = calculatePositiveRate(yTest);
+
+  // Выборка одного класса даёт модель, предсказывающую константу:
+  // сломана метка, а не данные однородны
+  if (
+    trainPositiveRate < MIN_POSITIVE_RATE ||
+    trainPositiveRate > MAX_POSITIVE_RATE
+  ) {
+    logger.error(
+      {
+        segmentKey,
+        tagConstantsVersion,
+        sampleSize: XTrain.length,
+        positiveRate: trainPositiveRate,
+        minAllowed: MIN_POSITIVE_RATE,
+        maxAllowed: MAX_POSITIVE_RATE,
+        medianTimeInView,
+      },
+      'S3 Logistic recalibration skipped — invalid target class balance',
+    );
+    return;
+  }
+
+  try {
+    const fit = fitLogisticMLE(
+      XTrain,
+      yTrain,
+      1e-6,
+      100,
+      L2_LAMBDA,
+    );
+
+    if (
+      !fit.converged ||
+      fit.beta.length !== COEFFICIENT_COUNT ||
+      fit.beta.some((value) => !Number.isFinite(value))
+    ) {
+      logger.error(
+        {
+          segmentKey,
+          tagConstantsVersion,
+          sampleSize: fit.sampleSize,
+          converged: fit.converged,
+          beta: fit.beta,
+        },
+        'S3 Logistic recalibration skipped — fitting did not converge',
+      );
+      return;
+    }
+
+    const testProbabilities = XTest.map((row) =>
+      predictProbability(row, fit.beta),
+    );
+    const testAccuracy = calculateAccuracy(
+      testProbabilities,
+      yTest,
+    );
+    const testAuc = calculateRocAuc(
+      testProbabilities,
+      yTest,
+    );
+
+    if (testAuc === null) {
+      logger.error(
+        {
+          segmentKey,
+          tagConstantsVersion,
+          testSampleSize: XTest.length,
+          testPositiveRate,
+        },
+        'S3 Logistic recalibration skipped — test set contains a single class',
+      );
+      return;
+    }
+
+    await db.insert(s3LogisticConfigs).values({
+      segmentKey,
+      tagConstantsVersion,
+      coefficients: {
+        beta0: fit.beta[0] ?? 0,
+        beta1: fit.beta[1] ?? 0,
+        beta2: fit.beta[2] ?? 0,
+        beta3: fit.beta[3] ?? 0,
+        beta4: fit.beta[4] ?? 0,
+        beta5: fit.beta[5] ?? 0,
+        beta6: fit.beta[6] ?? 0,
+        beta7: fit.beta[7] ?? 0,
+      },
+      featureMeans: {
+        speed: speedZ.mean,
+        stddev: stddevZ.mean,
+        pause: pauseZ.mean,
+        direction: directionZ.mean,
+        streak: streakZ.mean,
+      },
+      featureStds: {
+        speed: speedZ.std,
+        stddev: stddevZ.std,
+        pause: pauseZ.std,
+        direction: directionZ.std,
+        streak: streakZ.std,
+      },
+      sampleSize: fit.sampleSize,
+      accuracy: testAccuracy,
+      auc: testAuc,
+      isActive: false,
+    });
+
+    logger.info(
+      {
+        segmentKey,
+        tagConstantsVersion,
+        sampleSize: fit.sampleSize,
+        testSampleSize: XTest.length,
+        trainPositiveRate,
+        testPositiveRate,
+        l2Lambda: L2_LAMBDA,
+        trainAccuracy: fit.accuracy,
+        testAccuracy,
+        testAuc,
+        alwaysOneBaselineAccuracy: testPositiveRate,
+        accuracyDeltaVsAlwaysOne: testAccuracy - testPositiveRate,
+        aucDeltaVsRandom: testAuc - 0.5,
+        converged: fit.converged,
+        sampleExclusions: exclusions,
+      },
+      'S3 Logistic segment fitted — draft saved, awaiting manual activation',
+    );
+  } catch (err) {
+    logger.error({ err, segmentKey }, 'S3 Logistic fit failed');
+  }
+}
+
 export async function recalibrateS3Logistic(): Promise<void> {
   const windowStart = new Date(Date.now() - RECALIBRATION_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
@@ -145,235 +368,31 @@ export async function recalibrateS3Logistic(): Promise<void> {
 
   logger.info({ tagConstantsVersion }, 'S3 Logistic recalibration: resolved tag_constants_version');
 
-  for (const deviceType of DEVICE_TYPES) {
-    for (const creativeGroup of CREATIVE_GROUPS) {
-      const segmentKey = `${deviceType}|${creativeGroup}`;
+  for (const creativeGroup of CREATIVE_GROUPS) {
+    const matchingCreativeTypes = Object.entries(CREATIVE_GROUP_MAP)
+      .filter(([, group]) => group === creativeGroup)
+      .map(([creativeType]) => creativeType);
 
-      const matchingCreativeTypes = Object.entries(CREATIVE_GROUP_MAP)
-        .filter(([, group]) => group === creativeGroup)
-        .map(([creativeType]) => creativeType);
+    const groupWhere = and(
+      inArray(impressions.creativeType, matchingCreativeTypes),
+      eq(impressions.tagConstantsVersion, tagConstantsVersion),
+      gte(impressions.createdAt, windowStart),
+      eq(impressions.isSuspicious, false),
+      isNotNull(impressions.s3RawScrollSpeed),
+    );
 
-      const baseWhere = and(
-        eq(impressions.deviceType, deviceType),
-        inArray(impressions.creativeType, matchingCreativeTypes),
-        eq(impressions.tagConstantsVersion, tagConstantsVersion),
-        gte(impressions.createdAt, windowStart),
-        eq(impressions.isSuspicious, false),
-        isNotNull(impressions.s3RawScrollSpeed),
+    for (const deviceType of DEVICE_TYPES) {
+      await fitAndSaveSegment(
+        `${deviceType}|${creativeGroup}`,
+        and(
+          groupWhere,
+          eq(impressions.deviceType, deviceType),
+        ),
+        tagConstantsVersion,
       );
-
-      const [rows, exclusions] = await Promise.all([
-        db
-          .select({
-            impressionId: impressions.impressionId,
-            s1RawTimeInView: impressions.s1RawTimeInView,
-            signalsRaw: impressions.signalsRaw,
-          })
-          .from(impressions)
-          .where(and(
-            baseWhere,
-            buildTrainableImpressionFilter(SAMPLE_OPTIONS),
-          )),
-        countSampleExclusions(baseWhere, SAMPLE_OPTIONS),
-      ]);
-
-      if (rows.length < MIN_SAMPLE_SIZE) {
-        logger.warn(
-          {
-            segmentKey,
-            sampleSize: rows.length,
-            minRequired: MIN_SAMPLE_SIZE,
-            sampleExclusions: exclusions,
-          },
-          'S3 Logistic recalibration skipped — insufficient sample size',
-        );
-        continue;
-      }
-
-      const features: S3Features[] = [];
-      for (const row of rows) {
-        const f = extractFeatures(row.impressionId, row.signalsRaw, row.s1RawTimeInView);
-        if (f !== null) features.push(f);
-      }
-
-      if (features.length < MIN_SAMPLE_SIZE) {
-        logger.warn(
-          { segmentKey, sampleSize: features.length },
-          'S3 Logistic recalibration skipped — insufficient valid features after extraction',
-        );
-        continue;
-      }
-
-      // Медиана time_in_view для прокси-метки (§3.3)
-      const medianTimeInView = median(features.map((f) => f.timeInView));
-
-      // Z-score нормализация по каждому признаку
-      const speedZ = zscoreFeatures(features.map((f) => f.speed));
-      const stddevZ = zscoreFeatures(features.map((f) => f.stddev));
-      const pauseZ = zscoreFeatures(features.map((f) => f.pause));
-      const directionZ = zscoreFeatures(features.map((f) => f.direction));
-      const streakZ = zscoreFeatures(features.map((f) => f.streak));
-
-      // X = [intercept, speed_z, stddev_z, pause_z, direction_z, streak_z, reading, momentum]
-      // Прокси-метка: y=1 если clicked=1 ИЛИ time_in_view > median (§3.3)
-      const samples: LabeledSample[] = features.map((f, i) => ({
-        key: f.impressionId,
-        x: [
-          1,
-          speedZ.z[i] ?? 0,
-          stddevZ.z[i] ?? 0,
-          pauseZ.z[i] ?? 0,
-          directionZ.z[i] ?? 0,
-          streakZ.z[i] ?? 0,
-          f.reading,
-          f.momentum,
-        ],
-        y: f.clicked === 1 || f.timeInView > medianTimeInView ? 1 : 0,
-      }));
-
-      const { train, test } = splitDeterministically(
-        samples,
-        (sample) => sample.key,
-        TEST_SPLIT_RATIO,
-      );
-      const XTrain = train.map((sample) => sample.x);
-      const yTrain = train.map((sample) => sample.y);
-      const XTest = test.map((sample) => sample.x);
-      const yTest = test.map((sample) => sample.y);
-
-      const trainPositiveRate = calculatePositiveRate(yTrain);
-      const testPositiveRate = calculatePositiveRate(yTest);
-
-      // Выборка одного класса даёт модель, предсказывающую константу:
-      // сломана метка, а не данные однородны
-      if (
-        trainPositiveRate < MIN_POSITIVE_RATE ||
-        trainPositiveRate > MAX_POSITIVE_RATE
-      ) {
-        logger.error(
-          {
-            segmentKey,
-            tagConstantsVersion,
-            sampleSize: XTrain.length,
-            positiveRate: trainPositiveRate,
-            minAllowed: MIN_POSITIVE_RATE,
-            maxAllowed: MAX_POSITIVE_RATE,
-            medianTimeInView,
-          },
-          'S3 Logistic recalibration skipped — invalid target class balance',
-        );
-        continue;
-      }
-
-      try {
-        const fit = fitLogisticMLE(
-          XTrain,
-          yTrain,
-          1e-6,
-          100,
-          L2_LAMBDA,
-        );
-
-        if (
-          !fit.converged ||
-          fit.beta.length !== COEFFICIENT_COUNT ||
-          fit.beta.some((value) => !Number.isFinite(value))
-        ) {
-          logger.error(
-            {
-              segmentKey,
-              tagConstantsVersion,
-              sampleSize: fit.sampleSize,
-              converged: fit.converged,
-              beta: fit.beta,
-            },
-            'S3 Logistic recalibration skipped — fitting did not converge',
-          );
-          continue;
-        }
-
-        const testProbabilities = XTest.map((row) =>
-          predictProbability(row, fit.beta),
-        );
-        const testAccuracy = calculateAccuracy(
-          testProbabilities,
-          yTest,
-        );
-        const testAuc = calculateRocAuc(
-          testProbabilities,
-          yTest,
-        );
-
-        if (testAuc === null) {
-          logger.error(
-            {
-              segmentKey,
-              tagConstantsVersion,
-              testSampleSize: XTest.length,
-              testPositiveRate,
-            },
-            'S3 Logistic recalibration skipped — test set contains a single class',
-          );
-          continue;
-        }
-
-        await db.insert(s3LogisticConfigs).values({
-          segmentKey,
-          tagConstantsVersion,
-          coefficients: {
-            beta0: fit.beta[0] ?? 0,
-            beta1: fit.beta[1] ?? 0,
-            beta2: fit.beta[2] ?? 0,
-            beta3: fit.beta[3] ?? 0,
-            beta4: fit.beta[4] ?? 0,
-            beta5: fit.beta[5] ?? 0,
-            beta6: fit.beta[6] ?? 0,
-            beta7: fit.beta[7] ?? 0,
-          },
-          featureMeans: {
-            speed: speedZ.mean,
-            stddev: stddevZ.mean,
-            pause: pauseZ.mean,
-            direction: directionZ.mean,
-            streak: streakZ.mean,
-          },
-          featureStds: {
-            speed: speedZ.std,
-            stddev: stddevZ.std,
-            pause: pauseZ.std,
-            direction: directionZ.std,
-            streak: streakZ.std,
-          },
-          sampleSize: fit.sampleSize,
-          accuracy: testAccuracy,
-          auc: testAuc,
-          isActive: false,
-        });
-
-        logger.info(
-          {
-            segmentKey,
-            tagConstantsVersion,
-            sampleSize: fit.sampleSize,
-            testSampleSize: XTest.length,
-            trainPositiveRate,
-            testPositiveRate,
-            l2Lambda: L2_LAMBDA,
-            trainAccuracy: fit.accuracy,
-            testAccuracy,
-            testAuc,
-            alwaysOneBaselineAccuracy: testPositiveRate,
-            accuracyDeltaVsAlwaysOne: testAccuracy - testPositiveRate,
-            aucDeltaVsRandom: testAuc - 0.5,
-            converged: fit.converged,
-            sampleExclusions: exclusions,
-          },
-          'S3 Logistic segment fitted — draft saved, awaiting manual activation',
-        );
-      } catch (err) {
-        logger.error({ err, segmentKey }, 'S3 Logistic fit failed');
-      }
     }
+
+    await fitAndSaveSegment(creativeGroup, groupWhere, tagConstantsVersion);
   }
 }
 

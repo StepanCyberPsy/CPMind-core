@@ -25,6 +25,7 @@ export {
     buildPayload,
     resetSessionForNewSegment,
     computeActiveTimeMsInRange,
+    computeMaxHiddenIntervalMs,
 } from './session.js';
 export type {
     SessionPayloadMeta,
@@ -52,6 +53,7 @@ export {
     initS5,
     resetSegmentS5,
     recordFrameInteraction,
+    trackSkipZoneElement,
 } from './signals/s5.js';
 export { initS7, resetSegmentS7 } from './signals/s7.js';
 export { initPresence } from './signals/presence.js';
@@ -68,6 +70,7 @@ export {
     onS6Seeked,
     onS6VolumeChange,
     onS6Skip,
+    onS6Close,
     onS6LoadedMetadata,
     onS6AudioConnectionDetected,
     getS6Data,

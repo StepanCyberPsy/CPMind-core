@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { deleteScheduledS1WeibullConfigs } from '../services/configs/weibull_config.js';
+import { deleteScheduledS2Configs } from '../services/configs/s2_config.js';
 import { deleteScheduledS3LogisticConfigs } from '../services/configs/logistic_config.js';
 import { deleteScheduledS4Configs } from '../services/configs/s4_config.js';
 import { deleteScheduledS5LogisticConfigs } from '../services/configs/s5_logistic_config.js';
@@ -12,6 +13,7 @@ const logger = pino({ name: 'scheduled-deletion-job' });
 async function runScheduledDeletion(): Promise<void> {
   const [
     s1Deleted,
+    s2Deleted,
     s3Deleted,
     s4Deleted,
     s5Deleted,
@@ -19,6 +21,7 @@ async function runScheduledDeletion(): Promise<void> {
     s7Deleted,
   ] = await Promise.all([
     deleteScheduledS1WeibullConfigs(),
+    deleteScheduledS2Configs(),
     deleteScheduledS3LogisticConfigs(),
     deleteScheduledS4Configs(),
     deleteScheduledS5LogisticConfigs(),
@@ -28,6 +31,9 @@ async function runScheduledDeletion(): Promise<void> {
 
   if (s1Deleted > 0) {
     logger.info({ deleted: s1Deleted }, 'Scheduled deletion: removed S1 Weibull configs');
+  }
+  if (s2Deleted > 0) {
+    logger.info({ deleted: s2Deleted }, 'Scheduled deletion: removed S2 configs');
   }
   if (s3Deleted > 0) {
     logger.info({ deleted: s3Deleted }, 'Scheduled deletion: removed S3 Logistic configs');

@@ -198,6 +198,7 @@ export const impressions = pgTable('impressions', {
   scoreFinal: real('score_final').notNull(),
   weightsVersion: text('weights_version').notNull(),
   s1ModelVersion: text('s1_model_version'),
+  s2ModelVersion: text('s2_model_version'),
   s3ModelVersion: text('s3_model_version'),
   s4ModelVersion: text('s4_model_version'),
   s5ModelVersion: text('s5_model_version'),
@@ -407,6 +408,29 @@ export const s1WeibullConfigs = pgTable('s1_weibull_configs', {
   deletionScheduledAtIdx: index('idx_s1_weibull_deletion_scheduled_at').on(t.deletionScheduledAt),
 }));
 
+// Опорные квантили распределения доли экрана по сегменту. Версия констант сбора
+// в ключе не участвует: взвешивание отсчётов по фактическому интервалу делает
+// среднюю долю экрана независимой от S2_SAMPLE_INTERVAL_MS — как и у S1
+export const s2Configs = pgTable('s2_configs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  segmentKey: text('segment_key').notNull(),
+
+  // Вероятности по возрастанию и доля экрана в процентах на тех же позициях.
+  // Длины массивов совпадают, значения долей неубывающие
+  quantileLevels: jsonb('quantile_levels').notNull(),
+  quantileValues: jsonb('quantile_values').notNull(),
+
+  sampleSize: integer('sample_size').notNull(),
+  fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
+  isActive: boolean('is_active').notNull().default(false),
+  deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
+}, (t) => ({
+  activeSegmentIdx: uniqueIndex('uidx_s2_configs_active_segment')
+    .on(t.segmentKey)
+    .where(sql`${t.isActive} = true`),
+  deletionScheduledAtIdx: index('idx_s2_configs_deletion_scheduled_at').on(t.deletionScheduledAt),
+}));
+
 export const s3LogisticConfigs = pgTable('s3_logistic_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
   segmentKey: text('segment_key').notNull(),
@@ -464,6 +488,15 @@ export const s5LogisticConfigs = pgTable('s5_logistic_configs', {
   // Площадь под ROC-кривой на отложенной выборке — см. комментарий в s3_logistic_configs
   auc: real('auc'),
 
+  // Пороги присутствия зрителя, по которым строилась метка обучения. Хранятся рядом
+  // с коэффициентами: модель воспроизводима только вместе с ними. null для моделей,
+  // обученных до введения подбора
+  labelParams: jsonb('label_params'),
+
+  // Доля положительных наблюдений метки — первый критерий отбора комбинации порогов
+  // и основание для решения администратора об активации
+  labelPositiveRate: real('label_positive_rate'),
+
   fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
   isActive: boolean('is_active').notNull().default(false),
   deletionScheduledAt: timestamp('deletion_scheduled_at', { withTimezone: true }),
@@ -487,6 +520,15 @@ export const s6LogisticConfigs = pgTable('s6_logistic_configs', {
 
   // Площадь под ROC-кривой на отложенной выборке — см. комментарий в s3_logistic_configs
   auc: real('auc'),
+
+  // Пороги присутствия зрителя, по которым строилась метка обучения. Хранятся рядом
+  // с коэффициентами: модель воспроизводима только вместе с ними. null для моделей,
+  // обученных до введения подбора
+  labelParams: jsonb('label_params'),
+
+  // Доля положительных наблюдений метки — первый критерий отбора комбинации порогов
+  // и основание для решения администратора об активации
+  labelPositiveRate: real('label_positive_rate'),
 
   fittedAt: timestamp('fitted_at', { withTimezone: true }).defaultNow().notNull(),
   isActive: boolean('is_active').notNull().default(false),
@@ -848,6 +890,8 @@ export type IvtThresholdsConfigInsert = typeof ivtThresholdsConfigs.$inferInsert
 export type IvtThresholdsConfigSelect = typeof ivtThresholdsConfigs.$inferSelect;
 export type S1WeibullConfigInsert = typeof s1WeibullConfigs.$inferInsert;
 export type S1WeibullConfigSelect = typeof s1WeibullConfigs.$inferSelect;
+export type S2ConfigInsert = typeof s2Configs.$inferInsert;
+export type S2ConfigSelect = typeof s2Configs.$inferSelect;
 export type S3LogisticConfigInsert = typeof s3LogisticConfigs.$inferInsert;
 export type S3LogisticConfigSelect = typeof s3LogisticConfigs.$inferSelect;
 export type S4ConfigInsert = typeof s4Configs.$inferInsert;

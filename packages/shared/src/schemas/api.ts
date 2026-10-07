@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TagUuidSchema } from './tag.js';
 import { UserUuidSchema } from './user.js';
 import { IvtVerdictSchema } from './ivt.js';
+import { CREATIVE_CATEGORIES } from '../scoring/weights.js';
 
 // Список импрессенов
 export const ImpressionRowSchema = z.object({
@@ -62,6 +63,7 @@ export const ImpressionRowSchema = z.object({
   score_final: z.number(),
   weights_version: z.string(),
   s1_model_version: z.string().nullable(),
+  s2_model_version: z.string().nullable(),
   s3_model_version: z.string().nullable(),
   s4_model_version: z.string().nullable(),
   s5_model_version: z.string().nullable(),
@@ -119,7 +121,7 @@ export type PublisherDomainAggregate = z.infer<typeof PublisherDomainAggregateSc
 export const WeightConfigRowSchema = z.object({
   id: z.string().uuid(),
   version: z.string(),
-  configType: z.enum(['banner', 'video']),
+  configType: z.enum(CREATIVE_CATEGORIES),
   weights: z.object({
     s1: z.number(),
     s2: z.number(),

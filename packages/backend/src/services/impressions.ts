@@ -216,6 +216,7 @@ const ADMIN_ONLY_COLUMNS = {
   f_presence: impressions.fPresence,
   weights_version: impressions.weightsVersion,
   s1_model_version: impressions.s1ModelVersion,
+  s2_model_version: impressions.s2ModelVersion,
   s3_model_version: impressions.s3ModelVersion,
   s4_model_version: impressions.s4ModelVersion,
   s5_model_version: impressions.s5ModelVersion,
@@ -304,6 +305,7 @@ export interface JoinedImpressionRow {
   score_final: number;
   weights_version: string;
   s1_model_version: string | null;
+  s2_model_version: string | null;
   s3_model_version: string | null;
   s4_model_version: string | null;
   s5_model_version: string | null;
@@ -420,6 +422,7 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     score_final: row.score_final,
     weights_version: row.weights_version,
     s1_model_version: row.s1_model_version,
+    s2_model_version: row.s2_model_version,
     s3_model_version: row.s3_model_version,
     s4_model_version: row.s4_model_version,
     s5_model_version: row.s5_model_version,

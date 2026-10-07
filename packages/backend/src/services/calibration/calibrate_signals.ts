@@ -2,16 +2,21 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pino from 'pino';
 import { recalibrateS1Weibull } from '../../jobs/s1_weibull_recalibration.js';
+import { recalibrateS2 } from '../../jobs/s2_calibration.js';
 import { recalibrateS3Logistic } from '../../jobs/s3_logistic_recalibration.js';
 import { recalibrateS4 } from '../../jobs/s4_calibration.js';
 import { recalibrateS5Logistic } from '../../jobs/s5_logistic_recalibration.js';
-import { recalibrateS6Logistic } from '../../jobs/s6_logistic_recalibration.js';
+import {
+  recalibrateS6Instream,
+  recalibrateS6Outstream,
+} from '../../jobs/s6_logistic_recalibration.js';
 import { recalibrateS7Quantiles } from '../../jobs/s7_quantile_recalibration.js';
 
 const logger = pino({ name: 'calibrate-signals-service' });
 
 export const CALIBRATABLE_SIGNALS = [
   's1',
+  's2',
   's3',
   's4',
   's5',
@@ -27,10 +32,14 @@ const CALIBRATION_RUNNERS: Record<
   () => Promise<void>
 > = {
   s1: recalibrateS1Weibull,
+  s2: recalibrateS2,
   s3: recalibrateS3Logistic,
   s4: recalibrateS4,
   s5: recalibrateS5Logistic,
-  s6: recalibrateS6Logistic,
+  s6: async () => {
+    await recalibrateS6Instream();
+    await recalibrateS6Outstream();
+  },
   s7: recalibrateS7Quantiles,
 };
 
@@ -55,12 +64,6 @@ export function parseCalibrationTarget(
 
   if (normalized === 'all') {
     return 'all';
-  }
-
-  if (normalized === 's2') {
-    throw new Error(
-      'S2 не имеет отдельной параметрической модели и процедуры recalibration',
-    );
   }
 
   if (!isCalibratableSignal(normalized)) {

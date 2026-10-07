@@ -4,8 +4,11 @@ import { FastifyPluginAsync } from 'fastify';
 import {
   ImpressionPayloadSchema,
   UserUuidSchema,
+  isInstreamFormat,
+  isSelfMountedFormat,
   resolveS6SegmentKeys,
-  type CreativeCategory
+  type CreativeCategory,
+  type PlacementFormat
 } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -15,6 +18,7 @@ import {
 } from '../services/scoring.js';
 import { getActiveWeightsConfig } from '../services/configs/weights_config.js';
 import { getActiveWeibullParams } from '../services/configs/weibull_config.js';
+import { getActiveS2Params } from '../services/configs/s2_config.js';
 import { getActiveS3LogisticParams } from '../services/configs/logistic_config.js';
 import { getActiveS4Config } from '../services/configs/s4_config.js';
 import { getActiveS5LogisticParams } from '../services/configs/s5_logistic_config.js';
@@ -37,6 +41,15 @@ import {
 import { buildCsvResponse } from '../services/csv.js';
 import { db } from '../db/index.js';
 import { impressions } from '../db/schema.js';
+
+function resolveVideoWeightsCategory(
+  format: PlacementFormat | null,
+): CreativeCategory {
+  if (format === null) return 'video';
+  if (isInstreamFormat(format)) return 'video_instream';
+  if (isSelfMountedFormat(format)) return 'video_outstream';
+  return 'video';
+}
 
 const ImpressionListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -194,7 +207,9 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     const skippable = deliveryContext?.skippable ?? parsed.data.skippable;
 
     const creativeCategory: CreativeCategory =
-      creativeType === 'video_creative' ? 'video' : 'banner';
+      creativeType === 'video_creative'
+        ? resolveVideoWeightsCategory(deliveryContext?.format ?? null)
+        : 'banner';
 
     const creativeGroup =
       creativeType === 'banner_gif' || creativeType === 'banner_html5'
@@ -213,6 +228,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       ? resolveS6SegmentKeys(
         parsed.data.device_type,
         deliveryContext?.format ?? null,
+        deliveryContext?.subtype ?? null,
         skippable,
       )
       : null;
@@ -220,6 +236,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     const [
       config,
       weibullResolution,
+      s2Resolution,
       logisticResolution,
       s4Resolution,
       s5Resolution,
@@ -230,6 +247,7 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     ] = await Promise.all([
       getActiveWeightsConfig(creativeCategory),
       getActiveWeibullParams(segmentKey),
+      getActiveS2Params(segmentKey),
       getActiveS3LogisticParams(segmentKey, tagConstantsVersion),
       getActiveS4Config(s4Segment),
       getActiveS5LogisticParams(s5Segment, tagConstantsVersion),
@@ -245,6 +263,8 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
       config,
       weibullResolution.params,
       weibullResolution.modelVersion,
+      s2Resolution.params,
+      s2Resolution.modelVersion,
       logisticResolution.params,
       logisticResolution.modelVersion,
       s4Resolution.config,

@@ -4,8 +4,8 @@ import {
   desc,
 } from 'drizzle-orm';
 import {
-  DEFAULT_BANNER_WEIGHTS,
-  DEFAULT_VIDEO_WEIGHTS,
+  CREATIVE_CATEGORIES,
+  DEFAULT_WEIGHTS_BY_CATEGORY,
   type WeightsValues,
   type CreativeCategory,
 } from '@cpmind/shared';
@@ -29,10 +29,7 @@ class WeightsConfigError extends Error {
     }
 }
 
-const cache: Record<CreativeCategory, WeightsValues | null> = {
-  banner: null,
-  video: null,
-};
+const cache = new Map<CreativeCategory, WeightsValues>();
 
 /**
  * Сбрасывает кэш активной конфигурации весов.
@@ -40,8 +37,7 @@ const cache: Record<CreativeCategory, WeightsValues | null> = {
  */
 
 export function invalidateWeightsCache(): void {
-  cache.banner = null;
-  cache.video = null;
+  cache.clear();
 }
 
 /**
@@ -52,7 +48,8 @@ export function invalidateWeightsCache(): void {
 export async function getActiveWeightsConfig(
   category: CreativeCategory,
 ): Promise<WeightsValues> {
-  if (cache[category]) return cache[category]!;
+  const cached = cache.get(category);
+  if (cached !== undefined) return cached;
 
   const rows = await db
     .select()
@@ -63,13 +60,12 @@ export async function getActiveWeightsConfig(
     ))
     .limit(1);
 
-  const defaultWeights = category === 'video' ? DEFAULT_VIDEO_WEIGHTS : DEFAULT_BANNER_WEIGHTS;
-  if (!rows.length) return defaultWeights;
+  if (!rows.length) return DEFAULT_WEIGHTS_BY_CATEGORY[category];
 
   const row = rows[0]!;
   const w = row.weights as Record<string, number>;
 
-  cache[category] = {
+  const resolved: WeightsValues = {
     version: row.version,
     s1: w['s1']!,
     s2: w['s2']!,
@@ -80,7 +76,8 @@ export async function getActiveWeightsConfig(
     s7: w['s7']!,
   };
 
-  return cache[category]!;
+  cache.set(category, resolved);
+  return resolved;
 }
 
 /**
@@ -154,7 +151,8 @@ export async function activateWeightsConfig(id: string): Promise<void> {
 
     const row = target[0]!;
 
-    // Инвариант: для баннерных конфигураций вес S6 обязан быть 0
+    // Инвариант: баннер не содержит видео, вес S6 обязан быть 0 — иначе показу
+    // достался бы вес сигнала, который для него всегда null
     if (row.configType === 'banner') {
       const w = row.weights as Record<string, number>;
       if ((w['s6'] ?? 0) !== 0) {

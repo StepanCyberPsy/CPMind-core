@@ -131,6 +131,7 @@ export function createS6AccumulatorState(
         audible_quartile_100: false,
         unmuted_by_user: false,
         muted_by_user: false,
+        closed_by_user: false,
         start_muted: null,
     };
 }
@@ -282,6 +283,10 @@ export function onS6Skip(state: S6AccumulatorState): void {
     state.skipped = true;
 }
 
+export function onS6Close(state: S6AccumulatorState): void {
+    state.closed_by_user = true;
+}
+
 export function onS6AudioConnectionDetected(
     state: S6AccumulatorState,
     connection: AudioConnection,
@@ -328,6 +333,7 @@ export function getS6Data(state: S6AccumulatorState): S6RawData {
         muted_throughout,
         unmuted_by_user: state.unmuted_by_user,
         muted_by_user: state.muted_by_user,
+        closed_by_user: state.closed_by_user,
         ...(state.start_muted !== null && { start_muted: state.start_muted }),
     };
 }
@@ -372,6 +378,7 @@ export function resetS6Accumulator(
     state.audible_quartile_100 = false;
     state.unmuted_by_user = false;
     state.muted_by_user = false;
+    state.closed_by_user = false;
     state.start_muted = isPlaying ? !isAudible(isMuted, volume) : null;
 
     if (isPlaying) {

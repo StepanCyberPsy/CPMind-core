@@ -15,6 +15,35 @@ export function initS4(
         timestamp: session.tabSessionStart,
     });
 
+    // Фокус окна на момент инициализации: показ может начаться в окне, которое уже
+    // не в фокусе, и отсчёт интервала без фокуса начинается сразу
+    session.windowFocused = document.hasFocus();
+    session.windowUnfocusedStart = session.windowFocused ? null : session.tabSessionStart;
+
+    function closeUnfocusedInterval(now: number): void {
+        const start = session.windowUnfocusedStart;
+        if (start === null) return;
+
+        const elapsed = Math.max(0, now - start);
+        if (elapsed > session.windowUnfocusedMaxMs) {
+            session.windowUnfocusedMaxMs = elapsed;
+        }
+
+        session.windowUnfocusedStart = null;
+    }
+
+    function onWindowFocus(): void {
+        session.windowFocused = true;
+        closeUnfocusedInterval(Date.now());
+    }
+
+    // Повторное событие потери фокуса не сдвигает якорь: интервал остаётся непрерывным
+    function onWindowBlur(): void {
+        if (!session.windowFocused) return;
+        session.windowFocused = false;
+        session.windowUnfocusedStart = Date.now();
+    }
+
     // Если вкладка изначально hidden — не начинаем накопление active time
     // tabSessionStart используется как маркер начала visible-сегмента,
     // при hidden-init он не должен влиять на tabActiveTimeMs
@@ -65,11 +94,14 @@ export function initS4(
     }
 
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onWindowFocus);
+    window.addEventListener('blur', onWindowBlur);
     window.addEventListener('pagehide', onPageHide, { once: true });
 
     if (config.debug) {
         console.log('[CPMind S4] Initialized:', {
             initialState,
+            windowFocused: session.windowFocused,
             tabSessionStart: session.tabSessionStart,
         });
     }
@@ -77,6 +109,8 @@ export function initS4(
     // Cleanup для предотвращения listener leak при segment reset
     cleanups.set(session, () => {
         document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('focus', onWindowFocus);
+        window.removeEventListener('blur', onWindowBlur);
         window.removeEventListener('pagehide', onPageHide);
     });
 }
@@ -97,8 +131,10 @@ export function resetSegmentS4(
 
     session.tabActiveTimeMs = 0;
     session.tabSwitchesCount = 0;
+    session.windowUnfocusedMaxMs = 0;
 
-    // Начальную запись истории и tabSessionStart нового сегмента выставляет initS4
+    // Начальную запись истории, tabSessionStart и состояние фокуса нового сегмента
+    // выставляет initS4
     session.visibilityStateHistory = [];
 
     // Переинициализируем для нового сегмента

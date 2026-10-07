@@ -81,10 +81,13 @@ export const CPMindPlayer = {
             onAutoplayBlocked(): void { },
 
             onScrollPause(): void {
+                handle?.reportViewportVisibility(false);
                 handle?.pause();
             },
 
-            onScrollResume(): void { },
+            onScrollResume(): void {
+                handle?.reportViewportVisibility(true);
+            },
 
             onClose(): void {
                 handle?.close('user');

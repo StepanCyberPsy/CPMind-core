@@ -68,6 +68,12 @@ export interface SdkBridge {
     // Устанавливает pending source для следующего события (100ms window)
     setPendingSource(source: PlayerActionSource): void;
     reportAudioConnection(connection: AudioConnection): void;
+    // Передаёт закрытие поверхности с источником действия — до финализации сессии
+    reportClose(source: PlayerActionSource): void;
+    // Наблюдение поверхности рантаймом: отправляет только формат, который её наблюдает
+    reportViewportVisibility(visible: boolean): void;
+    // Зона кнопки пропуска для сигнала взаимодействий
+    trackSkipZone(el: HTMLElement): void;
     // Финализирует сессию
     finalize(outcome: PlayerTerminalOutcome): void;
     // Отправляет delivery event (fire-and-forget)
@@ -388,6 +394,26 @@ export function createSdkBridge(opts: SdkBridgeOptions): SdkBridge {
                 connection,
                 timestampMs: performance.now(),
             });
+        },
+
+        reportClose(source: PlayerActionSource): void {
+            reportEvent({
+                type: 'close',
+                source,
+                timestampMs: performance.now(),
+            });
+        },
+
+        reportViewportVisibility(visible: boolean): void {
+            reportEvent({
+                type: visible ? 'viewport_enter' : 'viewport_exit',
+                timestampMs: performance.now(),
+            });
+        },
+
+        trackSkipZone(el: HTMLElement): void {
+            if (finalized || session === null) return;
+            session.trackSkipZone(el);
         },
 
         finalize(outcome: PlayerTerminalOutcome): void {

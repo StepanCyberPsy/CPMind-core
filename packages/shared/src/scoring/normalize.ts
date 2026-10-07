@@ -8,13 +8,17 @@ import type {
   SignalsS7,
   ImpressionPayload,
 } from '../schemas/impression.js';
-import type {
-  WeibullParams,
-  LogisticParams,
-  S4Config,
-  S5LogisticParams,
-  S6LogisticParams,
-  S7Thresholds,
+import {
+  DEFAULT_S2_PARAMS,
+  type WeibullParams,
+  type S2Params,
+  type LogisticParams,
+  type S4Config,
+  type S5LogisticParams,
+  type S6LogisticParams,
+  type S6InstreamLogisticParams,
+  type S6OutstreamLogisticParams,
+  type S7Thresholds,
 } from './signal_defaults.js';
 
 /**
@@ -36,18 +40,79 @@ export function normalizeS1(
 }
 
 /**
- * S2 = min(100, sqrt(share_of_screen_avg_pct) × 10)
+ * Значение эмпирической функции распределения в точке по опорным квантилям сегмента.
+ * Между соседними квантилями — линейная интерполяция, за крайними — продление к границам
+ * диапазона доли экрана: ниже первого квантиля к нулю, выше последнего к ста процентам.
+ * Совпадающие соседние значения означают вырожденный участок распределения — возвращается
+ * верхний уровень, монотонность сохраняется.
+ */
+function interpolateCdf(
+  value: number,
+  levels: readonly number[],
+  values: readonly number[],
+): number {
+  const lastIndex = levels.length - 1;
+  const firstValue = values[0] ?? 0;
+  const firstLevel = levels[0] ?? 0;
+  const lastValue = values[lastIndex] ?? 100;
+  const lastLevel = levels[lastIndex] ?? 1;
+
+  if (value <= firstValue) {
+    return firstValue <= 0 ? 0 : (value / firstValue) * firstLevel;
+  }
+
+  if (value >= lastValue) {
+    return lastValue >= 100
+      ? 1
+      : lastLevel + ((value - lastValue) / (100 - lastValue)) * (1 - lastLevel);
+  }
+
+  for (let i = 1; i <= lastIndex; i++) {
+    const upperValue = values[i] ?? 0;
+    if (value > upperValue) continue;
+
+    const lowerValue = values[i - 1] ?? 0;
+    const lowerLevel = levels[i - 1] ?? 0;
+    const upperLevel = levels[i] ?? 0;
+    const span = upperValue - lowerValue;
+
+    if (span <= 0) return upperLevel;
+
+    return lowerLevel + ((value - lowerValue) / span) * (upperLevel - lowerLevel);
+  }
+
+  return lastLevel;
+}
+
+/**
+ * S2 = 100 × F(share_of_screen_avg_pct)
  *
- * Контрольные значения (из ТЗ):
- *   5% -> ~22.4
- *   15% -> ~38.7
- *   25% -> 50
- *   50% -> ~70.7
- *   100% -> 100
+ * F — эмпирическая функция распределения доли экрана в сегменте device_type × creative_group,
+ * заданная опорными квантилями активной конфигурации. Показ оценивается относительно
+ * типичной экспозиции своего сегмента, а не по абсолютной величине: доля, высокая для
+ * одного формата, может быть рядовой для другого.
+ * Структурно непригодная конфигурация — меньше двух опорных точек либо несовпадающая
+ * длина массивов — заменяется дефолтом: нормализация остаётся определённой на любом входе.
+ * Источник: §4 ТЗ S2, аналог нормализации S1 через CDF времени в поле зрения.
  */
 
-export function normalizeS2(s2: SignalsS2): number {
-  return Math.min(100, Math.sqrt(s2.share_of_screen_avg_pct) * 10);
+export function normalizeS2(
+  s2: SignalsS2,
+  params: S2Params,
+): number {
+  const usable =
+    params.quantileLevels.length >= 2 &&
+    params.quantileLevels.length === params.quantileValues.length;
+
+  const cdf = usable
+    ? interpolateCdf(s2.share_of_screen_avg_pct, params.quantileLevels, params.quantileValues)
+    : interpolateCdf(
+      s2.share_of_screen_avg_pct,
+      DEFAULT_S2_PARAMS.quantileLevels,
+      DEFAULT_S2_PARAMS.quantileValues,
+    );
+
+  return Math.max(0, Math.min(100, cdf * 100));
 }
 
 /**
@@ -229,69 +294,142 @@ function quartileOrdinal(s6: SignalsS6): number {
   return 0;
 }
 
+interface S6SharedFeatures {
+  completionZ: number;
+  quartileZ: number;
+  audibleZ: number;
+  replayZ: number;
+  muted: number;
+  unmuted: number;
+}
+
 /**
- * S6 = min(100, P(engaged) × 100)
+ * Признаки, общие для обеих моделей S6.
+ *
+ * completionRate: числовой % если доступен, иначе ordinal-квартиль (fallback).
+ * audibleRatio: audible_time_sec / duration_sec, ограничено [0, 1] — поля капаются
+ * независимо друг от друга, и повторное воспроизведение даёт отношение больше единицы.
+ * replayLog: log(1 + replay_count) перед z-score.
+ */
+function buildS6SharedFeatures(
+  s6: SignalsS6,
+  featureMeans: Record<string, number>,
+  featureStds: Record<string, number>,
+): S6SharedFeatures {
+  const fm = featureMeans;
+  const fs = featureStds;
+
+  const completionRate = s6.completion_rate_pct ?? quartileOrdinal(s6);
+  const quartile = quartileOrdinal(s6);
+  const audibleRatio = s6.duration_sec !== null && s6.duration_sec > 0
+    ? Math.min(1, Math.max(0, s6.audible_time_sec / s6.duration_sec))
+    : 0;
+  const replayLog = Math.log(1 + s6.replay_count);
+
+  return {
+    completionZ: fs['completion'] !== 0
+      ? (completionRate - (fm['completion'] ?? 0)) / (fs['completion'] ?? 1)
+      : 0,
+    quartileZ: fs['quartile'] !== 0
+      ? (quartile - (fm['quartile'] ?? 0)) / (fs['quartile'] ?? 1)
+      : 0,
+    audibleZ: fs['audible'] !== 0
+      ? (audibleRatio - (fm['audible'] ?? 0)) / (fs['audible'] ?? 1)
+      : 0,
+    replayZ: fs['replay'] !== 0
+      ? (replayLog - (fm['replay'] ?? 0)) / (fs['replay'] ?? 1)
+      : 0,
+    muted: s6.muted_throughout ? 1 : 0,
+    unmuted: s6.unmuted_by_user ? 1 : 0,
+  };
+}
+
+function sigmoidToScore(z: number): number {
+  const pEngaged = 1 / (1 + Math.exp(-z));
+  return Math.min(100, pEngaged * 100);
+}
+
+/**
+ * S6 in-stream = min(100, P(engaged) × 100)
  * P(engaged) = sigmoid(β·x), признаки нормализованы z-score по сегменту.
  *
  * Feature vector:
  *   [intercept, completionZ, quartileZ, audibleZ, muted, unmuted, replayZ, skipped, completionZ×audibleZ]
  *
- * completionRate: числовой % если доступен, иначе ordinal-квартиль (fallback).
- * audibleRatio: audible_time_sec / duration_sec, 0 если duration недоступен.
- * replayLog: log(1 + replay_count) перед z-score.
+ * Реклама стартует со звуком внутри контента: mutedThroughout означает заглушение
+ * зрителем, отказ от показа выражается пропуском.
  * Терм взаимодействия completionZ×audibleZ моделирует нелинейный эффект:
  *   "completion со звуком" vs "completion без звука" (§4.1, Audion 2025).
- *
- * Возвращает null для баннеров (s6 === null).
  * Источник: IAB/MRC Attention Guidelines (2025), Marketing Dive (2025), Audion (2025).
  */
+export function normalizeS6Instream(
+  s6: SignalsS6,
+  params: S6InstreamLogisticParams,
+): number {
+  const f = buildS6SharedFeatures(s6, params.featureMeans, params.featureStds);
+  const skipped = s6.skipped ? 1 : 0;
 
+  const z =
+    params.beta0 +
+    params.beta1 * f.completionZ +
+    params.beta2 * f.quartileZ +
+    params.beta3 * f.audibleZ +
+    params.beta4 * f.muted +
+    params.beta5 * f.unmuted +
+    params.beta6 * f.replayZ +
+    params.beta7 * skipped +
+    params.beta8 * (f.completionZ * f.audibleZ);
+
+  return sigmoidToScore(z);
+}
+
+/**
+ * S6 out-stream = min(100, P(engaged) × 100)
+ * P(engaged) = sigmoid(β·x), признаки нормализованы z-score по сегменту.
+ *
+ * Feature vector:
+ *   [intercept, completionZ, quartileZ, audibleZ, muted, unmuted, replayZ, closed, completionZ×audibleZ]
+ *
+ * Реклама стартует без звука в потоке страницы: mutedThroughout означает бездействие
+ * зрителя, unmutedByUser — явный интерес, отказ от показа выражается закрытием
+ * поверхности. Кнопки пропуска нет, признак пропуска в модель не входит.
+ * Бандлы, собранные до введения признака закрытия, его не отправляют — отсутствующее
+ * значение читается как отсутствие действия.
+ */
+export function normalizeS6Outstream(
+  s6: SignalsS6,
+  params: S6OutstreamLogisticParams,
+): number {
+  const f = buildS6SharedFeatures(s6, params.featureMeans, params.featureStds);
+  const closed = s6.closed_by_user === true ? 1 : 0;
+
+  const z =
+    params.beta0 +
+    params.beta1 * f.completionZ +
+    params.beta2 * f.quartileZ +
+    params.beta3 * f.audibleZ +
+    params.beta4 * f.muted +
+    params.beta5 * f.unmuted +
+    params.beta6 * f.replayZ +
+    params.beta7 * closed +
+    params.beta8 * (f.completionZ * f.audibleZ);
+
+  return sigmoidToScore(z);
+}
+
+/**
+ * Нормализация S6 по режиму активной конфигурации. Возвращает null для баннеров
+ * (s6 === null) — вес сигнала перераспределяется между остальными.
+ */
 export function normalizeS6(
   s6: SignalsS6 | null,
   params: S6LogisticParams,
 ): number | null {
   if (s6 === null) return null;
 
-  const fm = params.featureMeans;
-  const fs = params.featureStds;
-
-  const completionRate = s6.completion_rate_pct ?? quartileOrdinal(s6);
-  const quartile = quartileOrdinal(s6);
-  const audibleRatio = s6.audible_time_sec !== null && s6.duration_sec !== null && s6.duration_sec > 0
-    ? s6.audible_time_sec / s6.duration_sec
-    : 0;
-  const replayLog = Math.log(1 + s6.replay_count);
-
-  const completionZ = fs['completion'] !== 0
-    ? (completionRate - (fm['completion'] ?? 0)) / (fs['completion'] ?? 1)
-    : 0;
-  const quartileZ = fs['quartile'] !== 0
-    ? (quartile - (fm['quartile'] ?? 0)) / (fs['quartile'] ?? 1)
-    : 0;
-  const audibleZ = fs['audible'] !== 0
-    ? (audibleRatio - (fm['audible'] ?? 0)) / (fs['audible'] ?? 1)
-    : 0;
-  const replayZ = fs['replay'] !== 0
-    ? (replayLog - (fm['replay'] ?? 0)) / (fs['replay'] ?? 1)
-    : 0;
-
-  const muted = s6.muted_throughout ? 1 : 0;
-  const unmuted = s6.unmuted_by_user ? 1 : 0;
-  const skipped = s6.skipped ? 1 : 0;
-
-  const z =
-    params.beta0 +
-    params.beta1 * completionZ +
-    params.beta2 * quartileZ +
-    params.beta3 * audibleZ +
-    params.beta4 * muted +
-    params.beta5 * unmuted +
-    params.beta6 * replayZ +
-    params.beta7 * skipped +
-    params.beta8 * (completionZ * audibleZ);
-
-  const pEngaged = 1 / (1 + Math.exp(-z));
-  return Math.min(100, pEngaged * 100);
+  return params.mode === 'instream'
+    ? normalizeS6Instream(s6, params)
+    : normalizeS6Outstream(s6, params);
 }
 
 /**
@@ -360,6 +498,7 @@ export interface NormalizedSignals {
 export function normalizeAll(
   payload: ImpressionPayload,
   weibullParams: WeibullParams,
+  s2Params: S2Params,
   s3Params: LogisticParams,
   s4Config: S4Config,
   s5Params: S5LogisticParams,
@@ -368,7 +507,7 @@ export function normalizeAll(
 ): NormalizedSignals {
   return {
     s1: normalizeS1(payload.signals.s1, weibullParams),
-    s2: normalizeS2(payload.signals.s2),
+    s2: normalizeS2(payload.signals.s2, s2Params),
     s3: normalizeS3(payload.signals.s3, s3Params),
     s4: normalizeS4(payload.signals.s4, s4Config),
     s5: normalizeS5(payload.signals.s5, s5Params),

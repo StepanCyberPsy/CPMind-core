@@ -1,5 +1,8 @@
 import type { Session } from '../types.js';
-import { computeActiveTimeMsInRange } from '../session.js';
+import {
+    computeActiveTimeMsInRange,
+    computeMaxHiddenIntervalMs,
+} from '../session.js';
 
 const OVERLAY_STYLES: Partial<CSSStyleDeclaration> = {
     position: 'fixed',
@@ -384,6 +387,59 @@ class DebugOverlayManager {
         return timeInView;
     }
 
+    private getTabAbsentMaxSec(session: Session): string {
+        const now = Date.now();
+        const impressionStart = session.timestampStart || now;
+        const maxMs = computeMaxHiddenIntervalMs(
+            session.visibilityStateHistory,
+            impressionStart,
+            now,
+        );
+        return (maxMs / 1000).toFixed(1) + 's';
+    }
+
+    private getWindowUnfocusedMaxSec(session: Session): string {
+        const pendingMs = session.windowUnfocusedStart !== null
+            ? Math.max(0, Date.now() - session.windowUnfocusedStart)
+            : 0;
+        const maxMs = Math.max(session.windowUnfocusedMaxMs, pendingMs);
+        return (maxMs / 1000).toFixed(1) + 's';
+    }
+
+    private getSurfaceAbsentMaxSec(session: Session): string {
+        if (session.surfaceAbsentMaxMs === null) return 'n/a';
+
+        const pendingMs = session.surfaceAbsentStart !== null
+            ? Math.max(0, Date.now() - session.surfaceAbsentStart)
+            : 0;
+        const maxMs = Math.max(session.surfaceAbsentMaxMs, pendingMs);
+        return (maxMs / 1000).toFixed(1) + 's';
+    }
+
+    private getSkipZoneHoverRatio(session: Session): string {
+        if (session.skipZoneSince === null) return 'n/a';
+
+        const now = Date.now();
+        const elapsedMs = Math.max(0, now - session.skipZoneSince);
+        if (elapsedMs === 0) return '0%';
+
+        const pendingMs = session.skipZoneHoverPending && session.skipZoneSampleAt !== null
+            ? Math.max(0, now - session.skipZoneSampleAt)
+            : 0;
+        const ratio = Math.min(1, (session.skipZoneHoverMs + pendingMs) / elapsedMs);
+        const outside = session.skipZoneMovedOutside ? '' : ', parked';
+
+        return `${(ratio * 100).toFixed(0)}%${outside}`;
+    }
+
+    private getScrollQuietMaxSec(session: Session): string {
+        const pendingMs = session.scrollQuietStart !== null
+            ? Math.max(0, Date.now() - session.scrollQuietStart)
+            : 0;
+        const maxMs = Math.max(session.scrollQuietMaxMs, pendingMs);
+        return (maxMs / 1000).toFixed(1) + 's';
+    }
+
     private getTabActivePct(session: Session): string {
         const now = Date.now();
         const impressionStart = session.timestampStart || now;
@@ -398,9 +454,17 @@ class DebugOverlayManager {
     }
 
     private getShareOfScreenAvg(session: Session): string {
-        const samples = session.shareOfScreenSamples;
-        if (samples.length === 0) return '0%';
-        const avg = samples.reduce((a, b) => a + b, 0) / samples.length;
+        const pendingWeightMs = session.shareOfScreenLastSampleAt !== null
+            ? Math.max(0, Date.now() - session.shareOfScreenLastSampleAt)
+            : 0;
+        const weightedSumPct = session.shareOfScreenWeightedSumPct +
+            (session.shareOfScreenLastSamplePct ?? 0) * pendingWeightMs;
+        const weightMs = session.shareOfScreenWeightMs + pendingWeightMs;
+
+        const avg = weightMs > 0
+            ? weightedSumPct / weightMs
+            : (session.shareOfScreenLastSamplePct ?? 0);
+
         return avg.toFixed(1) + '%';
     }
 
@@ -512,6 +576,11 @@ class DebugOverlayManager {
                 session.s6.skipped,
             ) +
             this.row(
+                'S6 closed',
+                String(session.s6.closed_by_user),
+                session.s6.closed_by_user,
+            ) +
+            this.row(
                 'S6 audio',
                 session.s6.audio_connection,
             )
@@ -538,6 +607,16 @@ class DebugOverlayManager {
             ) +
             this.row('S4 tab_active', this.getTabActivePct(session), session.tabSwitchesCount > 0) +
             this.row('S4 switches', String(session.tabSwitchesCount)) +
+            this.row('Label tab_absent', this.getTabAbsentMaxSec(session)) +
+            this.row('Label focused', String(session.windowFocused), !session.windowFocused) +
+            this.row('Label unfocused', this.getWindowUnfocusedMaxSec(session)) +
+            this.row(
+                'Label scroll_quiet',
+                session.s3 !== null ? this.getScrollQuietMaxSec(session) : 'n/a',
+                session.s3 === null,
+            ) +
+            this.row('Label surface_absent', this.getSurfaceAbsentMaxSec(session)) +
+            this.row('Label skip_hover', this.getSkipZoneHoverRatio(session)) +
             this.row('S5 top_event', s5Event, s5Event === 'none') +
             s6Rows +
             this.row(

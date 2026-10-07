@@ -211,6 +211,20 @@
       "when": 1790240992013,
       "tag": "0029_known_iron_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791299601605,
+      "tag": "0030_sharp_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791373394831,
+      "tag": "0031_mighty_shocker",
+      "breakpoints": true
     }
   ]
 }

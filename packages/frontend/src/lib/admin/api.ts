@@ -25,6 +25,7 @@ import type {
   IvtThresholdsConfigListResponse,
   IvtThresholds,
   PublisherDomainAggregate,
+  CreativeCategory,
 } from '@cpmind/shared';
 import { getBackendUrl, getPublicBackendUrl } from '@/lib/shared/env';
 import type { SortField } from '@/lib/shared/types';
@@ -82,6 +83,17 @@ export interface S1WeibullConfigRow {
   deletionScheduledAt: string | null;
 }
 
+export interface S2ConfigRow {
+  id: string;
+  segmentKey: string;
+  quantileLevels: number[];
+  quantileValues: number[];
+  sampleSize: number;
+  fittedAt: string;
+  isActive: boolean;
+  deletionScheduledAt: string | null;
+}
+
 export interface S3LogisticConfigRow {
   id: string;
   segmentKey: string;
@@ -122,6 +134,8 @@ export interface S5LogisticConfigRow {
   sampleSize: number;
   accuracy: number | null;
   auc: number | null;
+  labelParams: Record<string, number> | null;
+  labelPositiveRate: number | null;
   fittedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;
@@ -137,6 +151,8 @@ export interface S6LogisticConfigRow {
   sampleSize: number;
   accuracy: number | null;
   auc: number | null;
+  labelParams: Record<string, number> | null;
+  labelPositiveRate: number | null;
   fittedAt: string;
   isActive: boolean;
   deletionScheduledAt: string | null;
@@ -389,7 +405,7 @@ export async function fetchWeightsConfigs(
 export async function createWeightsConfig(
   body: {
     version: string;
-    configType: 'banner' | 'video';
+    configType: CreativeCategory;
     weights: {
       s1: number;
       s2: number;
@@ -818,6 +834,63 @@ export async function scheduleS1WeibullDelete(id: string): Promise<void> {
 
 export async function cancelS1WeibullDelete(id: string): Promise<void> {
   const res = await fetch(`${CLIENT_BACKEND}/api/s1-weibull/${id}/cancel-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+// S2 Config
+export async function fetchS2Configs(
+  cookie?: string,
+): Promise<S2ConfigRow[]> {
+  const backend = getBackendUrl();
+  const res = await fetch(`${backend}/api/s2-config`, {
+    cache: 'no-store',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function activateS2Config(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s2-config/${id}/activate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function deactivateS2Config(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s2-config/${id}/deactivate`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function scheduleS2ConfigDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s2-config/${id}/schedule-delete`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+}
+
+export async function cancelS2ConfigDelete(id: string): Promise<void> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/s2-config/${id}/cancel-delete`, {
     method: 'POST',
     credentials: 'include',
   });

@@ -7,6 +7,7 @@ import {
   bootstrapTagConstants,
   bootstrapDefaultWeights,
   bootstrapS1WeibullDefault,
+  bootstrapS2Default,
   bootstrapS3LogisticDefault,
   bootstrapS4Default,
   bootstrapS5Default,
@@ -72,6 +73,13 @@ async function main(): Promise<void> {
     await bootstrapS1WeibullDefault();
   } catch (err) {
     console.error('[CPMind] S1 Weibull bootstrap failed — server will not start:', err);
+    process.exit(1);
+  }
+
+  try {
+    await bootstrapS2Default();
+  } catch (err) {
+    console.error('[CPMind] S2 bootstrap failed — server will not start:', err);
     process.exit(1);
   }
 

@@ -26,6 +26,9 @@ export interface PlayerControls {
     // перемотка за момент разблокировки дала бы пропуск раньше срока
     resolveSeekCeilingSec(): number | null;
 
+    // Элемент кнопки пропуска — null, когда ролик непропускаемый
+    skipButtonElement(): HTMLElement | null;
+
     showControls(): void;
     destroy(): void;
 }
@@ -223,6 +226,10 @@ export function createPlayerControls(opts: PlayerControlsOptions): PlayerControl
 
         resolveSeekCeilingSec(): number | null {
             return resolveSeekCeiling();
+        },
+
+        skipButtonElement(): HTMLElement | null {
+            return skipBtn?.el ?? null;
         },
 
         showControls(): void {

@@ -73,6 +73,20 @@ export function initS3(
     let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
     let pauseStart: number | null = null;
 
+    // Завершает текущий интервал тишины и обновляет наибольший. Длительность считается
+    // по стенным часам: с тем же источником времени работает сборка payload
+    function closeQuietInterval(): void {
+        const start = session.scrollQuietStart;
+        if (start === null) return;
+
+        const elapsed = Math.max(0, Date.now() - start);
+        if (elapsed > session.scrollQuietMaxMs) {
+            session.scrollQuietMaxMs = elapsed;
+        }
+
+        session.scrollQuietStart = null;
+    }
+
     const recentEventTimes: number[] = [];
 
     let slowScrollStart: number | null = null;
@@ -183,6 +197,7 @@ export function initS3(
             if (!isInScrollZone(creativeEl, SCROLL_ZONE_PX)) return;
 
             pauseStart = performance.now();
+            session.scrollQuietStart = Date.now();
             if (session.s3 !== null) {
                 session.s3.pause_count = (session.s3.pause_count ?? 0) + 1;
             }
@@ -196,6 +211,7 @@ export function initS3(
                     return;
                 }
                 if (!isInScrollZone(creativeEl, SCROLL_ZONE_PX)) {
+                    closeQuietInterval();
                     pauseStart = null;
                     if (pauseCheckInterval !== null) clearInterval(pauseCheckInterval);
                     pauseCheckInterval = null;
@@ -218,6 +234,8 @@ export function initS3(
     }
 
     function onScroll(): void {
+        closeQuietInterval();
+
         if (pauseStart !== null && session.s3 !== null) {
             const pauseDuration = performance.now() - pauseStart;
             session.s3.pause_duration_total_ms =
@@ -238,6 +256,7 @@ export function initS3(
         window.removeEventListener('touchend', onTouchEnd);
         window.removeEventListener('pagehide', dispose);
         clearPauseTimers();
+        closeQuietInterval();
         pauseStart = null;
         disposers.delete(creativeEl);
         resetters.delete(creativeEl);
@@ -260,6 +279,8 @@ export function initS3(
 
         clearPauseTimers();
         pauseStart = null;
+        session.scrollQuietMaxMs = 0;
+        session.scrollQuietStart = null;
 
         if (session.s3 !== null) {
             session.s3.scroll_speed_avg_px_s = 0;

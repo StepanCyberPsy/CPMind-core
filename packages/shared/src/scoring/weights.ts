@@ -19,9 +19,43 @@ export const DEFAULT_BANNER_WEIGHTS: WeightsValues = {
  * Стартовые веса для видео-креативов — v1.0_uncalibrated_video.
  * S6 доминирует (0.40) как основной измеритель вовлечённости в видео.
  * Сумма весов = 1.00.
+ * Профиль предшествует разделению по режиму показа: остаётся для показов,
+ * у которых режим не определён, и для сопоставимости исторических значений Score
  */
 export const DEFAULT_VIDEO_WEIGHTS: WeightsValues = {
   version: 'v1.0_uncalibrated_video',
+  s1: 0.15,
+  s2: 0.10,
+  s3: 0.10,
+  s4: 0.10,
+  s5: 0.10,
+  s6: 0.40,
+  s7: 0.05,
+};
+
+/**
+ * Стартовые веса для in-stream видео — v1.0_uncalibrated_video_instream.
+ * Значения перенесены из профиля, действовавшего до разделения по режиму:
+ * расхождение вносится после калибровки, а не на старте
+ */
+export const DEFAULT_VIDEO_INSTREAM_WEIGHTS: WeightsValues = {
+  version: 'v1.0_uncalibrated_video_instream',
+  s1: 0.15,
+  s2: 0.10,
+  s3: 0.10,
+  s4: 0.10,
+  s5: 0.10,
+  s6: 0.40,
+  s7: 0.05,
+};
+
+/**
+ * Стартовые веса для out-stream видео — v1.0_uncalibrated_video_outstream.
+ * Значения совпадают с in-stream до определения собственных: профиль заводится
+ * заранее, чтобы разделение весов не требовало изменения схемы
+ */
+export const DEFAULT_VIDEO_OUTSTREAM_WEIGHTS: WeightsValues = {
+  version: 'v1.0_uncalibrated_video_outstream',
   s1: 0.15,
   s2: 0.10,
   s3: 0.10,
@@ -44,7 +78,29 @@ export interface WeightsValues {
 
 export type WeightsConfig = WeightsValues;
 export type SignalKey = 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7';
-export type CreativeCategory = 'banner' | 'video';
+
+// Категории профилей весов. video предшествует разделению по режиму показа
+// и сохраняется для показов, у которых режим не определён
+export const CREATIVE_CATEGORIES = [
+  'banner',
+  'video',
+  'video_instream',
+  'video_outstream',
+] as const;
+
+export type CreativeCategory = typeof CREATIVE_CATEGORIES[number];
+
+/**
+ * Стартовые веса категории. Таблица исчерпывающая по типу: категория, добавленная
+ * без записи здесь, даёт ошибку сборки — иначе она молча получила бы баннерные веса
+ * с нулевым S6, и сигнал исчез бы из Score видеопоказа
+ */
+export const DEFAULT_WEIGHTS_BY_CATEGORY: Readonly<Record<CreativeCategory, WeightsValues>> = {
+  banner: DEFAULT_BANNER_WEIGHTS,
+  video: DEFAULT_VIDEO_WEIGHTS,
+  video_instream: DEFAULT_VIDEO_INSTREAM_WEIGHTS,
+  video_outstream: DEFAULT_VIDEO_OUTSTREAM_WEIGHTS,
+};
 
 /**
  * Эффективные веса после перераспределения null-сигналов.

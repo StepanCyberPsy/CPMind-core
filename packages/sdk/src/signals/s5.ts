@@ -80,9 +80,32 @@ function initDesktop(
     let pendingX = 0;
     let pendingY = 0;
 
+    // Удержание курсора в зоне кнопки пропуска. Длительность относится к предыдущему
+    // положению курсора: кадр фиксирует, где он находился до этого перемещения
+    function trackSkipZone(now: number): void {
+        const zoneEl = session.skipZoneEl;
+        if (zoneEl === null) return;
+        if (session.skipZoneSince === null) return;
+
+        const previousAt = session.skipZoneSampleAt;
+        const zoneRect = zoneEl.getBoundingClientRect();
+        const inside = distanceToRect(pendingX, pendingY, zoneRect) === 0;
+
+        if (previousAt !== null && session.skipZoneHoverPending) {
+            session.skipZoneHoverMs += Math.max(0, now - previousAt);
+        }
+
+        if (!inside) session.skipZoneMovedOutside = true;
+
+        session.skipZoneHoverPending = inside;
+        session.skipZoneSampleAt = now;
+    }
+
     function processMouseFrame(): void {
         rafScheduled = false;
         if (disposed) return;
+
+        trackSkipZone(Date.now());
 
         const rect = creativeEl.getBoundingClientRect();
         const dist = distanceToRect(pendingX, pendingY, rect);
@@ -147,6 +170,11 @@ function initDesktop(
         session.cursorTrajectoryEntropy = 0;
         session.lastHoverStart = null;
         session.unconfirmedFrameEvents = 0;
+        session.skipZoneSince = null;
+        session.skipZoneHoverMs = 0;
+        session.skipZoneSampleAt = null;
+        session.skipZoneHoverPending = false;
+        session.skipZoneMovedOutside = false;
     }
 
     function dispose(): void {
@@ -323,6 +351,25 @@ export function disposeS5(creativeEl: HTMLElement): void {
 
 // Взаимодействие внутри iframe креатива, подтверждённое хостом. Поля заполняются
 // по тем же правилам, что и прямые события контейнера; payload отбирает поля по device_type
+// Зона кнопки пропуска, переданная рантаймом. Отсчёт начинается с момента появления
+// кнопки: до него курсор над ней оказаться не мог, и доля времени считалась бы
+// от всего показа
+export function trackSkipZoneElement(
+    session: Session,
+    el: HTMLElement,
+): void {
+    if (session.deviceType !== 'desktop') return;
+    if (session.skipZoneEl !== null) return;
+
+    const now = Date.now();
+
+    session.skipZoneEl = el;
+    session.skipZoneSince = now;
+    session.skipZoneSampleAt = now;
+    session.skipZoneHoverPending = false;
+    session.skipZoneMovedOutside = false;
+}
+
 export function recordFrameInteraction(
     session: Session,
     kind: Exclude<FrameInteractionKind, 'activity'>,

@@ -64,6 +64,8 @@ export interface PlayerHandle {
     readonly adSessionId: AdSessionId;
     play(): Promise<AutoplayResult>;
     pause(): void;
+    // Наблюдение поверхности: вызывает формат, который её наблюдает
+    reportViewportVisibility(visible: boolean): void;
     close(source: PlayerActionSource): void;
     whenFinished(): Promise<PlayerTerminalOutcome>;
     destroy(): void;
@@ -278,6 +280,12 @@ export async function createPlayerSession(
             bridge.sendEvent('closed', { finalizationReason });
         }
 
+        // Источник закрытия передаётся до финализации: после неё сессия событий
+        // не принимает, а причина close приходит и от зрителя, и от рантайма
+        if (outcome.type === 'closed') {
+            bridge.reportClose(outcome.source);
+        }
+
         bridge.finalize(outcome);
         doCleanup();
         opts.onFinished?.(outcome);
@@ -308,6 +316,11 @@ export async function createPlayerSession(
 
         bridge.sendEvent('render_confirmed');
         bridge.startMeasurement(Date.now());
+
+        // Зона кнопки регистрируется после создания сессии: до неё передавать элемент некуда
+        const skipEl = controls?.skipButtonElement() ?? null;
+        if (skipEl !== null) bridge.trackSkipZone(skipEl);
+
         void detectAudioConnection().then((conn) => bridge.reportAudioConnection(conn));
     }
 
@@ -544,6 +557,9 @@ export async function createPlayerSession(
             return result;
         },
         pause(): void { safePause(video); },
+        reportViewportVisibility(visible: boolean): void {
+            bridge.reportViewportVisibility(visible);
+        },
         close(source: PlayerActionSource): void { finishOnce({ type: 'closed', source }); },
         whenFinished(): Promise<PlayerTerminalOutcome> { return finishedPromise; },
         destroy(): void { finishOnce({ type: 'destroyed' }); },

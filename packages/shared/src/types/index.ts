@@ -94,10 +94,13 @@ export type {
 
 export type {
   WeibullParams,
+  S2Params,
   LogisticParams,
   S4Config,
   S5LogisticParams,
   S6LogisticParams,
+  S6InstreamLogisticParams,
+  S6OutstreamLogisticParams,
   S7Thresholds,
 } from '../scoring/signal_defaults.js';
 
@@ -134,6 +137,7 @@ export type {
 export type {
   S6PlacementGroup,
   S6PlacementGroupFilter,
+  S6Mode,
 } from '../scoring/segments.js';
 
 export type {

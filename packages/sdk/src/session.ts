@@ -28,6 +28,37 @@ export interface SessionPayloadMeta {
     adSessionIdentity?: AdSessionIdentity;
 }
 
+/**
+ * Наибольший непрерывный интервал скрытой вкладки внутри диапазона. Суммарное время
+ * скрытия не различает один долгий уход зрителя и череду коротких переключений,
+ * а метка обучения требует именно непрерывности
+ */
+export function computeMaxHiddenIntervalMs(
+    history: VisibilityEntry[],
+    rangeStart: number,
+    rangeEnd: number,
+): number {
+    let maxMs = 0;
+
+    for (let i = 0; i < history.length; i++) {
+        const entry = history[i];
+        if (entry === undefined) continue;
+        if (entry.state !== 'hidden') continue;
+
+        const nextEntry = history[i + 1];
+        const segmentStart = Math.max(entry.timestamp, rangeStart);
+        const segmentEnd = Math.min(
+            nextEntry !== undefined ? nextEntry.timestamp : rangeEnd,
+            rangeEnd,
+        );
+
+        const elapsed = segmentEnd - segmentStart;
+        if (elapsed > maxMs) maxMs = elapsed;
+    }
+
+    return maxMs;
+}
+
 export function computeActiveTimeMsInRange(
     history: VisibilityEntry[],
     rangeStart: number,
@@ -71,7 +102,10 @@ export function createSession(input: CreateSessionInput): Session {
         viewStart: null,
 
         // S2
-        shareOfScreenSamples: [],
+        shareOfScreenWeightedSumPct: 0,
+        shareOfScreenWeightMs: 0,
+        shareOfScreenLastSamplePct: null,
+        shareOfScreenLastSampleAt: null,
         shareOfScreenMax: 0,
 
         // S3
@@ -87,12 +121,21 @@ export function createSession(input: CreateSessionInput): Session {
             is_momentum_scroll: null,
         } satisfies SignalsS3State,
 
+        scrollQuietMaxMs: 0,
+        scrollQuietStart: null,
+
         // S4
         tabActiveTimeMs: 0,
         tabTotalTimeMs: 0,
         tabSwitchesCount: 0,
         visibilityStateHistory: [],
         tabSessionStart: Date.now(),
+
+        windowFocused: true,
+        windowUnfocusedMaxMs: 0,
+        windowUnfocusedStart: null,
+        surfaceAbsentMaxMs: null,
+        surfaceAbsentStart: null,
 
         // S5
         clicked: false,
@@ -108,6 +151,12 @@ export function createSession(input: CreateSessionInput): Session {
         swipeCount: 0,
         lastHoverStart: null,
         unconfirmedFrameEvents: 0,
+        skipZoneEl: null,
+        skipZoneSince: null,
+        skipZoneHoverMs: 0,
+        skipZoneSampleAt: null,
+        skipZoneHoverPending: false,
+        skipZoneMovedOutside: false,
 
         // S6
         s6: null,
@@ -172,11 +221,20 @@ export function buildPayload(
     const mrcCompliant = session.mrcCompliant ||
         (maxContinuousViewSec >= 2.0 && session.visiblePixelsPct >= 75);
 
-    // S2: среднее share of screen
-    const samples = session.shareOfScreenSamples;
-    const shareOfScreenAvgPct = samples.length > 0
-        ? samples.reduce((a, b) => a + b, 0) / samples.length
+    // S2: среднее share of screen, взвешенное длительностью интервалов между отсчётами.
+    // Незакрытый интервал последнего отсчёта учитывается здесь, без мутации сессии:
+    // промежуточный снимок сегмента не должен расходовать его повторно
+    const pendingWeightMs = session.shareOfScreenLastSampleAt !== null
+        ? Math.max(0, now - session.shareOfScreenLastSampleAt)
         : 0;
+    const shareOfScreenWeightedSumPct = session.shareOfScreenWeightedSumPct +
+        (session.shareOfScreenLastSamplePct ?? 0) * pendingWeightMs;
+    const shareOfScreenWeightMs = session.shareOfScreenWeightMs + pendingWeightMs;
+
+    // Нулевой вес: отсчёт закрыт в ту же миллисекунду. Доля известна, среднее равно ей
+    const shareOfScreenAvgPct = shareOfScreenWeightMs > 0
+        ? shareOfScreenWeightedSumPct / shareOfScreenWeightMs
+        : (session.shareOfScreenLastSamplePct ?? 0);
 
     // S4: пересчёт из visibilityStateHistory — не от загрузки страницы (P-05)
     const impressionStart = session.timestampStart || now;
@@ -186,6 +244,49 @@ export function buildPayload(
         impressionStart,
         now,
     );
+
+    // Интервалы метки: незавершённые закрываются здесь, без изменения состояния сессии —
+    // промежуточный снимок сегмента не должен расходовать их повторно
+    const tabAbsentMaxMs = computeMaxHiddenIntervalMs(
+        session.visibilityStateHistory,
+        impressionStart,
+        now,
+    );
+
+    const pendingUnfocusedMs = session.windowUnfocusedStart !== null
+        ? Math.max(0, now - session.windowUnfocusedStart)
+        : 0;
+    const windowUnfocusedMaxMs = Math.max(
+        session.windowUnfocusedMaxMs,
+        pendingUnfocusedMs,
+    );
+
+    const pendingQuietMs = session.scrollQuietStart !== null
+        ? Math.max(0, now - session.scrollQuietStart)
+        : 0;
+    const scrollQuietMaxMs = Math.max(
+        session.scrollQuietMaxMs,
+        pendingQuietMs,
+    );
+
+    const pendingSurfaceAbsentMs = session.surfaceAbsentStart !== null
+        ? Math.max(0, now - session.surfaceAbsentStart)
+        : 0;
+    const surfaceAbsentMaxMs = session.surfaceAbsentMaxMs !== null
+        ? Math.max(session.surfaceAbsentMaxMs, pendingSurfaceAbsentMs)
+        : null;
+
+    // Доля времени курсора в зоне кнопки пропуска считается от её появления.
+    // Незакрытое удержание учитывается здесь, без изменения состояния сессии
+    const skipZoneElapsedMs = session.skipZoneSince !== null
+        ? Math.max(0, now - session.skipZoneSince)
+        : 0;
+    const pendingSkipHoverMs = session.skipZoneHoverPending && session.skipZoneSampleAt !== null
+        ? Math.max(0, now - session.skipZoneSampleAt)
+        : 0;
+    const skipZoneHoverRatio = skipZoneElapsedMs > 0
+        ? Math.min(1, (session.skipZoneHoverMs + pendingSkipHoverMs) / skipZoneElapsedMs)
+        : null;
 
     // S7: viewability persistence
     const persistenceSamples = session.viewabilityPersistenceSamples;
@@ -249,12 +350,22 @@ export function buildPayload(
                 share_of_screen_avg_pct: Math.round(shareOfScreenAvgPct * 100) / 100,
                 share_of_screen_max_pct: session.shareOfScreenMax,
             },
-            s3: session.s3,
+            s3: session.s3 !== null
+                ? {
+                    ...session.s3,
+                    scroll_quiet_max_ms: Math.round(scrollQuietMaxMs),
+                }
+                : null,
             s4: {
                 tab_active_time_ms: Math.round(tabActiveTimeMs),
                 tab_total_time_ms: Math.round(tabTotalTimeMs),
                 tab_switches_count: session.tabSwitchesCount,
                 visibility_state_history: session.visibilityStateHistory,
+                tab_absent_max_ms: Math.round(tabAbsentMaxMs),
+                window_unfocused_max_ms: Math.round(windowUnfocusedMaxMs),
+                surface_absent_max_ms: surfaceAbsentMaxMs !== null
+                    ? Math.round(surfaceAbsentMaxMs)
+                    : null,
             },
             s5: {
                 clicked: session.clicked,
@@ -284,6 +395,10 @@ export function buildPayload(
                 ...(session.unconfirmedFrameEvents > 0 && {
                     unconfirmed_frame_events: session.unconfirmedFrameEvents,
                 }),
+                skip_zone_hover_ratio: skipZoneHoverRatio,
+                skip_zone_moved_outside: session.skipZoneSince !== null
+                    ? session.skipZoneMovedOutside
+                    : null,
             },
             s6: session.s6 !== null ? getS6Data(session.s6) : null,
             s7: {

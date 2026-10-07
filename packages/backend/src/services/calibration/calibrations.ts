@@ -1,4 +1,11 @@
-import { eq, and, inArray, desc, sql, type SQL } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  inArray,
+  desc,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import pino from 'pino';
 import { recomputeScoreFromNormalized } from '@cpmind/shared';
 import type {
@@ -23,7 +30,12 @@ import {
   weightConfigs,
   users,
 } from '../../db/schema.js';
-import { buildWhereFromFilters, type ListFilters, type RangeFieldKey, type RangeValue } from '../impressions.js';
+import {
+  buildWhereFromFilters,
+  type ListFilters,
+  type RangeFieldKey,
+  type RangeValue,
+} from '../impressions.js';
 import { getDraftTtlMinutes } from '../../jobs/calibration_cleanup.js';
 
 const logger = pino({ name: 'calibrations-service' });

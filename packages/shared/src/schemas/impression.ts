@@ -38,6 +38,7 @@ export const SignalsS3Schema = z.object({
   direction_changes: z.number().min(0).nullable(),
   reading_pattern_detected: z.boolean().nullable(),
   is_momentum_scroll: z.boolean().nullable(),
+  scroll_quiet_max_ms: z.number().min(0).nullable().optional(),
 }).nullable();
 
 // S4 Tab Activity
@@ -51,6 +52,9 @@ export const SignalsS4Schema = z.object({
   tab_total_time_ms: z.number().min(0),
   tab_switches_count: z.number().min(0),
   visibility_state_history: z.array(VisibilityStateEntrySchema).max(2000),
+  tab_absent_max_ms: z.number().min(0).optional(),
+  window_unfocused_max_ms: z.number().min(0).optional(),
+  surface_absent_max_ms: z.number().min(0).nullable().optional(),
 });
 
 // S5 Interaction Events
@@ -73,6 +77,13 @@ export const SignalsS5Schema = z.object({
 
   // Диагностика HTML5: события моста креатива, не подтверждённые хостом. В Score не участвует
   unconfirmed_frame_events: z.number().int().min(0).optional(),
+
+  // Поведение курсора в зоне кнопки пропуска после её появления — условие метки
+  // обучения in-stream. Доля времени в зоне сама по себе ожидание пропуска не доказывает:
+  // зритель, не трогающий мышь, даёт ту же долю. Второе поле отделяет его от того,
+  // кто держал курсор на кнопке и больше никуда не двигал
+  skip_zone_hover_ratio: z.number().min(0).max(1).nullable().optional(),
+  skip_zone_moved_outside: z.boolean().nullable().optional(),
 });
 
 // S7 Page Context + Position + Clutter
@@ -114,6 +125,10 @@ export const SignalsS6Schema = z.object({
   // собранные до введения полей, их не отправляют
   muted_by_user: z.boolean().optional(),
   start_muted: z.boolean().optional(),
+
+  // Закрытие поверхности зрителем — признак модели out-stream. У in-stream отказ
+  // выражается пропуском, поэтому поле заполняет только плеер out-stream
+  closed_by_user: z.boolean().optional(),
 });
 
 // F_Presence

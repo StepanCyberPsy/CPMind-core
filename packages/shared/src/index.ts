@@ -81,11 +81,13 @@ export {
 } from './scoring/logistic_mle_fit.js';
 export {
     DEFAULT_WEIBULL_PARAMS,
+    DEFAULT_S2_PARAMS,
     DEFAULT_LOGISTIC_PARAMS,
     DEFAULT_S4_CONFIGS,
     DEFAULT_S5_DESKTOP,
     DEFAULT_S5_MOBILE_TABLET,
-    DEFAULT_S6_LOGISTIC_PARAMS,
+    DEFAULT_S6_INSTREAM_LOGISTIC_PARAMS,
+    DEFAULT_S6_OUTSTREAM_LOGISTIC_PARAMS,
     DEFAULT_S7_THRESHOLDS,
 } from './scoring/signal_defaults.js';
 export {
@@ -95,6 +97,8 @@ export {
     normalizeS4,
     normalizeS5,
     normalizeS6,
+    normalizeS6Instream,
+    normalizeS6Outstream,
     normalizeS7,
     normalizeAll,
     getS5TopEventLabel,
@@ -102,6 +106,10 @@ export {
 export {
     DEFAULT_BANNER_WEIGHTS,
     DEFAULT_VIDEO_WEIGHTS,
+    DEFAULT_VIDEO_INSTREAM_WEIGHTS,
+    DEFAULT_VIDEO_OUTSTREAM_WEIGHTS,
+    DEFAULT_WEIGHTS_BY_CATEGORY,
+    CREATIVE_CATEGORIES,
     computeEffectiveWeights,
     detectNullSignals,
 } from './scoring/weights.js';
@@ -115,7 +123,11 @@ export {
 export {
     S6_PLACEMENT_GROUPS,
     S6_PLACEMENT_GROUP_FILTERS,
+    S6_MODES,
     buildS6SegmentKey,
+    buildS6ModeSegmentKey,
+    buildS6ModeGlobalSegmentKey,
+    resolveS6Mode,
     resolveS6PlacementGroup,
     resolveS6SegmentKeys,
 } from './scoring/segments.js';

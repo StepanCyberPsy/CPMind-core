@@ -18,6 +18,7 @@ import { createSession } from './session.js';
 import { getPublisherDomain } from './utils/publisher_domain.js';
 import { MeasurementSurface } from './surface/surface.js';
 import { MeasuredElement } from './surface/element.js';
+import { trackSkipZoneElement } from './signals/s5.js';
 import {
     createS6AccumulatorState,
     onS6Play,
@@ -28,6 +29,7 @@ import {
     onS6Seeked,
     onS6VolumeChange,
     onS6Skip,
+    onS6Close,
     onS6LoadedMetadata,
     onS6AudioConnectionDetected,
     resetS6Accumulator,
@@ -46,6 +48,7 @@ export interface MeasurementSession {
     startMeasurement(timestampMs?: number): void;
     reportVideoEvent(event: VideoMeasurementEvent): void;
     reportFrameInteraction(kind: FrameInteractionKind, trust: FrameInteractionTrust): void;
+    trackSkipZone(el: HTMLElement): void;
     finalize(reason: MeasurementFinalizationReason): void;
     destroy(): void;
 }
@@ -269,6 +272,23 @@ class MeasurementSessionImpl implements MeasurementSession {
                 onS6Skip(s6);
                 break;
             }
+            case 'close': {
+                if (event.source === 'user') onS6Close(s6);
+                break;
+            }
+            case 'viewport_enter': {
+                this.closeSurfaceAbsence();
+                break;
+            }
+            case 'viewport_exit': {
+                if (this.session.surfaceAbsentMaxMs === null) {
+                    this.session.surfaceAbsentMaxMs = 0;
+                }
+                if (this.session.surfaceAbsentStart === null) {
+                    this.session.surfaceAbsentStart = Date.now();
+                }
+                break;
+            }
             case 'quartile': {
                 // Квартили вычисляются по просмотренному отрезку из progress-событий
                 break;
@@ -287,6 +307,11 @@ class MeasurementSessionImpl implements MeasurementSession {
     ): void {
         if (this._state !== 'MEASURING') return;
         this.surface.reportFrameInteraction(kind, trust);
+    }
+
+    trackSkipZone(el: HTMLElement): void {
+        if (this._state === 'FINALIZED' || this._state === 'DESTROYED') return;
+        trackSkipZoneElement(this.session, el);
     }
 
     finalize(reason: MeasurementFinalizationReason): void {
@@ -369,6 +394,23 @@ class MeasurementSessionImpl implements MeasurementSession {
                 break;
             }
         }
+    }
+
+    private closeSurfaceAbsence(): void {
+        const start = this.session.surfaceAbsentStart;
+
+        if (this.session.surfaceAbsentMaxMs === null) {
+            this.session.surfaceAbsentMaxMs = 0;
+        }
+
+        if (start === null) return;
+
+        const elapsed = Math.max(0, Date.now() - start);
+        if (elapsed > (this.session.surfaceAbsentMaxMs ?? 0)) {
+            this.session.surfaceAbsentMaxMs = elapsed;
+        }
+
+        this.session.surfaceAbsentStart = null;
     }
 
     // Сброс S6 при разрыве сегмента по простою — по фактическому состоянию видео

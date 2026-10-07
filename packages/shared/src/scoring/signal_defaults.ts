@@ -15,6 +15,50 @@ export const DEFAULT_WEIBULL_PARAMS: WeibullParams = {
   lambda: 5.0,
 };
 
+// Quantile CDF (S2)
+
+export interface S2Params {
+  quantileLevels: number[];
+  quantileValues: number[];
+}
+
+/**
+ * Опорные квантили доли экрана для fallback при отсутствии активной конфигурации сегмента.
+ * Значения подобраны из тождества 100 × p = sqrt(x) × 10, то есть x = 100 × p²:
+ * до первой калибровки нормализация повторяет формулу, действовавшую до введения модели,
+ * и исторические значения остаются сопоставимыми с новыми.
+ * quantileLevels — вероятности по возрастанию, quantileValues — доля экрана в процентах
+ * на тех же позициях, неубывающая.
+ */
+export const DEFAULT_S2_PARAMS: S2Params = {
+  quantileLevels: [
+    0.01,
+    0.10,
+    0.20,
+    0.30,
+    0.40,
+    0.50,
+    0.60,
+    0.70,
+    0.80,
+    0.90,
+    0.99
+  ],
+  quantileValues: [
+    0.01,
+    1,
+    4,
+    9,
+    16,
+    25,
+    36,
+    49,
+    64,
+    81,
+    98.01
+  ],
+};
+
 // Logistic (S3)
 
 export interface LogisticParams {
@@ -110,7 +154,13 @@ export const DEFAULT_S5_MOBILE_TABLET: S5LogisticParams = {
 
 // S6LogisticParams (S6)
 
-export interface S6LogisticParams {
+/**
+ * Параметры модели in-stream. Реклама стартует со звуком внутри контента, который
+ * зритель смотрит намеренно: mutedThroughout означает заглушение зрителем,
+ * отказ от показа выражается пропуском.
+ */
+export interface S6InstreamLogisticParams {
+  mode: 'instream';
   beta0: number;
   beta1: number; // completionRate (z)
   beta2: number; // quartileReached (z)
@@ -125,12 +175,62 @@ export interface S6LogisticParams {
 }
 
 /**
- * Нейтральные параметры логистической регрессии S6 для fallback при отсутствии активной конфигурации.
- * Все β=0: sigmoid(0)=0.5 → S6=50 для любой комбинации completion/audio-признаков.
- * featureMeans=0, featureStds=1: z-score является identity-трансформацией.
- * Применяется только к video_creative — для баннеров S6=null вне зависимости от params.
+ * Параметры модели out-stream. Реклама стартует без звука в потоке страницы:
+ * mutedThroughout означает бездействие зрителя, unmutedByUser — явный интерес,
+ * отказ от показа выражается закрытием поверхности. Кнопки пропуска нет.
  */
-export const DEFAULT_S6_LOGISTIC_PARAMS: S6LogisticParams = {
+export interface S6OutstreamLogisticParams {
+  mode: 'outstream';
+  beta0: number;
+  beta1: number; // completionRate (z)
+  beta2: number; // quartileReached (z)
+  beta3: number; // audibleRatio (z)
+  beta4: number; // mutedThroughout (0/1)
+  beta5: number; // unmutedByUser (0/1)
+  beta6: number; // replayCount log-z
+  beta7: number; // closedByUser (0/1)
+  beta8: number; // interaction: completionZ × audibleZ
+  featureMeans: Record<string, number>;
+  featureStds: Record<string, number>;
+}
+
+/**
+ * Параметры модели S6 любого режима. Поле mode различает структурно одинаковые наборы
+ * коэффициентов: без него параметры out-stream подошли бы функции in-stream по типу,
+ * и β7 читался бы как другой признак.
+ */
+export type S6LogisticParams =
+  | S6InstreamLogisticParams
+  | S6OutstreamLogisticParams;
+
+/**
+ * Нейтральные параметры логистической регрессии in-stream для fallback при отсутствии
+ * активной конфигурации. Все β=0: sigmoid(0)=0.5 → S6=50 для любой комбинации признаков.
+ * featureMeans=0, featureStds=1: z-score является identity-трансформацией.
+ * Применяется также к показам legacy-тега: режим у них неизвестен, а признак пропуска
+ * собирается, в отличие от признака закрытия поверхности.
+ */
+export const DEFAULT_S6_INSTREAM_LOGISTIC_PARAMS: S6InstreamLogisticParams = {
+  mode: 'instream',
+  beta0: 0,
+  beta1: 0,
+  beta2: 0,
+  beta3: 0,
+  beta4: 0,
+  beta5: 0,
+  beta6: 0,
+  beta7: 0,
+  beta8: 0,
+  featureMeans: { completion: 0, quartile: 0, audible: 0, replay: 0 },
+  featureStds: { completion: 1, quartile: 1, audible: 1, replay: 1 },
+};
+
+/**
+ * Нейтральные параметры логистической регрессии out-stream для fallback при отсутствии
+ * активной конфигурации. Все β=0: sigmoid(0)=0.5 → S6=50 для любой комбинации признаков.
+ */
+export const DEFAULT_S6_OUTSTREAM_LOGISTIC_PARAMS: S6OutstreamLogisticParams = {
+  mode: 'outstream',
   beta0: 0,
   beta1: 0,
   beta2: 0,

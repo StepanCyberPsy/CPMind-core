@@ -1,5 +1,6 @@
 export type SignalTab =
     | 's1'
+    | 's2'
     | 's3'
     | 's4'
     | 's5'
@@ -51,7 +52,39 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 's1_weibull_configs',
             },
         ],
-        note: 'Weibull CDF моделирует накопленную вероятность того, что показ достиг порога качества. При k < 1 риск ухода убывает со временем; при k > 1 — возрастает. Fallback: k=1.0, λ=5.0. 9 сегментов: device × creative_group.',
+        note: 'Weibull CDF моделирует накопленную вероятность того, что показ достиг порога качества. При k < 1 риск ухода убывает со временем; при k > 1 — возрастает. Fallback: k=1.0, λ=5.0. Цепочка выбора модели: device × creative_group → creative_group → global. Обучаются оба уровня: пока точный сегмент не набрал выборку, применяется модель группы.',
+    },
+    s2: {
+        signal: 'S2 — Share of Screen',
+        weight: '0.20 (banner) / 0.10 (video)',
+        formulas: [
+            {
+                latex: '\\hat{F}(x) = p_i + \\frac{x - q_i}{q_{i+1} - q_i}\\,(p_{i+1} - p_i),\\qquad q_i \\leq x < q_{i+1}',
+                label: 'эмпирическая функция распределения',
+            },
+            {
+                latex: 'S_2 = \\mathrm{clamp}\\!\\left(100 \\times \\hat{F}(r_{\\text{avg}}),\\;0,\\;100\\right)',
+                label: 'итоговый скор',
+            },
+        ],
+        variables: [
+            {
+                symbol: 'r_{\\text{avg}}',
+                description: 'share_of_screen_avg_pct — средняя доля экрана, взвешенная длительностью интервалов между отсчётами',
+                source: 'payload',
+            },
+            {
+                symbol: 'q_i',
+                description: 'опорные значения доли экрана, 11 точек от p01 до p99',
+                source: 's2_configs',
+            },
+            {
+                symbol: 'p_i',
+                description: 'уровни квантилей, соответствующие опорным значениям',
+                source: 's2_configs',
+            },
+        ],
+        note: 'Показ оценивается относительно типичной экспозиции своего сегмента, а не по абсолютной величине: доля, высокая для одного формата, может быть рядовой для другого. Между опорными точками — линейная интерполяция, за крайними — продление к границам диапазона. Fallback воспроизводит формулу, действовавшую до введения модели (√r × 10), поэтому исторические значения остаются сопоставимыми. Цепочка: device × creative_group → creative_group → global. Отсчёты взвешиваются фактической длительностью интервала: простое среднее перекашивается, когда браузер задерживает таймер.',
     },
     s3: {
         signal: 'S3 — Scroll Velocity',
@@ -98,7 +131,7 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 's3_logistic_configs',
             },
         ],
-        note: 'S3 = null при cross-domain iframe — вес перераспределяется пропорционально между остальными сигналами. Прокси-метка обучения: y=1 если time_in_view > медианы по сегменту или был клик. 9 сегментов: device × creative_group.',
+        note: 'S3 = null при cross-domain iframe — вес перераспределяется пропорционально между остальными сигналами. Прокси-метка обучения: y=1 если time_in_view > медианы по сегменту или был клик. Цепочка выбора модели: device × creative_group → creative_group → global, на каждом уровне приоритетна модель версии констант показа. Обучаются оба уровня сегментации.',
     },
     s4: {
         signal: 'S4 — Tab Activity',
@@ -205,15 +238,19 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
     },
     s6: {
         signal: 'S6 — Video Engagement + Audibility',
-        weight: '0.40 (video) / 0.00 (banner)',
+        weight: '0.40 (video_instream / video_outstream) / 0.00 (banner)',
         formulas: [
             {
-                latex: 'z_c = \\frac{r_c-\\mu_c}{\\sigma_c},\\quad z_a = \\frac{r_a-\\mu_a}{\\sigma_a},\\quad z_q = \\frac{q-\\mu_q}{\\sigma_q},\\quad z_r = \\frac{\\ln(n_r+1)-\\mu_r}{\\sigma_r}',
+                latex: 'z_c = \\frac{r_c-\\mu_c}{\\sigma_c},\\quad z_q = \\frac{q-\\mu_q}{\\sigma_q},\\quad z_a = \\frac{r_a-\\mu_a}{\\sigma_a},\\quad z_r = \\frac{\\ln(n_r+1)-\\mu_r}{\\sigma_r}',
                 label: 'z-score нормализация',
             },
             {
-                latex: 'z = \\beta_0 + \\beta_1 z_c + \\beta_2 z_a + \\beta_3 z_q + \\beta_4 z_r + \\beta_5 p + \\beta_6 s + \\beta_7 u + \\beta_8(z_c\\cdot z_a)',
-                label: 'линейная комбинация',
+                latex: 'z_{\\text{in}} = \\beta_0 + \\beta_1 z_c + \\beta_2 z_q + \\beta_3 z_a + \\beta_4 m + \\beta_5 u + \\beta_6 z_r + \\beta_7 s + \\beta_8(z_c\\cdot z_a)',
+                label: 'in-stream',
+            },
+            {
+                latex: 'z_{\\text{out}} = \\gamma_0 + \\gamma_1 z_c + \\gamma_2 z_q + \\gamma_3 z_a + \\gamma_4 m + \\gamma_5 u + \\gamma_6 z_r + \\gamma_7 k + \\gamma_8(z_c\\cdot z_a)',
+                label: 'out-stream',
             },
             {
                 latex: 'S_6 = \\min\\!\\left(100,\\;\\sigma(z)\\times 100\\right)',
@@ -227,13 +264,13 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 'payload',
             },
             {
-                symbol: 'r_a',
-                description: 'audibleRatio = audible_time_sec / max(1, duration_sec)',
+                symbol: 'q',
+                description: 'quartileOrdinal ∈ {0, 10, 25, 50, 75, 100} — достигнутый рубеж просмотра',
                 source: 'payload',
             },
             {
-                symbol: 'q',
-                description: 'quartileOrdinal ∈ {0,1,2,3,4} (none / 25 / 50 / 75 / 100)',
+                symbol: 'r_a',
+                description: 'audibleRatio = clamp(audible_time_sec / duration_sec, 0, 1)',
                 source: 'payload',
             },
             {
@@ -242,8 +279,18 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 'payload',
             },
             {
-                symbol: 'p,\\, s,\\, u',
-                description: 'play_initiated / skipped / unmuted_by_user (0/1)',
+                symbol: 'm,\\, u',
+                description: 'muted_throughout / unmuted_by_user (0/1)',
+                source: 'payload',
+            },
+            {
+                symbol: 's',
+                description: 'skipped (0/1) — отказ зрителя в in-stream',
+                source: 'payload',
+            },
+            {
+                symbol: 'k',
+                description: 'closed_by_user (0/1) — отказ зрителя в out-stream',
                 source: 'payload',
             },
             {
@@ -252,8 +299,8 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 'вычисляется',
             },
             {
-                symbol: '\\boldsymbol{\\beta}',
-                description: 'вектор из 9 коэффициентов',
+                symbol: '\\boldsymbol{\\beta},\\,\\boldsymbol{\\gamma}',
+                description: 'векторы из 9 коэффициентов, независимые для каждого режима',
                 source: 's6_logistic_configs',
             },
             {
@@ -262,7 +309,7 @@ export const SIGNAL_FORMULAS: Record<SignalTab, FormulaDefinition> = {
                 source: 's6_logistic_configs',
             },
         ],
-        note: 'S6 = null для баннерных креативов — вес перераспределяется. Терм взаимодействия z_c·z_a усиливает сигнал при одновременно высоком досмотре и аудируемости. Прокси-метка: y=1 если completion=true И (unmuted_by_user ИЛИ NOT muted_throughout). 6 сегментов: device × skippable/non_skippable.',
+        note: 'S6 = null для баннерных креативов — вес перераспределяется. Две независимые модели: реклама in-stream стартует со звуком внутри контента, который зритель смотрит намеренно, и m означает заглушение зрителем; out-stream стартует без звука в потоке страницы, и m означает бездействие, а u — явный интерес. Отказ выражается пропуском у in-stream и закрытием поверхности у out-stream. Сегменты: instream|{device}|{skippable} — 6, outstream_sticky|{device} и outstream_inpage|{device} — по 3; закреплённое окно не покидает область просмотра, встроенное уходит из неё и встаёт на паузу. Цепочка: группа → {mode}|{device} → {mode}|global → сегмент прежней схемы для показов тега. Метка обучения строится на присутствии зрителя (активная вкладка, фокус окна, остановка прокрутки либо нахождение во вьюпорте) и не пересекается с признаками модели; пороги подбираются перебором и сохраняются в конфигурации вместе с коэффициентами.',
     },
     s7: {
         signal: 'S7 — Page Context',

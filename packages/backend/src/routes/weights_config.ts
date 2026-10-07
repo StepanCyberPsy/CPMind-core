@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { CREATIVE_CATEGORIES } from '@cpmind/shared';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
 import {
@@ -9,9 +10,11 @@ import {
     deleteWeightsConfig,
 } from '../services/configs/weights_config.js';
 
+// Перечень категорий выводится из CREATIVE_CATEGORIES: литеральный список расходится
+// с типом молча, и создание конфигурации новой категории отклонялось бы с 422
 const CreateWeightsConfigSchema = z.object({
     version: z.string().min(1).max(100),
-    configType: z.enum(['banner', 'video']),
+    configType: z.enum(CREATIVE_CATEGORIES),
     weights: z.object({
         s1: z.number().min(0).max(1),
         s2: z.number().min(0).max(1),
