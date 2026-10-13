@@ -6,8 +6,8 @@ let instance: S3Client | null = null;
 export function getStorageClient(): S3Client {
     if (!instance) {
         instance = new S3Client({
-            endpoint: 'https://storage.yandexcloud.net',
-            region: 'ru-central1',
+            endpoint: 'https://s3.ru-3.storage.selcloud.ru',
+            region: 'ru-3',
             credentials: {
                 accessKeyId: getWorkerKeyId(),
                 secretAccessKey: getWorkerSecret(),

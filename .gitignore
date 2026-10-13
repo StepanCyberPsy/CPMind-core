@@ -10,6 +10,7 @@ packages/tag/dist/
 # Окружение и секреты
 .env
 .env.local
+.env.prod
 .env.*.local
 *.env
 !.env.example
@@ -64,7 +65,6 @@ prompt_tasks/
 .drizzle/
 
 # Не игнорировать
-!.env.example
 !.gitkeep
 
 # Версии

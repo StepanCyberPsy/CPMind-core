@@ -7,8 +7,8 @@ export interface StorageCredentials {
 
 export function createStorageClient(credentials: StorageCredentials): S3Client {
     return new S3Client({
-        endpoint: 'https://storage.yandexcloud.net',
-        region: 'ru-central1',
+        endpoint: 'https://s3.ru-3.storage.selcloud.ru',
+        region: 'ru-3',
         credentials: {
             accessKeyId: credentials.keyId,
             secretAccessKey: credentials.secret,

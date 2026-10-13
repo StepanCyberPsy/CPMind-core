@@ -12,11 +12,11 @@ export function requireEnv(name: string): string {
 
 // Object Storage
 export function getSignerKeyId(): string {
-    return requireEnv('YC_SIGNER_KEY_ID');
+    return requireEnv('BUCKET_SIGNER_KEY_ID');
 }
 
 export function getSignerSecret(): string {
-    return requireEnv('YC_SIGNER_SECRET');
+    return requireEnv('BUCKET_SIGNER_SECRET');
 }
 
 export function getStagingBucket(): string {

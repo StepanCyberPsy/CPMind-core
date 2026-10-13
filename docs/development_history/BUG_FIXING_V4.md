@@ -99,7 +99,7 @@ grep -rn "SOURCE_BUCKET\|sourceBucket" packages/media-worker/src/
 Добавить в `docker-compose.prod.yml` одноразовый сервис `runtime-publisher`:
 
 - `restart: "no"` — выполняется при каждом `up -d --build` и завершается;
-- окружение: `YC_WORKER_KEY_ID`, `YC_WORKER_SECRET`, `DELIVERY_BUCKET`, `CDN_BASE_URL`, `DISPLAY_RUNTIME_VERSION`, `PLAYER_RUNTIME_VERSION`;
+- окружение: `BUCKET_WORKER_KEY_ID`, `BUCKET_WORKER_SECRET`, `DELIVERY_BUCKET`, `CDN_BASE_URL`, `DISPLAY_RUNTIME_VERSION`, `PLAYER_RUNTIME_VERSION`;
 - `nginx.depends_on` дополнить `runtime-publisher: { condition: service_completed_successfully }`.
 
 **IAM не требует изменений.** Сервисный аккаунт `cpmind-media-worker` уже имеет `storage.uploader` на `cpmind-delivery-assets`, и правило 3 действующей bucket policy явно разрешает ему `PutObject` на `cpmind-delivery-assets/*`. Ключи `YC_WORKER_*` уже есть в `.env`.
@@ -229,8 +229,8 @@ curl -sSI https://creative.cpmind.tech/html5/{bundleSha}/index.html
 
 ```bash
 docker run --rm -it \
-  -e AWS_ACCESS_KEY_ID=$YC_WORKER_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY=$YC_WORKER_SECRET \
+  -e AWS_ACCESS_KEY_ID=$BUCKET_WORKER_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY=$BUCKET_WORKER_SECRET \
   -v /opt/cpmind/policy.json:/policy.json:ro \
   amazon/aws-cli s3api put-bucket-policy \
     --endpoint-url https://storage.yandexcloud.net \

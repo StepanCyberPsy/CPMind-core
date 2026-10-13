@@ -116,7 +116,7 @@ Backend использует S3-совместимый протокол Yandex O
 |---|---|---|
 | `storage.uploader` | folder-level | Право на PUT в staging |
 
-Статический ключ (`signer_key`) передаётся backend'у через `YC_SIGNER_KEY_ID` / `YC_SIGNER_SECRET`.
+Статический ключ (`signer_key`) передаётся backend'у через `BUCKET_SIGNER_KEY_ID` / `BUCKET_SIGNER_SECRET`.
 
 #### `cpmind-media-worker`
 
@@ -127,7 +127,7 @@ Backend использует S3-совместимый протокол Yandex O
 | `storage.viewer` | folder-level | GET из staging |
 | `storage.uploader` | folder-level | PUT в source и delivery |
 
-Статический ключ (`worker_key`) передаётся media-worker'у через `YC_WORKER_KEY_ID` / `YC_WORKER_SECRET`.
+Статический ключ (`worker_key`) передаётся media-worker'у через `BUCKET_WORKER_KEY_ID` / `BUCKET_WORKER_SECRET`.
 
 **Известное ограничение:** роль `storage.uploader` не включает DELETE. Media-worker не может удалять объекты из staging после обработки — WARN в логах (`AccessDenied` на `DeleteObject`). Файлы удаляются lifecycle rule через 2 дня. Для устранения нужно добавить `storage.editor` в `iam.tf`.
 
@@ -376,8 +376,8 @@ Media-worker стартует параллельно с backend (оба зави
 | `COOKIE_SECRET` | backend | Подпись cookie (@fastify/cookie) |
 | `ADMIN_LOGIN` | backend | Логин admin-аккаунта (seed) |
 | `ADMIN_PASSWORD_HASH` | backend | bcrypt-хеш пароля admin (seed) |
-| `YC_SIGNER_KEY_ID` / `YC_SIGNER_SECRET` | backend | IAM ключ для presigned URLs |
-| `YC_WORKER_KEY_ID` / `YC_WORKER_SECRET` | media-worker | IAM ключ для чтения/записи ассетов |
+| `BUCKET_SIGNER_KEY_ID` / `BUCKET_SIGNER_SECRET` | backend | IAM ключ для presigned URLs |
+| `BUCKET_WORKER_KEY_ID` / `BUCKET_WORKER_SECRET` | media-worker | IAM ключ для чтения/записи ассетов |
 | `STAGING_BUCKET` | backend, media-worker | Имя staging bucket |
 | `SOURCE_BUCKET` | media-worker | Имя source bucket |
 | `DELIVERY_BUCKET` | backend, media-worker | Имя delivery bucket |

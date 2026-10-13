@@ -40,11 +40,11 @@ export function getDbConnectionTimeoutMs(): number {
 
 // Object Storage — worker credentials
 export function getWorkerKeyId(): string {
-    return requireEnv('YC_WORKER_KEY_ID');
+    return requireEnv('BUCKET_WORKER_KEY_ID');
 }
 
 export function getWorkerSecret(): string {
-    return requireEnv('YC_WORKER_SECRET');
+    return requireEnv('BUCKET_WORKER_SECRET');
 }
 
 // Buckets
