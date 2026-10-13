@@ -57,6 +57,8 @@ const DEFAULT_VIDEO_FORM: WeightsForm = {
 const CONFIG_TYPE_LABELS: Record<CreativeCategory, string> = {
   banner: 'Баннеры',
   video: 'Видео',
+  video_instream: 'Видео In-stream',
+  video_outstream: 'Видео Out-stream',
 };
 
 function computeSum(form: WeightsForm): number {

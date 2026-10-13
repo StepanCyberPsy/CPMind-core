@@ -14,6 +14,8 @@ interface Props {
 const GROUP_LABELS: Record<CreativeCategory, string> = {
   banner: 'Баннеры',
   video: 'Видео',
+  video_instream: 'Видео In-stream',
+  video_outstream: 'Видео Out-stream',
 };
 
 const GROUPS: CreativeCategory[] = ['banner', 'video'];
