@@ -1,6 +1,128 @@
-# CPMind Session Handoff — Frontend and Banner Measurement
+# CPMind Session Handoff — Frontend, Banner Measurement, and S2 Calibration
 
-## Snapshot and authority
+## Current snapshot — S2 banner calibration follow-up
+
+### State, authority, and baseline
+
+- Updated on 2026-10-19, Europe/Moscow, under the explicit user request to update this session snapshot and provide a commit message. This authorizes this record and its index update, not broader future journaling.
+- Session ID remains `2026-10-19-frontend-banner-ux`; this section records the subsequent, separately approved backend S2 scope.
+- Current HEAD: `52490b4daa0c8bfcdb5452895cb267244ac9b258`. The worktree was clean before S2 implementation.
+- All 26 product/test SHA-256 entries in the earlier frontend/banner manifest below were checked against Git blobs at current HEAD and matched, 26/26. That delivery is now part of the committed baseline.
+- Current product delta: two modified backend source files and one new backend test file. This snapshot update additionally modifies this handoff and `docs/engineering/sessions/README.md`.
+- No frontend, display-runtime, shared, SDK, player, embed, media pipeline, schema, migration, API contract, dependency, or deployment files were changed by this S2 follow-up.
+- Stage 8 reported a local automated `PASS` recommendation and requested final acceptance. The user then asked a calibration clarification and requested this snapshot and commit message. No separate explicit final-acceptance decision or production acceptance evidence is recorded.
+- No staging, commit, push, other Git-history operation, deployment, real calibration run, production-data operation, or bulk historical recalculation was performed by the agent. The user will commit manually.
+
+Sections beginning with "Earlier snapshot and authority" retain the frontend/banner delivery evidence at its original baseline. Their statements about uncommitted files, unchanged backend, and prior worktree contents describe that earlier phase, not the current S2 delta.
+
+### Agreed S2 behavior and implementation
+
+- All non-video banners use the existing `static` S2 group, including GIF and HTML5. The user also explicitly approved pooling these types for future S2 training. Existing names and formulas remain unchanged.
+- Banner resolution: `{device}|static` → `static` → `global` → `DEFAULT_S2_PARAMS`.
+- Video resolution remains `{device}|video` → `video` → `global` → `DEFAULT_S2_PARAMS`.
+- `routes/impressions.ts` constructs a separate S2 segment key. The existing S1/S3 key remains unchanged, including their `animated` grouping for GIF/HTML5.
+- The server delivery-context creative type still takes precedence over validated client payload. The existing scoring service receives the selected parameters and saves the configuration ID as `s2ModelVersion`.
+- S2 training maps `banner_static`, `banner_gif`, and `banner_html5` to `static`; `video_creative` remains `video`. Both groups retain device-level and group-level drafts.
+- Future S2 runs no longer create `animated` drafts. Existing configurations remain in the database/configuration management; new banner calculations no longer select them through the ingestion route.
+- The 30-day window, minimum 1000 finite observations, quantile grid/interpolation, minimum spread of 0.05 percentage points, quality filters, cron schedule, and manual activation policy remain unchanged.
+- Cron and the existing manual signal-calibration service both call `recalibrateS2()`. Neither caller was modified or executed against a real database.
+- Historical impressions were not bulk-recalculated. Automatic model activation was not added.
+- Separating GIF and HTML5 models later requires a separately approved segment-selection/training change; configuration creation alone cannot override common static grouping.
+
+An S2 value of 50 alone does not prove fallback: a calibrated model can also return 50 at its median. This correction aligns model selection with the clarified grouping; it does not prohibit legitimate scores of 50.
+
+### Current file inventory
+
+| Path | State | Purpose |
+|---|---|---|
+| `packages/backend/src/routes/impressions.ts` | Modified | Separate S2 selection from S1/S3 |
+| `packages/backend/src/jobs/s2_calibration.ts` | Modified | Pool banners into static; retain video |
+| `packages/backend/tests/s2_segmentation.test.ts` | New | 27 isolated regression tests |
+| `docs/engineering/sessions/2026-10-19-frontend-banner-ux/HANDOFF.md` | Modified | Current S2 outcome and historical distinction |
+| `docs/engineering/sessions/README.md` | Modified | Update session index |
+
+### Verification and acceptance traceability
+
+Executed on Node `v22.23.2` after `nvm use 22`, with TypeScript `5.9.3`, Vitest `1.6.1`, and Drizzle ORM `0.31.4`. Every command below exited 0:
+
+```sh
+source "$HOME/.nvm/nvm.sh"
+nvm use 22
+node packages/backend/node_modules/vitest/vitest.mjs run --root packages/backend tests/s2_segmentation.test.ts --maxWorkers=1 --minWorkers=1
+node node_modules/typescript/bin/tsc --project packages/backend/tsconfig.json --noEmit --incremental false
+node packages/backend/node_modules/vitest/vitest.mjs run --root packages/backend tests/domain_policy.test.ts tests/impression_context_rules.test.ts tests/sample_split.test.ts --maxWorkers=1 --minWorkers=1
+git diff --check
+```
+
+| Criterion | Test evidence | Result |
+|---|---|---|
+| `AC-1`: banners select static | `TEST-1`: three types × three devices, saved model ID and actual normalized S2 | PASS |
+| `AC-2`: fallback retained | `TEST-2`: device/group/global/default, inactive/malformed models, cache/invalidation | PASS |
+| `AC-3`: video, S1/S3, attribution retained | `TEST-3`: video on three devices; unchanged S1/S3 keys; server type precedence in both directions | PASS |
+| `AC-4`: common banner training | `TEST-4`: pooled banner types, separate video, device/group keys, fixture owners, draft sizes/quantiles, no animated drafts | PASS |
+| `AC-5`: safeguards retained | `TEST-5`: query filters/window, insufficient/constant/non-finite samples, quantile grid, inactive drafts | PASS |
+
+- New S2 suite: 27/27 passed.
+- Existing pure regressions: impression context 18/18, domain policy 10/10, sample split 4/4; total 32/32.
+- Current S2 total: 59/59 passed. Earlier frontend/runtime suites below were not rerun for this backend-only follow-up and are not included.
+- Backend source typecheck passed. The package tsconfig includes `src`, not tests; test execution is separate evidence.
+- Scoped diff/whitespace checks passed, including the untracked test file. Original no-final-newline formatting was restored in the two production files after the checks; executable contents are unchanged, classified `IRRELEVANT` to test freshness.
+- No test failures occurred in this follow-up. Evidence is in conversation tool results, not a saved CI log.
+
+The new suite executes the real Fastify route, S2 resolver, scoring path, and fitting runner. The DB module is replaced before production-service imports; other model/ownership/context lookups use fixtures. Actual Drizzle PostgreSQL query predicates are inspected, while fixture selection supplies rows. This verifies local behavior and generated conditions, not real PostgreSQL execution, ownership validation, deployed cron execution, or production model contents.
+
+### Engineering review and limits
+
+| Domain | Assessment and evidence |
+|---|---|
+| Architecture/maintainability | PASS within scope: separate S2 key, two localized source changes, no dependencies/refactor |
+| Business logic/data contracts | PASS: AC-1–AC-5, existing formula/API/schema/model-version semantics retained |
+| Security/attribution | PASS for changed boundary: server-type precedence exercised; authorization untouched, no comprehensive security claim |
+| Cache/concurrency/persistence | Cache tests passed; existing checkpoint/activation mechanisms unchanged by diff review; distributed testing NOT_RUN |
+| Operations/diagnostics | Schedule/logging/inactive drafts/manual activation retained by source review; real jobs/deployment NOT_RUN |
+| Performance | NOT_RUN: pooled static samples can be larger per fit; no load/scalability claim |
+| Frontend/migration/infrastructure | NOT_APPLICABLE to this follow-up; no changes |
+
+Real DB integration, production configuration/rollout, and load checks remain NOT_RUN. Earlier frontend/browser acceptance limitations below remain distinct and are not resolved by these backend tests.
+
+### Calibration eligibility clarification
+
+Source inspection across automatic S1–S7 training jobs confirmed:
+
+- No owner, role, user-ID, or tag-ID restriction: eligible admin and user impressions contribute.
+- Every job requires `isSuspicious = false`; the common trainability filter requires `scoreReliable = true`, excluding GIVT and suspected/confirmed SIVT under the existing classifier.
+- Current `isSuspicious` covers no interaction events, a predominantly hidden tab, and anomalous duration.
+- `CLIENT_CONTEXT_MISMATCH` impressions are excluded.
+- S1–S6 use 30-day windows; S7 uses 60 days. Signal availability, segmentation, minimum sample size, collection mode, and applicable constants-version restrictions further limit eligibility.
+- S1/S2/S4/S6 select SDK-only data; S3/S5/S7 allow compatible legacy-tag samples.
+- Manual weight-recalculation batches have a separate admin-owner scope and do not define automatic model-training eligibility.
+
+No eligibility or ownership policy was changed in this follow-up.
+
+### Approvals and next boundary
+
+- Stage 1: `CPMIND-S2-BANNER-TASK r1`, explicitly accepted together with common static training.
+- Stage 2: `CPMIND-S2-BANNER-AUDIT r1`, user replied "Confirmed."
+- Stage 3: `CPMIND-S2-BANNER-SCOPE r1`, user replied "Confirmed."
+- Stage 4: `CPMIND-S2-BANNER-CHANGE r1`, explicitly confirmed; the accompanying request to start code was followed by the required versioned-plan gate.
+- Stage 5: `CPMIND-S2-BANNER-PLAN r1`, user replied "Confirmed" before source/test edits.
+- Stage 6: one approved layer; Stage 7 checks passed; Stage 8 local PASS recommendation reported with runtime limits.
+- Latest user request authorizes this snapshot/index update and a commit message, not agent commits, deployments, model activation, or historical recalculation.
+- Next safe action: the user reviews the pending five-file change set and commits manually. No additional code/release work is authorized by this record.
+- On resume, verify Git/worktree, manifest, approval provenance, and test freshness.
+- `PROJECT_CONTEXT.md` and the engineering contract remain unchanged. Context synchronization requires a separate explicit request.
+
+### Current S2 product-file manifest
+
+SHA-256 fingerprints, not test logs or independent approval evidence:
+
+```text
+07dff39c7a59200a091543f2596a33fae34101ec3c9a11119dc184bd57f11dd5  packages/backend/src/routes/impressions.ts
+2de92ac6157ffa885557534557d636f1d6ad819a285ea56ebdba612d2231f2e9  packages/backend/src/jobs/s2_calibration.ts
+fad08ab7f53eb50e0c0af6ac8c0fd1038129c735bebb8ac554c893f648e6ff8f  packages/backend/tests/s2_segmentation.test.ts
+```
+
+## Earlier snapshot and authority
 
 - Session ID: `2026-10-19-frontend-banner-ux`.
 - Snapshot date: 2026-10-19, Europe/Moscow, following the user's request to record the session outcome.
