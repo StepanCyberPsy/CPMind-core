@@ -167,9 +167,9 @@ function buildColumns({
   });
 
   const campaignColumn = col.accessor('campaign_id', {
-    header: 'ID Кампании',
+    header: 'Кампания',
     enableSorting: false,
-    cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
+    cell: ({ getValue, row }) => <span>{row.original.campaign_name ?? getValue()}</span>,
   });
 
   const domainColumn = col.accessor('publisher_domain', {
@@ -197,9 +197,9 @@ function buildColumns({
 
   const restColumns = [
     col.accessor('creative_id', {
-      header: 'ID Креатива',
+      header: 'Креатив',
       enableSorting: false,
-      cell: ({ getValue }) => <span className={styles.cellMono}>{getValue()}</span>,
+      cell: ({ getValue, row }) => <span>{row.original.creative_name ?? getValue()}</span>,
     }),
     col.accessor('creative_type', {
       header: 'Тип креатива',

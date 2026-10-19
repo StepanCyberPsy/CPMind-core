@@ -3,7 +3,6 @@ import Link from 'next/link';
 import {
   fetchImpressions,
   fetchWeightsConfigs,
-  fetchTagConstantsConfigs,
   fetchPublisherDomainAggregate,
 } from '@/lib/admin/api';
 import { decodeTokenUuid } from '@/lib/shared/auth';
@@ -26,7 +25,7 @@ export default async function ImpressionsPage({
   // Калибровка работает только с данными самого админа — кнопки доступны только во вкладке, явно отфильтрованной на собственный uuid, не в общем списке и не во вкладке другого юзера
   const isOwnScopeView = ownUuid !== null && searchParams.userUuid === ownUuid;
 
-  const { params, sortBy, sortDir } = parseListSearchParams(searchParams);
+  const { params, sortBy, sortDir } = parseListSearchParams(searchParams, undefined, 'impressions');
 
   const dropdownScopeParams: ListParams = {
     page: 1,
@@ -45,10 +44,9 @@ export default async function ImpressionsPage({
     ...(params.userUuid !== undefined && { userUuid: params.userUuid }),
   };
 
-  const [data, weightsConfigs, tagConstantsConfigs, dropdownData, domainOptionsData, aggregate] = await Promise.all([
+  const [data, weightsConfigs, dropdownData, domainOptionsData, aggregate] = await Promise.all([
     fetchImpressions(params, cookieHeader),
     fetchWeightsConfigs(cookieHeader),
-    fetchTagConstantsConfigs(cookieHeader),
     fetchImpressions(dropdownScopeParams, cookieHeader),
     isDomainView
       ? fetchImpressions(domainOptionsScopeParams, cookieHeader)
@@ -68,7 +66,6 @@ export default async function ImpressionsPage({
     : [];
 
   const weightsVersions = weightsConfigs.map((c) => c.version);
-  const tagConstantsVersions = tagConstantsConfigs.map((c) => c.version);
   const campaignOptions = Array.from(new Set(dropdownData.items.map((row) => row.campaign_id))).sort();
   const creativeOptions = Array.from(new Set(dropdownData.items.map((row) => row.creative_id))).sort();
 
@@ -108,7 +105,7 @@ export default async function ImpressionsPage({
       <div className={styles.content}>
         <Filters
           current={params}
-          tagConstantsVersions={tagConstantsVersions}
+          context="impressions"
           weightsVersions={weightsVersions}
           campaignOptions={campaignOptions}
           creativeOptions={creativeOptions}

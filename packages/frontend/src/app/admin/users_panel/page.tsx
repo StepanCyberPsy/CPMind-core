@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { fetchUsersStats } from '@/lib/admin/api';
 import { decodeTokenUuid } from '@/lib/shared/auth';
 import { UsersPanelTable } from '@/components/admin/UsersPanelTable';
+import { LogoutButton } from '@/components/shared/LogoutButton';
 import styles from '@/styles/users_panel.module.css';
 
 export default async function UsersPanelPage() {
@@ -22,9 +23,7 @@ export default async function UsersPanelPage() {
           Пользователи:{' '}
           <span className={styles.headerCount}>{users.length}</span>
         </div>
-        <a href="/campaigns" className={styles.workspaceLink}>
-          Рекламные кампании →
-        </a>
+        <LogoutButton />
       </header>
 
       <div className={styles.content}>

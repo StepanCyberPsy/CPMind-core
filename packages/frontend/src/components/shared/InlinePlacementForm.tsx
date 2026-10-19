@@ -154,7 +154,6 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
             const result = await createPlacement(buildPayload());
             setCreatedPlacement(result);
             setShowModal(true);
-            router.refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Ошибка создания размещения');
         } finally {
@@ -162,7 +161,10 @@ export function InlinePlacementForm({ creative }: Props): React.ReactElement {
         }
     };
 
-    const handleCloseModal = useCallback(() => setShowModal(false), []);
+    const handleCloseModal = useCallback(() => {
+        setShowModal(false);
+        router.refresh();
+    }, [router]);
 
     if (createdPlacement !== null) {
         return (

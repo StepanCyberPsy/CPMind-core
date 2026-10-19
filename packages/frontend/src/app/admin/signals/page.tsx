@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import {
   fetchS1WeibullConfigs,
+  fetchS2Configs,
   fetchS3LogisticConfigs,
   fetchS4Configs,
   fetchS5LogisticConfigs,
@@ -21,8 +22,9 @@ export default async function SignalsPage() {
     ? `/admin/impressions?userUuid=${ownUuid}`
     : '/admin/impressions';
 
-  const [s1, s3, s4, s5, s6, s7] = await Promise.all([
+  const [s1, s2, s3, s4, s5, s6, s7] = await Promise.all([
     fetchS1WeibullConfigs(cookieHeader),
+    fetchS2Configs(cookieHeader),
     fetchS3LogisticConfigs(cookieHeader),
     fetchS4Configs(cookieHeader),
     fetchS5LogisticConfigs(cookieHeader),
@@ -43,6 +45,7 @@ export default async function SignalsPage() {
       <div className={styles.content}>
         <SignalModelsPanel
           initialS1={s1}
+          initialS2={s2}
           initialS3={s3}
           initialS4={s4}
           initialS5={s5}

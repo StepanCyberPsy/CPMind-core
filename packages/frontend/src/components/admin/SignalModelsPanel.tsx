@@ -8,6 +8,10 @@ import {
     deactivateS1WeibullConfig,
     scheduleS1WeibullDelete,
     cancelS1WeibullDelete,
+    activateS2Config,
+    deactivateS2Config,
+    scheduleS2ConfigDelete,
+    cancelS2ConfigDelete,
     activateS3LogisticConfig,
     deactivateS3LogisticConfig,
     scheduleS3LogisticDelete,
@@ -32,6 +36,7 @@ import {
 import type {
     SignalModelsPanelProps,
     S1WeibullConfigRow,
+    S2ConfigRow,
     S3LogisticConfigRow,
     S4ConfigRow,
     S5LogisticConfigRow,
@@ -39,20 +44,28 @@ import type {
     S7QuantileConfigRow,
 } from '@/lib/admin/types';
 import { FormulaCard } from './FormulaCard';
+import {
+    getS2QuantileLevels,
+    getS2QuantileValue,
+    getS6SegmentPresentation,
+    formatS6Rate,
+    formatS6Threshold,
+} from '@/lib/admin/signal-model-presentation';
+import type { S6Section, S6DeviceTab } from '@/lib/admin/signal-model-presentation';
 import cStyles from '@/styles/components.module.css';
 import styles from '@/styles/signal-models.module.css';
 
-type SignalTab = 's1' | 's3' | 's4' | 's5' | 's6' | 's7';
+type SignalTab = 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7';
 type SignalAction = 'activate' | 'deactivate' | 'scheduleDelete' | 'cancelDelete';
 type S4DeviceTab = 'base' | 'desktop' | 'mobile';
 type S5DeviceTab = 'desktop' | 'mobile';
-type S6DeviceTab = 'desktop' | 'mobile' | 'tablet';
 type S7DeviceTab = 'desktop' | 'mobile' | 'tablet';
 
 // Константы и маппинги
 
 const TAB_LABELS: Record<SignalTab, string> = {
     s1: 'S1 Weibull',
+    s2: 'S2 Quantile',
     s3: 'S3 Logistic',
     s4: 'S4 Config',
     s5: 'S5 Logistic',
@@ -66,6 +79,12 @@ const SIGNAL_ACTIONS: Record<SignalTab, Record<SignalAction, (id: string) => Pro
         deactivate: deactivateS1WeibullConfig,
         scheduleDelete: scheduleS1WeibullDelete,
         cancelDelete: cancelS1WeibullDelete,
+    },
+    s2: {
+        activate: activateS2Config,
+        deactivate: deactivateS2Config,
+        scheduleDelete: scheduleS2ConfigDelete,
+        cancelDelete: cancelS2ConfigDelete,
     },
     s3: {
         activate: activateS3LogisticConfig,
@@ -138,19 +157,26 @@ const S6_FEATURE_LABELS: Record<string, string> = {
     replay: 'repl',
 };
 
+const S6_LABEL_FIELDS = [
+    {key: 'tabAbsentMaxMs', label: 'Вкладка / фокус, мс'},
+    {key: 'viewportAbsentMaxMs', label: 'Вне области просмотра, мс'},
+    {key: 'scrollQuietMinMs', label: 'Пауза прокрутки, мс'},
+    {key: 'skipParkingRatio', label: 'Ожидание пропуска, %'},
+] as const;
+
 // Количество колонок по сигналу (для colSpan сегментных заголовков)
 // S1: дата(1) + k(1) + λ(1) + выборка(1) + ⋮(1)
 // S3: дата(1) + β×8 + means×5 + stds×5 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
 // S4: дата(1) + версия(1) + λ(1) + T_ref(1) + выборка(1) + ⋮(1)
 // S5: дата(1) + β×5 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
-// S6: дата(1) + β×9 + means×4 + stds×4 + точность(1) + AUC(1) + выборка(1) + версия(1) + ⋮(1)
+// S6: дата(1) + β×9 + means×4 + stds×4 + точность(1) + AUC(1) + выборка(1) + версия(1) + доля метки(1) + пороги(4) + ⋮(1)
 // S7: дата(1) + relYLow(1) + relYMid(1) + clutterMid(1) + clutterHigh(1) + выборка(1) + ⋮(1)
 
 const S1_COLS = 5;
 const S3_COLS = 1 + S3_BETA_KEYS.length + S3_FEATURE_KEYS.length + S3_FEATURE_KEYS.length + 5;
 const S4_COLS = 6;
 const S5_COLS = 1 + S5_BETA_KEYS.length + 5;
-const S6_COLS = 1 + S6_BETA_KEYS.length + S6_FEATURE_KEYS.length + S6_FEATURE_KEYS.length + 5;
+const S6_COLS = 1 + S6_BETA_KEYS.length + S6_FEATURE_KEYS.length + S6_FEATURE_KEYS.length + 6 + S6_LABEL_FIELDS.length;
 const S7_COLS = 7;
 
 // Модель с AUC ниже порога предсказывает немногим лучше случайного выбора.
@@ -505,6 +531,93 @@ function S1Table({
                                 );
                             })
                         )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+interface S2TableProps extends BaseTableProps {
+    groups: Map<string, S2ConfigRow[]>;
+}
+
+function S2Table({
+    groups,
+    actionId,
+    now,
+    isCollapsed,
+    onToggleSegment,
+    onAction,
+}: S2TableProps) {
+    const TAB: SignalTab = 's2';
+    const orderedKeys = orderSegmentKeys(Array.from(groups.keys()));
+    const levels = getS2QuantileLevels(Array.from(groups.values()).flat());
+    const colCount = 3 + levels.length;
+
+    return (
+        <div className={styles.tableWrapper}>
+            <div className={styles.scrollContainer}>
+                <table className={styles.table}>
+                    <thead>
+                        <tr>
+                            <th className={styles.th}>Тип и дата</th>
+                            <th className={styles.th}>Выборка</th>
+                            {levels.map((level) => (
+                                <th key={level} className={styles.th} title="Доля экрана, %">
+                                    p{String(Number((level * 100).toFixed(4))).padStart(2, '0')} (%)
+                                </th>
+                            ))}
+                            <th className={`${styles.th} ${styles.thActions}`} />
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {orderedKeys.length === 0 ? (
+                            <tr>
+                                <td colSpan={colCount} className={styles.empty}>
+                                    Конфигурации не найдены
+                                </td>
+                            </tr>
+                        ) : orderedKeys.map((segKey) => (
+                            <Fragment key={segKey}>
+                                <SegmentHeader
+                                    tab={TAB}
+                                    segmentKey={segKey}
+                                    colSpan={colCount}
+                                    isCollapsed={isCollapsed(TAB, segKey)}
+                                    onToggle={onToggleSegment}
+                                />
+                                {!isCollapsed(TAB, segKey) && sortConfigs(groups.get(segKey) ?? []).map((cfg) => (
+                                    <tr key={cfg.id} className={`${styles.tr} ${cfg.isActive ? styles.trActive : ''}`}>
+                                        <td className={styles.td}>
+                                            <div className={styles.cellVersion}>
+                                                <span className={styles.cellMono}>{formatDate(cfg.fittedAt)}</span>
+                                                {cfg.isActive && <ActiveBadge />}
+                                            </div>
+                                        </td>
+                                        <td className={styles.td}>
+                                            <span className={styles.cellMono}>{cfg.sampleSize.toLocaleString('ru-RU')}</span>
+                                        </td>
+                                        {levels.map((level) => {
+                                            const value = getS2QuantileValue(cfg, level);
+                                            return (
+                                                <td key={level} className={styles.td}>
+                                                    <span className={value === null ? styles.cellNull : styles.cellMono}>
+                                                        {value === null ? '—' : value.toFixed(4)}
+                                                    </span>
+                                                </td>
+                                            );
+                                        })}
+                                        <td className={styles.tdActions}>
+                                            <div className={styles.actionsCell}>
+                                                <TtlBadge deletionScheduledAt={cfg.deletionScheduledAt} now={now} />
+                                                <ConfigActionsMenu tab={TAB} cfg={cfg} actionId={actionId} onAction={onAction} />
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </Fragment>
+                        ))}
                     </tbody>
                 </table>
             </div>
@@ -895,10 +1008,12 @@ function S5Table({
 
 interface S6TableProps extends BaseTableProps {
     groups: Map<string, S6LogisticConfigRow[]>;
+    section: S6Section;
 }
 
 function S6Table({
     groups,
+    section,
     actionId,
     now,
     isCollapsed,
@@ -906,6 +1021,7 @@ function S6Table({
     onAction,
 }: S6TableProps) {
     const TAB: SignalTab = 's6';
+    const coefficientSymbol = section === 'outstream' ? 'γ' : 'β';
     const orderedKeys = orderSegmentKeys(Array.from(groups.keys()));
 
     return (
@@ -919,8 +1035,12 @@ function S6Table({
                             <th className={styles.th} rowSpan={2}>AUC</th>
                             <th className={styles.th} rowSpan={2}>Выборка</th>
                             <th className={styles.th} rowSpan={2}>Версия констант</th>
+                            <th className={styles.th} rowSpan={2}>Доля y=1</th>
+                            <th className={`${styles.th} ${styles.thGroup}`} colSpan={S6_LABEL_FIELDS.length}>
+                                Параметры метки
+                            </th>
                             <th className={`${styles.th} ${styles.thGroup}`} colSpan={S6_BETA_KEYS.length}>
-                                Коэффициенты β
+                                Коэффициенты {section === 'other' ? '' : coefficientSymbol}
                             </th>
                             <th className={`${styles.th} ${styles.thGroup}`} colSpan={S6_FEATURE_KEYS.length}>
                                 Средние признаков
@@ -931,9 +1051,18 @@ function S6Table({
                             <th className={`${styles.th} ${styles.thActions}`} rowSpan={2} />
                         </tr>
                         <tr>
+                            {S6_LABEL_FIELDS.map((field) => (
+                                <th key={field.key} className={styles.thSub}>{field.label}</th>
+                            ))}
                             {S6_BETA_KEYS.map((k) => (
-                                <th key={k} className={styles.thSub}>
-                                    {k.replace('beta', 'β')}
+                                <th
+                                    key={k}
+                                    className={styles.thSub}
+                                    title={k === 'beta7' && section !== 'other'
+                                        ? (section === 'outstream' ? 'closed_by_user — закрытие зрителем' : 'skipped — пропуск зрителем')
+                                        : undefined}
+                                >
+                                    {section === 'other' ? k : k.replace('beta', coefficientSymbol)}
                                 </th>
                             ))}
                             {S6_FEATURE_KEYS.map((k) => (
@@ -1001,6 +1130,18 @@ function S6Table({
                                                 <td className={styles.td}>
                                                     <span className={styles.cellMono}>{cfg.tagConstantsVersion}</span>
                                                 </td>
+                                                <td className={styles.td}>
+                                                    <span className={styles.cellMono}>{formatS6Rate(cfg.labelPositiveRate)}</span>
+                                                </td>
+                                                {S6_LABEL_FIELDS.map((field) => (
+                                                    <td key={field.key} className={styles.td}>
+                                                        <span className={styles.cellMono}>
+                                                            {field.key === 'skipParkingRatio'
+                                                                ? formatS6Rate(cfg.labelParams?.[field.key])
+                                                                : formatS6Threshold(cfg.labelParams?.[field.key])}
+                                                        </span>
+                                                    </td>
+                                                ))}
                                                 {S6_BETA_KEYS.map((k) => (
                                                     <td key={k} className={styles.td}>
                                                         <span className={styles.cellMono}>
@@ -1152,6 +1293,7 @@ function S7Table({
 
 export function SignalModelsPanel({
     initialS1,
+    initialS2,
     initialS3,
     initialS4,
     initialS5,
@@ -1165,9 +1307,11 @@ export function SignalModelsPanel({
     const [s4DeviceTab, setS4DeviceTab] = useState<S4DeviceTab>('base');
     const [s5DeviceTab, setS5DeviceTab] = useState<S5DeviceTab>('desktop');
     const [s6DeviceTab, setS6DeviceTab] = useState<S6DeviceTab>('desktop');
+    const [s6Section, setS6Section] = useState<S6Section>('instream');
     const [s7DeviceTab, setS7DeviceTab] = useState<S7DeviceTab>('desktop');
 
     const s1Groups = useMemo(() => groupByKey(initialS1, (c) => c.segmentKey), [initialS1]);
+    const s2Groups = useMemo(() => groupByKey(initialS2, (c) => c.segmentKey), [initialS2]);
     const s3Groups = useMemo(() => groupByKey(initialS3, (c) => c.segmentKey), [initialS3]);
     const s4Groups = useMemo(() => groupByKey(initialS4, (c) => c.segmentKey), [initialS4]);
     const s5Groups = useMemo(() => groupByKey(initialS5, (c) => c.segmentKey), [initialS5]);
@@ -1182,6 +1326,7 @@ export function SignalModelsPanel({
             }
         };
         addFromGroups('s1', groupByKey(initialS1, (c) => c.segmentKey).keys());
+        addFromGroups('s2', groupByKey(initialS2, (c) => c.segmentKey).keys());
         addFromGroups('s3', groupByKey(initialS3, (c) => c.segmentKey).keys());
         addFromGroups('s4', groupByKey(initialS4, (c) => c.segmentKey).keys());
         addFromGroups('s5', groupByKey(initialS5, (c) => c.segmentKey).keys());
@@ -1191,9 +1336,9 @@ export function SignalModelsPanel({
     });
 
     const hasScheduledDeletion = useMemo(() => (
-        [...initialS1, ...initialS3, ...initialS4, ...initialS5, ...initialS6, ...initialS7]
+        [...initialS1, ...initialS2, ...initialS3, ...initialS4, ...initialS5, ...initialS6, ...initialS7]
             .some((c) => c.deletionScheduledAt !== null)
-    ), [initialS1, initialS3, initialS4, initialS5, initialS6, initialS7]);
+    ), [initialS1, initialS2, initialS3, initialS4, initialS5, initialS6, initialS7]);
 
     useEffect(() => {
         if (!hasScheduledDeletion) return;
@@ -1247,8 +1392,12 @@ export function SignalModelsPanel({
     }, [s5Groups, s5DeviceTab]);
 
     const s6Filtered = useMemo(() => (
-        filterGroups(s6Groups, (k) => k.startsWith(`${s6DeviceTab}|`))
-    ), [s6Groups, s6DeviceTab]);
+        filterGroups(s6Groups, (key) => {
+            const presentation = getS6SegmentPresentation(key);
+            return presentation.section === s6Section &&
+                (s6Section === 'other' || presentation.device === s6DeviceTab);
+        })
+    ), [s6Groups, s6Section, s6DeviceTab]);
 
     const s7Filtered = useMemo(() => (
         filterGroups(s7Groups, (k) => k === s7DeviceTab)
@@ -1283,6 +1432,8 @@ export function SignalModelsPanel({
             <FormulaCard signal={activeTab} />
 
             {activeTab === 's1' && <S1Table groups={s1Groups} {...tableProps} />}
+
+            {activeTab === 's2' && <S2Table groups={s2Groups} {...tableProps} />}
 
             {activeTab === 's3' && <S3Table groups={s3Groups} {...tableProps} />}
 
@@ -1331,9 +1482,25 @@ export function SignalModelsPanel({
                 <>
                     <div className={styles.deviceTabBar}>
                         {([
+                            ['instream', 'In-stream'],
+                            ['outstream', 'Out-stream'],
+                            ['other', 'Исторические и прочие конфигурации'],
+                        ] as const).map(([section, label]) => (
+                            <button
+                                key={section}
+                                className={s6Section === section ? styles.deviceTabActive : styles.deviceTab}
+                                onClick={() => setS6Section(section)}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {s6Section !== 'other' && <div className={styles.deviceTabBar}>
+                        {([
                             ['desktop', 'Десктоп'],
                             ['mobile', 'Мобильные'],
                             ['tablet', 'Планшет'],
+                            ['common', 'Общие'],
                         ] as const).map(([tab, label]) => (
                             <button
                                 key={tab}
@@ -1343,8 +1510,8 @@ export function SignalModelsPanel({
                                 {label}
                             </button>
                         ))}
-                    </div>
-                    <S6Table groups={s6Filtered} {...tableProps} />
+                    </div>}
+                    <S6Table groups={s6Filtered} section={s6Section} {...tableProps} />
                 </>
             )}
 

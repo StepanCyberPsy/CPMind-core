@@ -476,6 +476,11 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
             mono
           />
           <Field
+            label="s2_model_version"
+            value={imp.s2_model_version ?? 'Нет данных'}
+            mono
+          />
+          <Field
             label="s3_model_version"
             value={imp.s3_model_version ?? 'Нет данных'}
             mono

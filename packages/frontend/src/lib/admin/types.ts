@@ -15,6 +15,7 @@ export type {
 export type {
   ListParams,
   S1WeibullConfigRow,
+  S2ConfigRow,
   S3LogisticConfigRow,
   S4ConfigRow,
   S5LogisticConfigRow,
@@ -47,7 +48,8 @@ export interface ImpressionsTableProps {
 
 export interface FiltersProps {
   current: import('./api.js').ListParams;
-  tagConstantsVersions: string[];
+  context?: 'impressions' | 'recalculation';
+  tagConstantsVersions?: string[];
   weightsVersions: string[];
   campaignOptions: string[];
   creativeOptions: string[];
@@ -88,6 +90,7 @@ export interface TagConstantsPanelProps {
 
 export interface SignalModelsPanelProps {
   initialS1: import('./api.js').S1WeibullConfigRow[];
+  initialS2: import('./api.js').S2ConfigRow[];
   initialS3: import('./api.js').S3LogisticConfigRow[];
   initialS4: import('./api.js').S4ConfigRow[];
   initialS5: import('./api.js').S5LogisticConfigRow[];

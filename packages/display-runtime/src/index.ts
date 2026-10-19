@@ -10,48 +10,65 @@ import {
 import { mountSurface } from './mount.js';
 import { runStaticFlow } from './static.js';
 import { runHtml5Flow } from './iframe.js';
+import { createPendingDisplay, type PendingDisplay } from './viewport.js';
 
 // video_creative обрабатывается Player bundle — display-runtime его не рендерит
 const DISPLAY_TYPES = new Set<string>(['banner_static', 'banner_gif', 'banner_html5']);
 
 async function runDisplayFlowAsync(entry: DisplayQueueEntry): Promise<void> {
     let ctx: DisplaySessionContext | null = null;
-    const ac = new AbortController();
-    const timeoutId = setTimeout(
-        () => ac.abort(),
-        entry.timeouts.adLoadTotalMs,
-    );
+    let pending: PendingDisplay | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
         ctx = createDisplaySessionContext(entry);
+        pending = createPendingDisplay(entry.container);
+        const lifecycle = pending;
+        timeoutId = setTimeout(() => lifecycle.cancel('timeout'), entry.timeouts.adLoadTotalMs);
         sendDisplayEvent(ctx, 'requested');
+
+        if (pending.signal.aborted) throw new DOMException('Aborted', 'AbortError');
 
         mountSurface(entry.container, entry);
         sendDisplayEvent(ctx, 'asset_load_started');
 
-        let renderConfirmedAt: number;
-
         if (entry.creativeType === 'banner_html5') {
-            renderConfirmedAt = await runHtml5Flow(ctx, entry, ac.signal);
+            await runHtml5Flow(ctx, entry, pending.signal);
         } else {
-            renderConfirmedAt = await runStaticFlow(ctx, entry, ac.signal);
+            await runStaticFlow(ctx, entry, pending.signal);
         }
 
+        if (pending.signal.aborted) throw new DOMException('Aborted', 'AbortError');
         sendDisplayEvent(ctx, 'render_confirmed');
+        clearTimeout(timeoutId);
+        timeoutId = null;
+
+        const measurementStartedAt = await pending.waitForViewportEntry();
+        if (!entry.container.isConnected) pending.cancel('creative_removed');
+        if (pending.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        pending.dispose();
+
         prepareDisplayMeasurement(ctx, entry.container);
-        startDisplayMeasurement(ctx, renderConfirmedAt);
+        startDisplayMeasurement(ctx, measurementStartedAt);
 
     } catch (err) {
         if (ctx !== null) {
-            const isAbort = err instanceof DOMException && err.name === 'AbortError';
-            sendDisplayEvent(ctx, 'creative_error', {
-                errorCode: isAbort ? 'MEDIA_START_TIMEOUT' : 'MEDIA_LOAD_FAILED',
-                finalizationReason: isAbort ? 'timeout' : 'error',
-            });
-            destroyDisplaySession(ctx, isAbort ? 'timeout' : 'error');
+            const reason = pending?.cancellationReason;
+            if (reason === 'page_unload' || reason === 'creative_removed') {
+                sendDisplayEvent(ctx, 'closed', { finalizationReason: reason });
+                destroyDisplaySession(ctx, reason);
+            } else {
+                const isTimeout = reason === 'timeout';
+                sendDisplayEvent(ctx, 'creative_error', {
+                    errorCode: isTimeout ? 'MEDIA_START_TIMEOUT' : 'MEDIA_LOAD_FAILED',
+                    finalizationReason: isTimeout ? 'timeout' : 'error',
+                });
+                destroyDisplaySession(ctx, isTimeout ? 'timeout' : 'error');
+            }
         }
     } finally {
-        clearTimeout(timeoutId);
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        pending?.dispose();
     }
 }
 

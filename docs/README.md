@@ -30,12 +30,6 @@
 
 Документация каждого пакета монорепо. Читать после `ARCHITECTURE.md` при работе с конкретным компонентом.
 
-### Инфраструктура
-
-#### [`packages_information/INFRA_LOGIC.md`](./packages_information/INFRA_LOGIC.md)
-
-Производственная инфраструктура: Terraform (3 бакета YC Object Storage, 2 IAM сервисных аккаунта, Yandex CDN, DNS), NGINX (4 vhost, rate limiting, TLS, security headers), Docker Compose (6 сервисов, volumes, healthcheck-цепочка), матрица переменных окружения, IAM permissions, CORS-политики, операционные процедуры, известные ограничения.
-
 ### Общие компоненты
 
 #### [`packages_information/SHARED_LOGIC.md`](./packages_information/SHARED_LOGIC.md)

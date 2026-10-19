@@ -182,6 +182,10 @@
         width: 100%;
     }
 
+    .campaignCardRight {
+        flex-wrap: wrap;
+    }
+
     .cardDate {
         margin-left: auto;
     }

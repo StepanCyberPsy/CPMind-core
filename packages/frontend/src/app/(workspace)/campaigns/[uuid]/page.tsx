@@ -1,8 +1,9 @@
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { fetchCampaigns, fetchCreatives } from '@/lib/admin/api';
+import { fetchCampaigns, fetchCreatives, fetchPlacements } from '@/lib/admin/api';
 import { CreativeStatusBadge } from '@/components/shared/CreativeStatusBadge';
+import { CreativeActivityBadge } from '@/components/shared/CreativeActivityBadge';
 import { formatDateTime, formatCreativeType } from '@/lib/config';
 import campaignStyles from '@/styles/campaigns.module.css';
 import creativeStyles from '@/styles/creatives.module.css';
@@ -16,15 +17,23 @@ export default async function CampaignDetailPage({
     const token = cookieStore.get('cpmind_token')?.value;
     const cookieHeader = token ? `cpmind_token=${token}` : undefined;
 
-    const [allCampaigns, allCreatives] = await Promise.all([
+    const [allCampaigns, allCreatives, allPlacements] = await Promise.all([
         fetchCampaigns(cookieHeader),
         fetchCreatives(cookieHeader),
+        fetchPlacements(cookieHeader),
     ]);
 
     const campaign = allCampaigns.find((c) => c.uuid === params.uuid);
     if (campaign === undefined) notFound();
 
     const creatives = allCreatives.filter((c) => c.campaignUuid === params.uuid);
+    const activityByCreative = new Map<string, boolean>();
+    // Тот же первый плейсмент, который выбирается в детальной карточке креатива.
+    for (const placement of allPlacements) {
+        if (!activityByCreative.has(placement.creativeUuid)) {
+            activityByCreative.set(placement.creativeUuid, placement.isActive);
+        }
+    }
 
     return (
         <div className={campaignStyles.page}>
@@ -70,11 +79,12 @@ export default async function CampaignDetailPage({
                                         {formatCreativeType(c.creativeType)}
                                     </span>
                                 </div>
-                                <div className={creativeStyles.cardRight}>
+                                <div className={`${creativeStyles.cardRight} ${creativeStyles.campaignCardRight}`}>
                                     <span className={creativeStyles.cardDate}>
                                         {formatDateTime(c.createdAt)}
                                     </span>
                                     <CreativeStatusBadge status={c.status} />
+                                    <CreativeActivityBadge isActive={activityByCreative.get(c.uuid)} />
                                 </div>
                             </Link>
                         ))}

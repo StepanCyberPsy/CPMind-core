@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Combobox } from '@/components/shared/Combobox';
 import { ComboboxDatePicker } from '@/components/shared/ComboboxDatePicker';
@@ -43,7 +43,8 @@ const IVT_OPTIONS = [
 
 export function Filters({
   current,
-  tagConstantsVersions,
+  context = 'recalculation',
+  tagConstantsVersions = [],
   weightsVersions,
   campaignOptions,
   creativeOptions,
@@ -56,6 +57,12 @@ export function Filters({
   const [creativeType, setCreativeType] = useState(current.creativeType ?? '');
   const [format, setFormat] = useState(current.format ?? '');
   const [subtype, setSubtype] = useState(current.subtype ?? '');
+  useEffect(() => {
+    if (context !== 'impressions') return;
+    setCreativeType(current.creativeType ?? '');
+    setFormat(current.format ?? '');
+    setSubtype(current.subtype ?? '');
+  }, [context, current.creativeType, current.format, current.subtype]);
   const [tagConstantsVersion, setTagConstantsVersion] = useState(current.tagConstantsVersion ?? '');
   const [weightsVersion, setWeightsVersion] = useState(current.weightsVersion ?? '');
   const [deviceType, setDeviceType] = useState(current.deviceType ?? '');
@@ -76,7 +83,7 @@ export function Filters({
 
   const subtypeOptions = format !== ''
     ? (FORMAT_SUBTYPE_OPTIONS[format] ?? [])
-    : [];
+    : context === 'impressions' ? Object.values(FORMAT_SUBTYPE_OPTIONS).flat() : [];
 
   const exitSegmentView = useCallback(() => {
     const url = new URL(window.location.href);
@@ -113,7 +120,9 @@ export function Filters({
     creativeType ? url.searchParams.set('creativeType', creativeType) : url.searchParams.delete('creativeType');
     format ? url.searchParams.set('format', format) : url.searchParams.delete('format');
     subtype ? url.searchParams.set('subtype', subtype) : url.searchParams.delete('subtype');
-    tagConstantsVersion ? url.searchParams.set('tagConstantsVersion', tagConstantsVersion) : url.searchParams.delete('tagConstantsVersion');
+    context !== 'impressions' && tagConstantsVersion
+      ? url.searchParams.set('tagConstantsVersion', tagConstantsVersion)
+      : url.searchParams.delete('tagConstantsVersion');
     weightsVersion ? url.searchParams.set('weightsVersion', weightsVersion) : url.searchParams.delete('weightsVersion');
     deviceType ? url.searchParams.set('deviceType', deviceType) : url.searchParams.delete('deviceType');
     isSuspicious ? url.searchParams.set('isSuspicious', isSuspicious) : url.searchParams.delete('isSuspicious');
@@ -123,6 +132,7 @@ export function Filters({
     router.push(url.pathname + url.search);
   }, [
     router,
+    context,
     campaignId,
     creativeId,
     creativeType,
@@ -261,7 +271,7 @@ export function Filters({
           </div>
         )}
 
-        <div className={styles.field}>
+        {context !== 'impressions' && <div className={styles.field}>
           <label className={styles.label}>Версия тега</label>
           <Combobox
             options={tagVersionComboOptions}
@@ -269,7 +279,7 @@ export function Filters({
             onChange={setTagConstantsVersion}
             placeholder="Все"
           />
-        </div>
+        </div>}
 
         <div className={styles.field}>
           <label className={styles.label}>Версия весов</label>

@@ -7,6 +7,9 @@ export interface ImpressionsSearchParams {
   sessionGroupId?: string;
   campaignId?: string;
   creativeId?: string;
+  creativeType?: string;
+  format?: string;
+  subtype?: string;
   publisherDomain?: string;
   domainView?: string;
   tagConstantsVersion?: string;
@@ -53,7 +56,9 @@ export interface ParsedListParams {
 export function parseListSearchParams(
   searchParams: ImpressionsSearchParams,
   forceUserUuid?: string,
+  context: 'impressions' | 'recalculation' = 'recalculation',
 ): ParsedListParams {
+  const isImpressions = context === 'impressions';
   const sortBy = (searchParams.sortBy as ListParams['sortBy']) ?? 'createdAt';
   const sortDir = (searchParams.sortDir as 'asc' | 'desc' | undefined) ?? 'desc';
 
@@ -85,8 +90,11 @@ export function parseListSearchParams(
     ...(searchParams.sessionGroupId && { sessionGroupId: searchParams.sessionGroupId }),
     ...(searchParams.campaignId && { campaignId: searchParams.campaignId }),
     ...(searchParams.creativeId && { creativeId: searchParams.creativeId }),
+    ...(isImpressions && searchParams.creativeType && { creativeType: searchParams.creativeType }),
+    ...(isImpressions && searchParams.format && { format: searchParams.format }),
+    ...(isImpressions && searchParams.subtype && { subtype: searchParams.subtype }),
     ...(searchParams.publisherDomain && { publisherDomain: searchParams.publisherDomain }),
-    ...(searchParams.tagConstantsVersion && { tagConstantsVersion: searchParams.tagConstantsVersion }),
+    ...(!isImpressions && searchParams.tagConstantsVersion && { tagConstantsVersion: searchParams.tagConstantsVersion }),
     ...(searchParams.weightsVersion && { weightsVersion: searchParams.weightsVersion }),
     ...(searchParams.deviceType && { deviceType: searchParams.deviceType }),
     ...(searchParams.dateFrom && { dateFrom: searchParams.dateFrom }),

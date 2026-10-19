@@ -64,6 +64,11 @@ export function UserFilters({
   useEffect(() => {
     setCreativeId(current.creativeId ?? '');
   }, [current.creativeId]);
+  useEffect(() => {
+    setCreativeType(current.creativeType ?? '');
+    setFormat(current.format ?? '');
+    setSubtype(current.subtype ?? '');
+  }, [current.creativeType, current.format, current.subtype]);
   const [isSuspicious, setIsSuspicious] = useState<string>(
     current.isSuspicious === true ? 'true' :
       current.isSuspicious === false ? 'false' : '',
@@ -81,7 +86,7 @@ export function UserFilters({
 
   const subtypeOptions = format !== ''
     ? (FORMAT_SUBTYPE_OPTIONS[format] ?? [])
-    : [];
+    : Object.values(FORMAT_SUBTYPE_OPTIONS).flat();
 
   const applyFilters = useCallback(() => {
     const url = new URL(window.location.href);

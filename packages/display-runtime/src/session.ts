@@ -72,7 +72,7 @@ export function createDisplaySessionContext(
     };
 }
 
-// Инициализирует SDK measurement session — вызывать строго после render confirmation.
+// Инициализирует SDK measurement session после render confirmation и входа в viewport.
 // Взаимодействия HTML5-креатива передаются в сессию после её создания
 export function prepareDisplayMeasurement(
     ctx: DisplaySessionContext,
@@ -99,15 +99,15 @@ export function prepareDisplayMeasurement(
     });
 }
 
-// Запускает измерение — session.timestampStart = renderConfirmedAt (инвариант §17)
+// Время ожидания первого входа в viewport не входит в измерение.
 export function startDisplayMeasurement(
     ctx: DisplaySessionContext,
-    renderConfirmedAt: number,
+    measurementStartedAt: number,
 ): void {
     const session = ctx.measurementSession;
-    if (session === null) return;
+    if (session === null || session.state !== 'PREPARED') return;
 
-    session.startMeasurement(renderConfirmedAt);
+    session.startMeasurement(measurementStartedAt);
     sendDisplayEvent(ctx, 'measurement_started');
 }
 

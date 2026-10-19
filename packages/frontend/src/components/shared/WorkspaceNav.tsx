@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import type { UserRole } from '@cpmind/shared';
-import { LogoutButton } from '@/components/shared/LogoutButton';
 import styles from '@/styles/workspace-nav.module.css';
 
 interface Props {
@@ -20,7 +19,6 @@ export function WorkspaceNav({ role }: Props): React.ReactElement {
                 <Link href={analyticsHref} className={styles.backLink}>
                     {analyticsLabel}
                 </Link>
-                <LogoutButton />
             </div>
         </nav>
     );
