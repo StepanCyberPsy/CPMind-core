@@ -279,21 +279,21 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('TEST-1 / TEST-3: S2 banner selection preserves other signal segments', () => {
+describe('TEST-1 / TEST-6: restored S2 segments remain independent of S3', () => {
     for (const device of DEVICES) {
         for (const creativeType of BANNERS) {
-            it(creativeType + ' on ' + device + ' uses the active static model', async () => {
-                const model = addModel(device + '|static');
-                addModel(device + '|animated', { quantileValues: [1, 100] });
+            it(creativeType + ' on ' + device + ' uses its original S2 group', async () => {
+                const group = creativeType === 'banner_static' ? 'static' : 'animated';
+                const model = addModel(device + '|' + group);
+                addModel(device + '|' + (group === 'static' ? 'animated' : 'static'), { quantileValues: [1, 100] });
                 addModel('global', { quantileValues: [1, 100] });
                 const record = await collect(creativeType, device);
 
                 expect(record.s2ModelVersion).toBe(model.id);
                 expect(record.s2Normalized).toBeCloseTo(80);
                 expect(record.creativeType).toBe(creativeType);
-                const group = creativeType === 'banner_static' ? 'static' : 'animated';
                 expect(mocks.s1).toHaveBeenCalledWith(device + '|' + group);
-                expect(mocks.s3).toHaveBeenCalledWith(device + '|' + group, 'fixture-v1');
+                expect(mocks.s3).toHaveBeenCalledWith(device + '|static', 'fixture-v1');
             });
         }
         it('video on ' + device + ' keeps its video model', async () => {
@@ -308,7 +308,7 @@ describe('TEST-1 / TEST-3: S2 banner selection preserves other signal segments',
     }
 
     it.each([
-        ['banner_gif', 'video_creative', 'static', 'animated'],
+        ['banner_gif', 'video_creative', 'animated', 'animated'],
         ['video_creative', 'banner_html5', 'video', 'video'],
     ] as const)('server type %s takes precedence over payload type %s', async (serverType, clientType, s2Group, otherGroup) => {
         const isVideo = serverType === 'video_creative';
@@ -338,19 +338,20 @@ describe('TEST-1 / TEST-3: S2 banner selection preserves other signal segments',
         expect(record.s2ModelVersion).toBe(model.id);
         expect(record.creativeType).toBe(serverType);
         expect(mocks.s1).toHaveBeenCalledWith('desktop|' + otherGroup);
-        expect(mocks.s3).toHaveBeenCalledWith('desktop|' + otherGroup, 'fixture-server-v1');
+        expect(mocks.s3).toHaveBeenCalledWith('desktop|' + (isVideo ? 'video' : 'static'), 'fixture-server-v1');
     });
 });
 
-describe('TEST-2: unchanged S2 fallback chain', () => {
-    for (const group of ['static', 'video']) {
+describe('TEST-1: restored S2 fallback chains', () => {
+    for (const group of ['static', 'animated', 'video']) {
         it.each(['device', 'group', 'global', 'default'] as const)(
             group + ' resolves %s fallback and persists its model version',
             async (level) => {
                 const model = level === 'default' ? null : addModel(
                     level === 'device' ? 'desktop|' + group : level === 'group' ? group : 'global',
                 );
-                const record = await collect(group === 'static' ? 'banner_gif' : 'video_creative', 'desktop');
+                const type = group === 'static' ? 'banner_static' : group === 'animated' ? 'banner_gif' : 'video_creative';
+                const record = await collect(type, 'desktop');
                 const chain = ['desktop|' + group, group, 'global'];
                 const length = level === 'device' ? 1 : level === 'group' ? 2 : 3;
                 expect(fixtures.queries.map((query) => query.params[0])).toEqual(chain.slice(0, length));
@@ -378,11 +379,12 @@ describe('TEST-2: unchanged S2 fallback chain', () => {
     });
 });
 
-describe('TEST-4 / TEST-5: S2 training pools banners and preserves guards', () => {
-    it('fits static and video device/group drafts using all banner types and owners', async () => {
+describe('TEST-1: S2 training restores separate creative groups and preserves guards', () => {
+    it('fits separate static, animated, and video device/group drafts across owners', async () => {
         for (const device of DEVICES) {
             for (const creativeType of BANNERS) {
-                for (let index = 0; index < 400; index++) {
+                const count = creativeType === 'banner_static' ? 1000 : 600;
+                for (let index = 0; index < count; index++) {
                     fixtures.trainingRows.push({
                         creativeType, device, ownerId: index % 2 + 1, share: index / 10,
                     });
@@ -397,25 +399,28 @@ describe('TEST-4 / TEST-5: S2 training pools banners and preserves guards', () =
         await recalibrateS2();
         expect(fixtures.drafts.map((row) => row.segmentKey)).toEqual([
             'desktop|static', 'mobile|static', 'tablet|static', 'static',
+            'desktop|animated', 'mobile|animated', 'tablet|animated', 'animated',
             'desktop|video', 'mobile|video', 'tablet|video', 'video',
         ]);
         for (const draft of fixtures.drafts) {
-            const isVideo = draft.segmentKey.includes('video');
+            const group = draft.segmentKey.split('|').at(-1)!;
             const isGroup = !draft.segmentKey.includes('|');
-            expect(draft.sampleSize).toBe((isVideo ? 1000 : 1200) * (isGroup ? 3 : 1));
+            expect(draft.sampleSize).toBe((group === 'animated' ? 1200 : 1000) * (isGroup ? 3 : 1));
             expect(draft.isActive).toBe(false);
             expect(draft.quantileLevels).toEqual(DEFAULT_S2_PARAMS.quantileLevels);
             const values = draft.quantileValues as number[];
-            expect(values[0]).toBeCloseTo(isVideo ? 60.0999 : 0.399);
-            expect(values.at(-1)).toBeCloseTo(isVideo ? 69.8901 : 39.501);
+            expect(values[0]).toBeCloseTo(group === 'video' ? 60.0999 : group === 'animated' ? 0.599 : 0.999);
+            expect(values.at(-1)).toBeCloseTo(group === 'video' ? 69.8901 : group === 'animated' ? 59.301 : 98.901);
         }
         const queries = fixtures.queries.filter((query) => query.sample);
-        expect(queries).toHaveLength(8);
+        expect(queries).toHaveLength(12);
         for (const query of queries) {
             const types = query.params.filter((value) => typeof value === 'string' && (
                 value.startsWith('banner_') || value === 'video_creative'
             ));
-            expect(types).toEqual(types.includes('video_creative') ? ['video_creative'] : [...BANNERS]);
+            const expectedTypes = types.includes('video_creative') ? ['video_creative']
+                : types.includes('banner_static') ? ['banner_static'] : ['banner_gif', 'banner_html5'];
+            expect(types).toEqual(expectedTypes);
             expect(query.sql).toContain('"score_reliable" =');
             expect(query.sql).toContain('"is_suspicious" =');
             expect(query.sql).toContain('"s2_raw_share_of_screen" is not null');

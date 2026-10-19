@@ -219,8 +219,8 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
           : 'static';
 
     const segmentKey = `${parsed.data.device_type}|${creativeGroup}`;
-    const s2CreativeGroup = creativeType === 'video_creative' ? 'video' : 'static';
-    const s2SegmentKey = `${parsed.data.device_type}|${s2CreativeGroup}`;
+    const s3CreativeGroup = creativeType === 'video_creative' ? 'video' : 'static';
+    const s3SegmentKey = `${parsed.data.device_type}|${s3CreativeGroup}`;
 
     const s4Device = parsed.data.device_type === 'tablet' ? 'mobile' : parsed.data.device_type;
     const s4Creative = creativeType === 'video_creative' ? 'video' : 'banner';
@@ -249,8 +249,8 @@ export const impressionsRoute: FastifyPluginAsync = async (app) => {
     ] = await Promise.all([
       getActiveWeightsConfig(creativeCategory),
       getActiveWeibullParams(segmentKey),
-      getActiveS2Params(s2SegmentKey),
-      getActiveS3LogisticParams(segmentKey, tagConstantsVersion),
+      getActiveS2Params(segmentKey),
+      getActiveS3LogisticParams(s3SegmentKey, tagConstantsVersion),
       getActiveS4Config(s4Segment),
       getActiveS5LogisticParams(s5Segment, tagConstantsVersion),
       getActiveS6LogisticParams(s6SegmentKeys, tagConstantsVersion),

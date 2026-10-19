@@ -6,5 +6,5 @@ Use `templates/` as examples, not as automatic permission to write files. A sess
 
 ## Session index
 
-- [2026-10-19 — Frontend, banner measurement, and S2 calibration](2026-10-19-frontend-banner-ux/HANDOFF.md): current backend S2 grouping/training, 59 passing tests, pending-change inventory, and earlier frontend/banner delivery with its verification and release limitations.
+- [2026-10-19 — Frontend, banner measurement, and signal calibration](2026-10-19-frontend-banner-ux/HANDOFF.md): current S2 restoration and S3 banner grouping/training, 91 passing tests, pending-change inventory, and earlier phases preserved with their verification and release limitations.
 - [Historical handoffs](archive/): prior-session context; not an automatically authorized backlog.

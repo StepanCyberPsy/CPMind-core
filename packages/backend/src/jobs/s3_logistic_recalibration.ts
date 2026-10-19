@@ -44,13 +44,13 @@ const SAMPLE_OPTIONS: TrainingSampleOptions = { sdkOnly: false };
 
 const CREATIVE_GROUP_MAP: Record<string, string> = {
   banner_static: 'static',
-  banner_gif: 'animated',
-  banner_html5: 'animated',
+  banner_gif: 'static',
+  banner_html5: 'static',
   video_creative: 'video',
 };
 
 const DEVICE_TYPES = ['desktop', 'mobile', 'tablet'] as const;
-const CREATIVE_GROUPS = ['static', 'animated', 'video'] as const;
+const CREATIVE_GROUPS = ['static', 'video'] as const;
 
 function zscoreFeatures(values: number[]): { z: number[]; mean: number; std: number } {
   const n = values.length;

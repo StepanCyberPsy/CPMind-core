@@ -1,6 +1,128 @@
-# CPMind Session Handoff — Frontend, Banner Measurement, and S2 Calibration
+# CPMind Session Handoff — Frontend, Banner Measurement, and Signal Calibration
 
-## Current snapshot — S2 banner calibration follow-up
+## Current snapshot — S2 restoration and S3 banner calibration
+
+### State, authority, and baseline
+
+- Updated on 2026-10-19, Europe/Moscow, following the explicit user request to update this session snapshot and provide a commit message. Authorization covers this handoff/index update, not broader future journaling or product changes.
+- Session ID remains `2026-10-19-frontend-banner-ux`; this is the latest separately approved backend follow-up.
+- Current HEAD: `3a194bc8b8e43af4531aa38db162c5f8ad86e20e`. The worktree was clean before this follow-up.
+- The previous S2 grouping change is committed at this HEAD. The current pending change restores the earlier S2 policy and applies the common-banner policy to S3 instead.
+- Current pending inventory: three modified backend source files, one modified backend test, one new backend test, and these two documentation updates; seven files total.
+- Local implementation and planned verification are delivered. Stage 8 reported a local `PASS` recommendation and requested acceptance; the subsequent user message requested this snapshot and a commit message. No separate explicit final-acceptance decision or production acceptance evidence is recorded.
+- No staging, commit, push, history modification, deployment, production-data operation, real calibration run, model activation, migration, or bulk historical recalculation was performed by the agent. The user will commit manually.
+
+The sections headed "Historical snapshot — S2 banner calibration follow-up" and "Earlier snapshot and authority" preserve earlier phases at their original baselines. Their policies, pending-file lists, fingerprints, and test counts are historical, not the current implementation specification. The earlier common-static S2 policy is explicitly superseded by this section.
+
+### Correction of the reported signal
+
+- The user clarified that the constant reported score of 50 concerned S3, not S2, and requested two simultaneous tasks: restore the prior S2 implementation and use common static banner grouping for S3 selection/training.
+- No S2 normalization-formula defect had been established. The prior S2 grouping change was a requirement change based on the initially misidentified signal; restoring it does not alter the quantile formula or remove the earlier S2 UI.
+- Source inspection and an in-memory Node 22 probe reproduced the S3 path: without an active animated model, a GIF can reach a neutral global v0 model even when a trained static model exists. All-zero coefficients yield sigmoid(0) × 100 = 50.
+- The v0 badge itself is not an exclusion condition. The resolver prefers a matching constants version, then permits the latest active version at that segment before descending to parent/global segments.
+- Production root cause remains `UNVERIFIED`: no problematic production impression/model row was supplied. The implemented policy corrects the confirmed segment-selection mismatch; it does not prove that every production score of 50 came from fallback or prohibit legitimate scores of 50.
+
+### Implemented policy
+
+| Creative type | S1 group retained | S2 group restored | S3 group selected/trained |
+|---|---|---|---|
+| `banner_static` | `static` | `static` | `static` |
+| `banner_gif` | `animated` | `animated` | `static` |
+| `banner_html5` | `animated` | `animated` | `static` |
+| `video_creative` | `video` | `video` | `video` |
+
+- `routes/impressions.ts` restores S2 use of the existing device/creative-group key and introduces an independent S3 key. The server delivery-context type still takes precedence over the validated client type.
+- `jobs/s2_calibration.ts` is restored byte-for-byte to commit `52490b4daa0c8bfcdb5452895cb267244ac9b258`, including original EOF formatting. Its static, animated, and video device/group training is reinstated.
+- `jobs/s3_logistic_recalibration.ts` maps all three banner types into static and retains video. Future S3 runs produce static/video device/group drafts, without new animated drafts.
+- S3 fallback remains `{device}|group` → `group` → `global` → `DEFAULT_LOGISTIC_PARAMS`; matching-version preference and latest-active-version fallback at each level remain unchanged.
+- Existing formulas, coefficients, feature normalization, dominant-version selection, quality filters, sample thresholds, deterministic split, fitting safeguards, cron schedules, logging, and inactive-draft/manual-activation policy remain unchanged.
+- Both cron and existing manual signal-calibration callers inherit the runner changes. Neither was executed against a real database.
+- Existing models and impressions remain stored as before. Restoring code does not undo earlier saved S2 results or previously fitted/activated configurations.
+- No frontend, shared, SDK, runtime, player, embed, media, schema/API, dependency, or deployment changes were made in this follow-up. The S2 UI and model-version display are retained.
+
+### Current file inventory
+
+| Path | State | Purpose |
+|---|---|---|
+| `packages/backend/src/routes/impressions.ts` | Modified | Restore S2 key; isolate common-banner S3 key |
+| `packages/backend/src/jobs/s2_calibration.ts` | Modified | Restore original static/animated/video grouping |
+| `packages/backend/src/jobs/s3_logistic_recalibration.ts` | Modified | Pool S3 banners into static; retain video |
+| `packages/backend/tests/s2_segmentation.test.ts` | Modified | 31 tests covering restored S2 and signal isolation |
+| `packages/backend/tests/s3_segmentation.test.ts` | New | 28 tests covering real S3 resolution, route/scoring, and training |
+| `docs/engineering/sessions/2026-10-19-frontend-banner-ux/HANDOFF.md` | Modified | Latest outcome with earlier phases preserved |
+| `docs/engineering/sessions/README.md` | Modified | Current session index description |
+
+### Verification and acceptance traceability
+
+All planned commands exited 0 on Node `v22.23.2` after `nvm use 22`:
+
+```sh
+source "$HOME/.nvm/nvm.sh"
+nvm use 22
+node packages/backend/node_modules/vitest/vitest.mjs run --root packages/backend tests/s2_segmentation.test.ts tests/s3_segmentation.test.ts --maxWorkers=1 --minWorkers=1
+node node_modules/typescript/bin/tsc --project packages/backend/tsconfig.json --noEmit --incremental false
+node packages/backend/node_modules/vitest/vitest.mjs run --root packages/backend tests/domain_policy.test.ts tests/impression_context_rules.test.ts tests/sample_split.test.ts --maxWorkers=1 --minWorkers=1
+git diff --check
+```
+
+| Criterion | Evidence | Result |
+|---|---|---|
+| `AC-1`: S2 restored | `TEST-1`: separate static/animated/video selection, fallback and training; source-byte comparison with 52490b4 | PASS |
+| `AC-2`: all banners use static S3 | `TEST-2`: three types × three devices, selected model ID and actual normalized result saved by the route | PASS |
+| `AC-3`: version fallback retained | `TEST-3`: matching-version priority, calibrated v0 acceptance, latest active version, group/global/default, cache/invalidation | PASS |
+| `AC-4`: common S3 training | `TEST-4`: pooled banner fixtures, separate video, real MLE fitting, expected keys and train sample sizes, inactive drafts | PASS |
+| `AC-5`: training guards retained | `TEST-5`: emitted quality/window/version predicates, insufficient samples, one-class targets, absent dominant version | PASS |
+| `AC-6`: signal isolation | `TEST-6`: S1/S2 keys, video, server-type precedence, null S3, neutral global score of 50 | PASS |
+
+- S2 suite: 31/31 passed; S3 suite: 28/28 passed; combined target suites: 59/59.
+- Existing pure regressions: context 18/18, domain policy 10/10, sample split 4/4; 32/32.
+- Total for this follow-up: 91/91 passed. Earlier frontend/runtime suites were not rerun and are not included.
+- Backend source typecheck, scoped diff, and whitespace checks passed. The backend tsconfig includes src, not tests; test execution is separate evidence.
+- Original source EOF formatting was restored before testing. Product/test files were not edited after successful checks; subsequent changes are documentation only.
+- No failed checks occurred. Detailed execution evidence is in conversation tool results, not a separately saved CI log.
+
+The suites execute actual Fastify route/scoring code and signal resolvers. Training uses actual S2 quantile code and the actual S3 fitting runner, deterministic split, quality helpers, and logistic MLE. The DB module is substituted before production imports; ownership/context/other-model lookups use fixtures. Drizzle PostgreSQL query conditions are inspected, while fixture selection supplies rows. Synthetic AUC assertions are regression checks, not production model-quality measurements.
+
+### Engineering review and limits
+
+| Domain | Assessment |
+|---|---|
+| Architecture/maintainability | PASS within scope: independent S3 key, three localized source files, no dependency or unrelated refactor |
+| Business logic/data contracts | PASS: AC-1–AC-6; formulas, API/schema, saved model-version semantics retained |
+| Security/attribution | PASS for changed boundary: server type precedence and existing ownership-field propagation retained; full authorization/security campaign NOT_RUN |
+| Cache/concurrency/persistence | Cache tests passed; checkpoint and activation paths unchanged by diff review; multiprocess/concurrency tests NOT_RUN |
+| Operations/recovery | Original S2 source restored without Git-history changes; schedules/manual activation retained; real jobs/deployment NOT_RUN |
+| Performance | NOT_RUN: pooled S3 samples can be larger per fit; no load/scalability assurance claimed |
+| Frontend/migration/infrastructure | NOT_APPLICABLE to this change set |
+
+Actual PostgreSQL execution, production configuration/rollout, load, and multiprocess checks remain NOT_RUN. The earlier frontend/browser acceptance limits remain historical and distinct. No comprehensive production readiness claim is made.
+
+### Approval record and next boundary
+
+- Stage 1: `CPMIND-S3-DIAG-TASK r2`, approved when the user explicitly combined S2 restoration and S3 implementation. The earlier provisional r1 diagnosis did not authorize edits.
+- Stage 2: `CPMIND-S2-RESTORE-S3-AUDIT r1`, user replied "Confirmed."
+- Stage 3: `CPMIND-S2-RESTORE-S3-SCOPE r1`, user replied "Confirmed".
+- Stage 4: `CPMIND-S2-RESTORE-S3-CHANGE r1`, user replied "confirmed".
+- Stage 5: `CPMIND-S2-RESTORE-S3-PLAN r1`, user replied "Confirmed. Go ahead" before edits.
+- Stage 6: one approved layer, both tasks together; Stage 7 checks all passed; Stage 8 local PASS recommendation and acceptance request reported.
+- Latest user instruction authorizes this snapshot/index update and a commit message. It does not authorize agent commits, deployments, activations, or historical recalculation.
+- Next safe action: user review and manual commit of the seven-file pending change set. No additional product-code work is requested by this record.
+- On resume, compare current HEAD/worktree, the current manifest, approval provenance, and test freshness. Earlier manifests must be checked against their own recorded baseline, not treated as current expected contents.
+- `PROJECT_CONTEXT.md` and the engineering contract remain unchanged; context synchronization is available only on a separate explicit request.
+
+### Current product-file manifest
+
+SHA-256 fingerprints of current source/test files; not test logs or independent authorization:
+
+```text
+3793b12a8b667faefaf48c4f42eb419ccf4c793a1837de3d96197f2ea6f165ff  packages/backend/src/routes/impressions.ts
+307b145faf243f4f14bda05150248ce32cd2b1734515d954f8b69f8d74fc6cfc  packages/backend/src/jobs/s2_calibration.ts
+efd67bc568672562148de8364682014515cbe1be7bb6cf0f858fee61fb11c7b5  packages/backend/src/jobs/s3_logistic_recalibration.ts
+14d7c23423cb92476df4eba558a067b18c4d2bb2e000ff935da9844ac581f753  packages/backend/tests/s2_segmentation.test.ts
+7726b01e3346b24fcf508d770b8f3cbbf914b89c4b69a3ed942c6587001299a2  packages/backend/tests/s3_segmentation.test.ts
+```
+
+## Historical snapshot — S2 banner calibration follow-up
 
 ### State, authority, and baseline
 
