@@ -2,7 +2,7 @@
 
 ## Обзор
 
-`@cpmind/player` — браузерный IIFE-бандл (~228 KB) для воспроизведения видеорекламы в форматах outstream и in-stream (pre-roll, mid-roll, post-roll). Реализует полный VAST 4.3 pipeline: fetch → parse → media selection → playback → tracking → SDK measurement. Экспонируется как `window.CPMindPlayer` с двумя публичными методами: `mountOutstream` и `attachNative`.
+`@cpmind/player` — браузерный IIFE-бандл для воспроизведения видеорекламы в форматах out-stream и in-stream (pre-roll, mid-roll, post-roll, pause-roll). Реализует полный VAST 4.3 pipeline: fetch → parse → media selection → playback → tracking → SDK measurement. Экспонируется как `window.CPMindPlayer` с методами `mountOutstream`, `mountSticky` и `attachNative`.
 
 ---
 
@@ -16,6 +16,7 @@
             ├── [DIR] autoplay
                 ├── [FILE] policy.ts
             ├── [FILE] config.ts
+            ├── [FILE] bootstrap.ts
             ├── [DIR] content
                 ├── [FILE] bridge.ts
                 ├── [FILE] native_video.ts
@@ -25,13 +26,17 @@
                 ├── [FILE] keyboard.ts
                 ├── [FILE] play.ts
                 ├── [FILE] seek.ts
+                ├── [FILE] seek_buttons.ts
                 ├── [FILE] skip.ts
                 ├── [FILE] volume.ts
             ├── [FILE] errors.ts
             ├── [FILE] index.ts
             ├── [DIR] lifecycle
+                ├── [FILE] advance.ts
+                ├── [FILE] discovery.ts
                 ├── [FILE] instream.ts
                 ├── [FILE] outstream.ts
+                ├── [FILE] sticky.ts
                 ├── [FILE] viewport.ts
             ├── [DIR] measurement
                 ├── [FILE] sdk_bridge.ts
@@ -69,21 +74,27 @@ window.CPMindPlayer
     ├── mountOutstream(OutstreamOptions) → PlayerController
     │       IntersectionObserver → load → VAST → play → measure
     │
+    ├── mountSticky(StickyOptions) → PlayerController
+    │       закреплённая поверхность → загрузка → воспроизведение
+    │
     └── attachNative(NativeAttachOptions) → PlayerController
             content.play event → pause content → VAST → play → measure
                                               → resume content
 ```
 
-`index.ts` присваивает `CPMindPlayer` в `window` внутри `try/catch` — сбой не ломает страницу издателя.
+`index.ts` присваивает `CPMindPlayer` в `window` и инициализирует очередь внутри `try/catch` — сбой не ломает страницу издателя. `bootstrap.ts` обрабатывает накопленные и новые записи `__CPMIND_QUEUE__`, защищает их от повторного монтирования и освобождает контроллеры при `pagehide`. Для in-stream он наблюдает DOM издателя, привязывается к найденным видео и запрашивает рекламную сессию непосредственно перед вставкой.
 
 ### Слои системы
 
 ```
-public_api.ts          ← Публичный фасад: mountOutstream, attachNative
+public_api.ts          ← Публичный фасад: mountOutstream, mountSticky, attachNative
     │
     ├── lifecycle/
     │    ├── outstream.ts   ← Outstream state machine + IntersectionObserver
     │    ├── instream.ts    ← Instream binding к content video
+    │    ├── sticky.ts      ← закреплённый out-stream
+    │    ├── discovery.ts   ← поиск видео издателя
+    │    ├── advance.ts     ← переход к следующему ролику
     │    └── viewport.ts   ← observeEligibility / observePlayback
     │
     ├── player.ts          ← Core: VAST fetch → parse → load → events → finalize
@@ -159,22 +170,15 @@ mounting → loading → eligible → playing → completed
 - `playing` → `completed`: видео завершено (`handle.whenFinished()`)
 - любое → `closed`: пользователь нажал close
 
+### Закреплённый out-stream (`mountSticky`)
+
+Закреплённая поверхность монтируется в указанном углу окна с заданными размерами и отступами. Загрузка начинается без ожидания пересечения с областью просмотра. При скрытии вкладки воспроизведение приостанавливается; после завершения ролика lifecycle запрашивает следующий ролик и запускает новый цикл. Минимальная длительность цикла защищает от непрерывных повторных запросов.
+
 ### In-stream (`attachNative`)
 
 Player вставляет рекламу перед/во время воспроизведения content видео. Не использует IntersectionObserver — привязан к content video событию.
 
-```
-bindNativeContent(contentVideo, callbacks)
-    │
-    content.addEventListener('play', { once: true })
-    │
-    at first play:
-    ├── await Promise.resolve()  ← defer для iOS Safari
-    ├── safePause(content)
-    ├── callbacks.runAd()
-    │    createPlayerSession() → play → whenFinished()
-    └── content.play()          ← resume content
-```
+`bindNativeContent(contentVideo, subtype, callbacks)` выбирает точку вставки: первый запуск контента для `preroll`, середина известной длительности для `midroll`, событие завершения для `postroll` и возобновление после паузы для `pauseroll`. Для каждого найденного контентного видео реклама выполняется не более одного раза. Перед вставкой запрашивается `adSessionId`; после неё контент возобновляется, кроме `postroll`.
 
 **Ключевые особенности:**
 - `consumed` flag — ad играет ровно один раз
@@ -225,12 +229,12 @@ attemptAutoplay(video, initialMuted)
 если outcome === 'started':
     waitForFirstFrame(video, signal) ← timeout = timeouts.firstFrameMs
     renderConfirmedAt = Date.now()
-    bridge.startMeasurement(renderConfirmedAt)
     bridge.sendEvent('render_confirmed')
+    bridge.startMeasurement(renderConfirmedAt)
     detectAudioConnection() → bridge.reportAudioConnection()
 ```
 
-`waitForFirstFrame` — best-effort: timeout не является фатальной ошибкой, видео уже воспроизводится.
+`waitForFirstFrame` — best-effort: timeout не является фатальной ошибкой. Если ожидание завершилось ошибкой, но воспроизведение продолжается, player всё равно отправляет `render_confirmed` и запускает измерение. Событие `measurement_started` отправляет SDK-мост.
 
 ### Video event handlers
 
@@ -367,14 +371,7 @@ fetch(url, {
 
 ### Инициализация
 
-```typescript
-const session = prepareMeasurementSession({ creativeEl, meta, config });
-const s6 = createS6AccumulatorState('unknown', 0);
-
-meta.adSessionIdentity.measurementMode = 'full_cpmind_player'
-```
-
-`session.startMeasurement(renderConfirmedAt)` вызывается только после подтверждённого первого frame — инвариант §17 SDK.
+Мост создаётся вместе с player, но `MeasurementSession` остаётся `null` до старта измерения. При старте он передаёт в SDK текущие звук, громкость и длительность, затем синхронизирует состояние воспроизведения и отправляет `measurement_started`. Режим измерения берётся из `deliveryConfig`.
 
 ### `VideoPlaybackState`
 
@@ -388,27 +385,13 @@ const vs: VideoPlaybackState = {
 };
 ```
 
-`vs` обновляется синхронно при каждом video событии до вызова S6 accumulator.
+`vs` обновляется при video-событиях; мост передаёт события в `MeasurementSession`, где SDK обновляет накопитель S6.
 
 ### `setPendingSource` — атрибуция источника действия
 
 Проблема: video DOM события (`play`, `pause`, `volumechange`) не содержат информации об источнике (user click vs browser autoplay). Решение — 100ms временное окно:
 
-```typescript
-// Контрол вызывает setPendingSource до действия
-bridge.setPendingSource('play', 'user')  // source + timestamp
-video.play()                              // → DOM event 'play'
-
-// В handleVideoEvent:
-function consumePendingSource(eventType: string): PlayerActionSource {
-    if (pendingAction === null) return 'unknown';
-    if (Date.now() - pendingAction.setAt > ACTION_SOURCE_WINDOW_MS) {
-        pendingAction = null;
-        return 'browser';  // истёк → браузерное событие
-    }
-    return pendingAction.source;  // атрибуция из контрола
-}
-```
+Контрол вызывает `bridge.setPendingSource(source)` до действия над видео. Следующее видео-событие потребляет сохранённый источник; если прошло более `ACTION_SOURCE_WINDOW_MS`, источником считается браузер, а при отсутствии сохранённого действия — `unknown`.
 
 `ACTION_SOURCE_WINDOW_MS = 100ms` — достаточно для синхронного DOM propagation.
 
@@ -416,8 +399,8 @@ function consumePendingSource(eventType: string): PlayerActionSource {
 
 Каждое видео событие:
 1. Обновляет `VideoPlaybackState`
-2. Вызывает соответствующую S6 функцию SDK
-3. Формирует и отправляет `VideoMeasurementEvent` в session
+2. Формирует и отправляет `VideoMeasurementEvent` в session
+3. SDK обновляет накопитель S6
 
 Особые случаи:
 - `pause` при `isEnded === true` → игнорируется (не отправляем 'pause' после завершения)
@@ -485,10 +468,10 @@ Auto-hide: controls скрыты по умолчанию. Показываютс
 Компоненты:
 - `PlayButton` — play/pause иконка
 - `VolumeButton` — mute/unmute иконка
-- `SeekBar` — прогресс бар с drag (setPointerCapture)
+- `SeekBar` — прогресс-бар; перемотка доступна по профилю in-stream
 - `SkipButton` — появляется после `skipOffsetSec` секунд
 - `CloseButton` — только если `showClose: true` (outstream)
-- `KeyboardControls` — Space (play/pause), M (mute), ←/→ (seek ±5s)
+- `KeyboardControls` — действия клавиатуры с учётом профиля формата; out-stream не предоставляет перемотку
 
 Keyboard navigation использует `e.code` (не `e.key`) — не зависит от раскладки клавиатуры.
 
@@ -496,7 +479,7 @@ Keyboard navigation использует `e.code` (не `e.key`) — не зав
 
 ## Autoplay Policy (`autoplay/policy.ts`)
 
-**Coalition for Better Ads** стандарт — muted autoplay всегда разрешён мобильными браузерами:
+Попытка автозапуска учитывает ограничения браузера и может повториться с выключенным звуком:
 
 ```
 Шаг 1: video.muted = requestedMuted → video.play()
@@ -537,7 +520,7 @@ Keyboard navigation использует `e.code` (не `e.key`) — не зав
 
 `@cpmind/sdk` инлайнится в бандл — нет внешних зависимостей в runtime.
 
-Результат: `dist/cpmind-player_v1.min.js` (~228 KB).
+Результат: `dist/cpmind-player_v{version}.min.js`.
 
 ---
 
@@ -556,7 +539,7 @@ Keyboard navigation использует `e.code` (не `e.key`) — не зав
 | `FIRST_FRAME_TIMEOUT` | Первый frame не подтверждён (non-fatal) | play |
 | `PLAYER_DESTROYED` | `destroy()` вызван извне | lifecycle |
 
-`toAdSessionErrorCode` маппит `PlayerErrorCode` → `AdSessionPlayerErrorCode` (частичный маппинг: `VAST_FETCH_TIMEOUT` → `MEDIA_START_TIMEOUT`).
+`toAdSessionErrorCode` возвращает исходный код `PlayerErrorCode`, который входит в `AdSessionPlayerErrorCode`.
 
 `toVastErrorCode` маппит `PlayerErrorCode` → IAB VAST numeric codes для `[ERRORCODE]` macro.
 

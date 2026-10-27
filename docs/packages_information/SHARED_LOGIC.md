@@ -13,11 +13,11 @@ Production-зависимость только одна — Zod. Всё оста
 3. [Схемы (schemas/)](#схемы-schemas)
 4. [Скоринг (scoring/)](#скоринг-scoring)
 5. [Контроль доступа (access/)](#контроль-доступа-access)
-6. [Сигналы S1–S7 и F_Presence](#сигналы-s1s7-и-fpresence)
+6. [Сигналы S1–S7 и F_Presence](#сигналы-s1s7-и-f_presence)
 7. [Формулы нормализации](#формулы-нормализации)
 8. [Формула CPMind Score](#формула-cpmind-score)
-9. [IVT-классификация (scoring/ivt.ts)](#ivt-классификация-scoringіvtts)
-10. [Изменения, внесённые в эту сессию](#изменения-внесённые-в-эту-сессию)
+9. [IVT-классификация (scoring/ivt.ts)](#ivt-классификация-scoringivtts)
+10. [Изменения, внесённые в сессию bug-fixing / signal modifications](#изменения-внесённые-в-сессию-bug-fixing--signal-modifications)
 
 ---
 
@@ -53,6 +53,7 @@ Production-зависимость только одна — Zod. Всё оста
                 ├── [FILE] logistic_mle_fit.ts
                 ├── [FILE] normalize.ts
                 ├── [FILE] score.ts
+                ├── [FILE] segments.ts
                 ├── [FILE] signal_defaults.ts
                 ├── [FILE] weibull_mle_fit.ts
                 ├── [FILE] weights.ts
@@ -91,8 +92,8 @@ Production-зависимость только одна — Zod. Всё оста
 - `s3` nullable (`null` при cross-domain iframe) — специальный случай, обрабатывается перераспределением весов.
 - `s6: SignalsS6Schema.nullable().optional()` — null для баннеров, отсутствие поля для старых бандлов тега; backend трактует оба случая одинаково.
 - `creative_type` расширен значением `'video_creative'`.
-- `skippable: z.boolean().optional()` — top-level поле payload (не внутри `s6`). `true` для skippable видео, `false`/отсутствует для non-skippable и баннеров. Определяет сегмент S6: `skippable` vs `non_skippable`. Передаётся из `TagConfig.skippable` при сборке тега.
-- `publisher_domain: z.string().min(1).max(253)` — домен площадки размещения. Тег заполняет автоматически (fallback цепочка: `data-publisher-domain` атрибут → `document.referrer` hostname → `window.location.hostname` → `unknown_{djb2hash}`). Используется для аналитики по площадкам.
+- `skippable` — поле верхнего уровня. Для hosted-показа сервер использует значение из контекста размещения; для legacy-показа — значение payload. При выборе модели S6 дополнительно учитываются формат и подтип размещения.
+- `publisher_domain` — домен площадки. SDK определяет его с учётом явно заданного домена, контекста верхнего окна, `ancestorOrigins`, `document.referrer` и резервного идентификатора `unknown_{hash}`. Для hosted-показа сервер дополнительно учитывает контекст рекламной сессии.
 - `fp_hash: z.string().length(32).regex(FP_HASH_REGEX).optional()` — необратимый хэш устройства для IVT-детекции. Nullable и optional: отсутствие поля = тег не смог вычислить хэш (блокировка браузером, HTTP-окружение без `crypto.subtle`).
 - `presence.event_intervals_ms: z.array(z.number().int().min(0)).max(50).optional()` — массив интервалов между последовательными throttled-событиями присутствия. Cap 50 записей. Используется `classifyIvtSync()` для детекции роботизированного тайминга.
 
@@ -138,6 +139,7 @@ Production-зависимость только одна — Zod. Всё оста
 - `s6_duration_sec: z.number().nullable()` — длительность видео-ролика
 - `s6_skippable: z.boolean().nullable()` — дублирует `skippable` для S6-контекста (используется в CSV и детальном виде)
 - `s1_model_version: z.string().nullable()` — UUID активного Weibull-конфига на момент показа, `'default'` при fallback
+- `s2_model_version` — версия квантильной конфигурации S2
 - `s3_model_version`, `s4_model_version`, `s5_model_version`, `s6_model_version`, `s7_model_version` — аналогично
 
 Также содержит: все `s*_normalized`, `ivt_verdict: IvtVerdictSchema`, `ivt_category`, `ivt_confidence`, `score_reliable`, `tag_constants_version`, `weights_version`.
@@ -231,45 +233,19 @@ Production-зависимость только одна — Zod. Всё оста
 interface WeibullParams { k: number; lambda: number }
 const DEFAULT_WEIBULL_PARAMS: WeibullParams = { k: 1.0, lambda: 5.0 }
 
-// S3 / S5 / S6 — логистические регрессии
-interface LogisticParams {
-  coefficients: number[];         // β-вектор
-  featureMeans: number[];         // μ для z-score нормализации признаков
-  featureStds: number[];          // σ для z-score нормализации признаков
-}
-const DEFAULT_LOGISTIC_PARAMS: LogisticParams = {
-  coefficients: [0, 0, 0, 0, 0, 0, 0, 0],   // 8 коэф. (S3)
-  featureMeans: [0, 0, 0, 0, 0, 0, 0],
-  featureStds: [1, 1, 1, 1, 1, 1, 1]
-}
-// S5 имеет свои интерфейсы (S5LogisticParams, 5 коэф.)
-// S6 имеет свои (S6LogisticParams, 9 коэф. + interaction term)
+```
 
-// S4 — нелинейная функция
-interface S4Config { lambda: number; tRefMs: number }
-const DEFAULT_S4_CONFIG: S4Config = { lambda: 0.08, tRefMs: 5000 }
+Параметры остальных моделей определены именованными полями, а не массивами:
 
-// S5 — логистическая регрессия по device_type
-interface S5LogisticParams { coefficients: number[] }  // 5 коэф.
-const DEFAULT_S5_DESKTOP: S5LogisticParams = {
-  coefficients: [-2.5, 3.8, 2.2, 0.8, 1.5]  // β0..β4
-}
-const DEFAULT_S5_MOBILE_TABLET: S5LogisticParams = {
-  coefficients: [-2.0, 3.5, 2.8, 1.2, 0.9]  // β0..β4
-}
+- `WeibullParams`: `k`, `lambda`; резервное значение — `{ k: 1.0, lambda: 5.0 }`.
+- `S2Params`: массивы `quantileLevels` и `quantileValues`; `DEFAULT_S2_PARAMS` задаёт опорные точки для кусочно-линейной CDF.
+- `LogisticParams`: `beta0`…`beta7`, `featureMeans`, `featureStds`; нулевые коэффициенты дают S3 = 50.
+- `S4Config`: `lambda`, `tRefMs`; `DEFAULT_S4_CONFIGS` содержит значения по сегментам и `default`.
+- `S5LogisticParams`: `segmentKey`, `beta0`…`beta4`; отдельные стартовые параметры для `desktop` и `mobile_tablet`.
+- `S6LogisticParams` — объединение `S6InstreamLogisticParams` и `S6OutstreamLogisticParams`, различаемых полем `mode`. Оба содержат `beta0`…`beta8`, средние и стандартные отклонения признаков. Резервные коэффициенты равны нулю.
+- `S7Thresholds`: `relativeYLow`, `relativeYMid`, `clutterMid`, `clutterHigh`; значения по умолчанию заданы отдельно для desktop, mobile и tablet.
 
-// S6 — логистическая регрессия с interaction term
-interface S6LogisticParams {
-  coefficients: number[];    // 9 коэф. β0..β8
-  featureMeans: number[];
-  featureStds: number[];
-}
-const DEFAULT_S6_LOGISTIC_PARAMS: S6LogisticParams = {
-  coefficients: [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  featureMeans: [0, 0, 0, 0, 0],
-  featureStds: [1, 1, 1, 1, 1]
-}
-
+```typescript
 // S7 — квантильные пороги
 interface S7Thresholds {
   relativeYLow: number;    // p33 ATF-сегмента
@@ -284,34 +260,36 @@ const DEFAULT_S7_THRESHOLDS: Record<string, S7Thresholds> = {
 }
 ```
 
+Стартовые коэффициенты S5: desktop — `[-2.5, 3.8, 2.2, 0.8, 1.5]`, mobile/tablet — `[-2.0, 3.5, 2.8, 1.2, 0.9]`.
+
 **Архитектурный принцип:** `signal_defaults.ts` не содержит математики — только типы и константы. Математика — в `normalize.ts`. Fitting-алгоритмы — в `weibull_mle_fit.ts` и `logistic_mle_fit.ts`. Backend-сервисы — в `services/weibull_config.ts` и т.д.
 
 ### `weibull_mle_fit.ts` (новый) — MLE для S1
 
 ```typescript
-fitWeibullMLE(samples: number[]): WeibullParams
+fitWeibullMLE(times: number[], tolerance = 1e-6, maxIterations = 100): WeibullFitResult
 ```
 
-Newton-Raphson итерация по log-likelihood Weibull-распределения. Входные данные: массив `time_in_view_sec` из `impressions` для конкретного сегмента. Стартовая точка: `k=1.0, λ=mean(samples)`. Условие сходимости: `|δk| < 1e-6 || |δλ| < 1e-6`, максимум 100 итераций. При расхождении (NaN/Inf) возвращает `DEFAULT_WEIBULL_PARAMS`.
+Newton-Raphson итерация по log-likelihood Weibull-распределения. Входные данные: массив `time_in_view_sec` из `impressions` для конкретного сегмента. Функция пробует стартовые значения `k` 0.1, 1 и 10 и выбирает результат с наибольшим log-likelihood. По умолчанию допускается до 100 итераций с точностью `1e-6`. Результат содержит `k`, `lambda`, `logLikelihood`, `sampleSize`, `converged`; при недостаточном числе положительных наблюдений или неудаче всех стартов выбрасывается ошибка.
 
 Живёт в shared (а не только в backend), потому что может понадобиться в тестах и валидации — но используется runtime только в `jobs/s1_weibull_recalibration.ts`.
 
 ### `logistic_mle_fit.ts` (новый) — IRLS для S3/S5/S6
 
 ```typescript
-fitLogisticMLE(X: number[][], y: number[]): number[]
+fitLogisticMLE(X: number[][], y: number[], tolerance = 1e-6, maxIterations = 100, l2Lambda = 0): LogisticFitResult
 ```
 
-IRLS (Iteratively Reweighted Least Squares) — численно стабильный алгоритм для логистической регрессии малой размерности. `X` — матрица признаков (уже нормализованных z-score), `y` — бинарные метки `0|1`. Возвращает вектор коэффициентов `β`. До 50 итераций, eps=1e-8. При расхождении — нулевые коэффициенты (→ `sigmoid(0)=0.5` → normalized=50).
+IRLS (Iteratively Reweighted Least Squares) — численно стабильный алгоритм для логистической регрессии малой размерности. `X` — матрица признаков (уже нормализованных z-score), `y` — бинарные метки `0|1`. Результат включает коэффициенты `beta`, `logLikelihood`, `sampleSize`, `accuracy` и `converged`. По умолчанию выполняется до 100 итераций с точностью `1e-6`; доступен L2-штраф. Непригодные входные данные приводят к ошибке.
 
 Специфично для каждого сигнала:
 - S3: 8 признаков, `tag_constants_version` фильтр при выборке данных
 - S5: 5 признаков, раздельный fitting для `desktop` и `mobile_tablet`
-- S6: 9 признаков + interaction term `completionZ × audibleZ` (предварительно вычисленный как 10-й признак перед вызовом IRLS)
+- S6: 9 компонентов вектора, включая свободный член и interaction term `completionZ × audibleZ`; признак отказа отличается для in-stream и out-stream.
 
 ### `capping.ts` — `applyAnomalyCapping()`
 
-Обрезка экстремальных значений сигналов перед нормализацией. Вызывается **строго до** `normalizeAll()`. Не мутирует входной payload: `structuredClone` создаёт полную копию.
+Обрезка экстремальных значений сигналов перед нормализацией. Вызывается **строго до** `normalizeAll()`. Не мутирует входной payload: копия создаётся через `JSON.parse(JSON.stringify(payload))`.
 
 **Актуальная таблица кэппингов (включая изменения текущей сессии):**
 
@@ -342,15 +320,13 @@ Weibull CDF: `S1 = min(100, (1 − exp(−(t/λ)^k)) × 100)`, где `t = time_
 
 Порог видимости: `≥ 75% пикселей / ≥ 2.0 секунды непрерывно` (от тега через `S1_VIEWPORT_THRESHOLDS = [0, 0.75, 1.0]`).
 
-**`normalizeS2(s2Raw): number`** — без изменений:
+**`normalizeS2(s2Raw, params: S2Params): number`**
 
-```
-S2 = min(100, sqrt(share_of_screen_avg_pct) × 10)
-```
+`S2 = 100 × F(share_of_screen_avg_pct)`, где `F` — кусочно-линейная интерполяция опорных квантилей. Результат ограничивается диапазоном `[0, 100]`. Если массивы параметров имеют разную длину или меньше двух точек, используется `DEFAULT_S2_PARAMS`. Резервные точки построены по прежней корневой зависимости; между точками применяется линейная интерполяция.
 
 **`normalizeS3(s3Raw, logisticParams: LogisticParams): number | null`**
 
-Логистическая регрессия: `S3 = min(100, sigmoid(β·x) × 100)`. Вектор признаков `x = [1, avg_speed_norm, max_speed_norm, pause_count_norm, return_count_norm, streak_count_norm, has_reading_flag, std_dev_norm]` (8 признаков). Z-score нормализация: `x_norm = (x − μ) / σ` по `featureMeans` / `featureStds` параметра. Возвращает `null` при `s3Raw === null` (cross-domain iframe).
+Логистическая регрессия: `S3 = min(100, sigmoid(β·x) × 100)`. Вектор признаков `x = [1, speedZ, stddevZ, pauseZ, directionZ, streakZ, reading, momentum]` (8 компонентов). Z-score нормализация: `x_norm = (x − μ) / σ` по `featureMeans` / `featureStds` параметра. Возвращает `null` при `s3Raw === null` (cross-domain iframe).
 
 **`normalizeS4(s4Raw, s4Config: S4Config): number`**
 
@@ -361,9 +337,9 @@ S2 = min(100, sqrt(share_of_screen_avg_pct) × 10)
 - `λ` — штрафной параметр за частоту переключений (из `s4Config.lambda`)
 - `T_ref` — эталонная длина сессии в мс (из `s4Config.tRefMs`)
 
-Fallback: `DEFAULT_S4_CONFIG {lambda: 0.08, tRefMs: 5000}`.
+Fallback: `DEFAULT_S4_CONFIGS.default = {lambda: 0.08, tRefMs: 5000}`.
 
-**`normalizeS5(s5Raw, s5Params: S5LogisticParams, deviceType: string): number`**
+**`normalizeS5(s5Raw, s5Params: S5LogisticParams): number`**
 
 Логистическая регрессия с сегментацией по device_type. 2 сегмента: `desktop`, `mobile_tablet`.
 
@@ -375,24 +351,9 @@ Mobile/tablet-вектор: `x = [1, clicked, zoom, tapCountNorm, swipeCountNorm
 
 `S5 = min(100, round(sigmoid(β·x) × 100))`. Fallback по сегменту: `DEFAULT_S5_DESKTOP` / `DEFAULT_S5_MOBILE_TABLET` (prior-коэффициенты, обоснованные экспертно).
 
-**`normalizeS6(s6Raw: SignalsS6 | null, s6Params: S6LogisticParams | null): number | null`**
+**`normalizeS6(s6Raw: SignalsS6 | null, s6Params: S6LogisticParams): number | null`**
 
-Возвращает `null` если `s6Raw === null` (баннер) — вне зависимости от `s6Params`. `s6Params = null` для баннеров (сигнал от `getActiveS6LogisticParams(null)`).
-
-Для видео — логистическая регрессия с 9 коэффициентами + interaction term:
-```
-Вектор признаков (после z-score нормализации):
-  completionZ   = znorm(completion_rate_pct ?? quartileToRate())
-  audibleZ      = znorm(audibleRatio)         где audibleRatio = audible_time_sec / duration_sec
-  quartileZ     = znorm(quartileOrdinal)      где quartileOrdinal ∈ {0,1,2,3,4}
-  replayZ       = znorm(log(replay_count+1))
-  interaction   = completionZ × audibleZ      (предвычисленный терм взаимодействия)
-
-z = β0 + β1·completionZ + β2·audibleZ + β3·quartileZ + β4·replayZ
-  + β5·play_initiated + β6·skipped + β7·unmuted_by_user + β8·interaction
-S6 = min(100, sigmoid(z) × 100)
-```
-`audibleRatio`: `null`-safe — если `duration_sec` равно null или 0, `audibleRatio = 0`.
+Для баннера при `s6Raw === null` возвращается `null`. Для видео выбирается функция по `params.mode`: `normalizeS6Instream` или `normalizeS6Outstream`. Общие признаки — нормализованные досмотр, достигнутый квартиль, доля времени со звуком и `log(1 + replay_count)`, а также `muted_throughout`, `unmuted_by_user` и взаимодействие `completionZ × audibleZ`. Коэффициент `beta7` учитывает `skipped` в in-stream и `closed_by_user` в out-stream. При отсутствии длительности доля времени со звуком равна нулю; иначе она ограничена `[0, 1]`.
 
 **`normalizeS7(s7Raw, deviceType: string, s7Thresholds: S7Thresholds): number`**
 
@@ -418,21 +379,9 @@ S7 = clamp(positionScore + clutterPenalty + persistenceBonus, 0, 100)
 ```
 Пороги `{relativeYLow, relativeYMid, clutterMid, clutterHigh}` — квантили реального трафика из `s7_quantile_configs`. Fallback: `DEFAULT_S7_THRESHOLDS[deviceType]`.
 
-**`normalizeAll(capped, params: NormalizeAllParams): NormalizedSignals`**
+**`normalizeAll(payload, weibullParams, s2Params, s3Params, s4Config, s5Params, s6Params, s7Thresholds): NormalizedSignals`**
 
-Агрегатор. Принимает `NormalizeAllParams`:
-```typescript
-interface NormalizeAllParams {
-  weibullParams: WeibullParams;
-  s3LogisticParams: LogisticParams;
-  s4Config: S4Config;
-  s5Params: S5LogisticParams;
-  s6Params: S6LogisticParams | null;   // null для баннеров
-  s7Thresholds: S7Thresholds;
-  deviceType: string;
-}
-```
-Вызывает все семь функций. Возвращает `NormalizedSignals { s1, s2, s3, s4, s5, s6, s7 }` где `s3: number | null`, `s6: number | null`.
+Вызывает семь функций нормализации с переданными параметрами. В результате `s3` и `s6` могут быть `null`.
 
 **`getS5TopEventLabel(s5)`** — без изменений. Текстовая метка наивысшего события для таблицы.
 
@@ -442,7 +391,7 @@ interface NormalizeAllParams {
 
 **`DEFAULT_VIDEO_WEIGHTS`** — стартовые веса для видео `v1.0_uncalibrated_video`: s6: 0.40, s1: 0.15, s2: 0.10, s3: 0.10, s4: 0.10, s5: 0.10, s7: 0.05, сумма 1.0.
 
-**`CreativeCategory`** = `'banner' | 'video'` — тип для per-creative-type routing.
+**`CreativeCategory`** = `'banner' | 'video' | 'video_instream' | 'video_outstream'`. Для каждой категории задан отдельный профиль; стартовые значения трёх видеопрофилей совпадают.
 
 **`WeightsValues`** и **`SignalKey`** расширены `s6`.
 
@@ -456,13 +405,17 @@ if availableSum === 0: все веса = 0 (edge case, Score будет 0)
 effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 ```
 
-Сумма эффективных весов всегда равна 1.0. Единственный текущий `null`-сигнал — S3 при cross-domain iframe.
+Сумма эффективных весов равна 1.0 при положительной сумме доступных весов; иначе все эффективные веса равны нулю. `null` допускается для S3 и S6.
 
 **`detectNullSignals(normalized)`** — возвращает массив ключей сигналов со значением `null`. Детектирует S3 (cross-domain iframe) и S6 (banner creative). Оба случая приводят к перераспределению весов через `computeEffectiveWeights()`.
 
+### `segments.ts` — сегменты S6
+
+`resolveS6PlacementGroup` выделяет `instream_skippable`, `instream_non_skippable`, `outstream_sticky`, `outstream_inpage`. `resolveS6SegmentKeys` формирует порядок выбора: группа и устройство → режим и устройство → общий сегмент режима → совместимый прежний сегмент устройства и признака пропуска. Для legacy-показа без формата возвращается только прежний сегмент.
+
 ### `score.ts` — расчёт Score
 
-**`computeScore(normalized, presenceThresholdMs, weights)`**:
+**`computeScore(payload, weights, weibullParams, s2Params, s3Params, s4Config, s5Params, s6Params, s7Thresholds, presenceIdleThresholdMs)`**:
 1. `computeEffectiveWeights(detectNullSignals(normalized), weights)` — перераспределение при null (S3 и/или S6)
 2. Взвешенная сумма по всем 7 сигналам: `S1×w1 + S2×w2 + S3×w3 + S4×w4 + S5×w5 + S6×w6 + S7×w7`
 3. `F_Presence`: 0 если `time_since_last_event_ms > presenceThresholdMs`, иначе 1
@@ -470,10 +423,10 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 
 `presenceThresholdMs` — параметр, не захардкоженная константа. Backend передаёт значение из активной версии констант тега (`PRESENCE_IDLE_TIMEOUT_MS`) — синхронизация через общий источник, не дублирование.
 
-**`recomputeScoreFromNormalized(normalized, fPresence, weights)`** — упрощённый пересчёт для калибровки:
+**`recomputeScoreFromNormalized(normalized, fPresence, fIvt, weights)`** — упрощённый пересчёт для калибровки:
 - Принимает уже нормализованные значения и уже вычисленный `fPresence` из базы данных
 - **Не** повторяет кэппинг и нормализацию — они не зависят от весов и не изменились
-- Возвращает только `{ score_final, weights_version }` — именно эти два поля обновляются при approve
+- Учитывает переданный `fIvt` и возвращает `{ score_final, effective_weights }`; версия весов обновляется вызывающим сервисом
 
 Используется **только** в `services/calibrations.ts → processCalibrationBatch()`.
 
@@ -515,7 +468,7 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 
 Реализация: rAF-throttled обработчик. Алгоритм Велфорда для бегущего mean/std_dev без накопления истории. 7 констант калибруемы.
 
-Нормализация: **логистическая регрессия**, 9 сегментов `device×creative_group`, параметры из `s3_logistic_configs`.
+Нормализация: **логистическая регрессия**; для S3 все баннерные типы объединены в группу `static`, видео — в `video`. Параметры выбираются с учётом устройства и версии констант.
 
 **S3 = null** при cross-domain iframe. Вес перераспределяется через `computeEffectiveWeights()`.
 
@@ -537,7 +490,7 @@ Desktop: click, mouseenter/leave/move, hover-длительность и кол�
 
 Константы: `SWIPE_MIN_DISTANCE_PX` 30→60 (P-18). `GESTURE_SCALE_DELTA_MIN` добавлена (P-18).
 
-Нормализация: **логистическая регрессия**, 2 сегмента (`desktop`, `mobile_tablet`), параметры из `s5_logistic_configs`. Прокси-метка обучения: `y=1` если `clicked=true ИЛИ hoverDurationMaxMs ≥ p75` по сегменту.
+Нормализация: **логистическая регрессия**, 2 сегмента (`desktop`, `mobile_tablet`), параметры из `s5_logistic_configs`. Параметры метки обучения и показатели качества сохраняются вместе с конфигурацией модели.
 
 ### S7 — Page Context (вес 0.05)
 
@@ -575,25 +528,22 @@ S1 = min(100, (1 − exp(−(t/λ)^k)) × 100)
   2s → ~44    5s → ~81    10s → ~97
 ```
 
-### S2 — без изменений
+### S2 — квантильная CDF
 
 ```
-S2 = min(100, sqrt(share_of_screen_avg_pct) × 10)
+S2 = clamp(100 × F(share_of_screen_avg_pct), 0, 100)
 ```
+
+`F` интерполирует опорные точки активной конфигурации `S2Params`; при непригодных массивах используются точки `DEFAULT_S2_PARAMS`.
 
 ### S3 — логистическая регрессия
 
 ```
-x = [1, avg_speed_norm, max_speed_norm, pause_count_norm,
-     return_count_norm, streak_count_norm, has_reading, std_dev_norm]
-
-x_norm = (x − featureMeans) / featureStds   (z-score)
-
-S3 = min(100, sigmoid(β · x_norm) × 100)
-
-где sigmoid(z) = 1 / (1 + exp(−z))
-S3 = null при cross-domain iframe
+x = [1, speedZ, stddevZ, pauseZ, directionZ, streakZ, reading, momentum]
+S3 = min(100, sigmoid(β · x) × 100)
 ```
+
+Количественные признаки нормализуются по среднему и стандартному отклонению модели; при нулевом отклонении соответствующее значение равно нулю. При `s3 = null` результат также `null`.
 
 ### S4 — нелинейная функция
 
@@ -616,8 +566,8 @@ Fallback: λ=0.08, T_ref=5000ms
 Desktop:
   x = [1, clicked, hoverDurationNorm, hoverCountNorm, proximityNorm]
   hoverDurationNorm = min(1, log(hover_duration_max_ms + 1) / log(10001))
-  hoverCountNorm    = min(1, hover_count / 20)
-  proximityNorm     = min(1, (1 − cursor_proximity / PROXIMITY_TRACK_ZONE_PX))
+  hoverCountNorm    = min(hover_count, 10) / 10
+  proximityNorm     = 1 − min(cursor_proximity_min_px, 200) / 200  (или 0 при null)
 
 Mobile/tablet:
   x = [1, clicked, zoom, tapCountNorm, swipeCountNorm]
@@ -627,25 +577,21 @@ Mobile/tablet:
 S5 = min(100, round(sigmoid(β · x) × 100))
 ```
 
-### S6 — логистическая регрессия с interaction term
+### S6 — логистические модели in-stream и out-stream
 
 ```
-completionRate = completion_rate_pct ?? (quartile_75 ? 87.5 : quartile_50 ? 62.5 : ...)
-audibleRatio   = audible_time_sec / max(1, duration_sec ?? 1)
-quartileOrd    = 0|1|2|3|4  (none/25/50/75/100)
+quartileOrd = 100 | 75 | 50 | 25 | 10 | 0
+completion = completion_rate_pct ?? quartileOrd
+audibleRatio = clamp(audible_time_sec / duration_sec, 0, 1)
+replay = log(1 + replay_count)
 
-completionZ  = (completionRate − μ_c) / σ_c
-audibleZ     = (audibleRatio  − μ_a) / σ_a
-quartileZ    = (quartileOrd   − μ_q) / σ_q
-replayZ      = (log(replay_count+1) − μ_r) / σ_r
-interaction  = completionZ × audibleZ
-
-z = β0 + β1·completionZ + β2·audibleZ + β3·quartileZ + β4·replayZ
-  + β5·play_initiated + β6·skipped + β7·unmuted_by_user + β8·interaction
-
+z = β0 + β1·completionZ + β2·quartileZ + β3·audibleZ
+  + β4·muted_throughout + β5·unmuted_by_user + β6·replayZ
+  + β7·отказ + β8·completionZ·audibleZ
 S6 = min(100, sigmoid(z) × 100)
-S6 = null для баннерных креативов
 ```
+
+При отсутствии положительной длительности `audibleRatio = 0`. Признак отказа — `skipped` для in-stream и `closed_by_user` для out-stream. При `s6 = null` результат равен `null`.
 
 ### S7 — квантильная калибровка
 
@@ -796,7 +742,7 @@ Refine: `type === 'ip'` ↔ `match_type === 'cidr'`.
 
 **`MeasurementFinalizationReasonSchema`** — `z.enum(['complete', 'skip', 'close', 'timeout', 'error', 'page_unload', 'idle', 'creative_removed', 'destroyed'])`. Причина завершения SDK measurement session. Маппинг из `PlayerTerminalOutcome` выполняется в `sdk_bridge.ts`.
 
-**`AdSessionIdSchema`** — `z.string().uuid().brand<'AdSessionId'>()`. Branded type — исключает случайную подстановку обычного UUID. Генерируется сервером при каждом `GET /e/:token` или `GET /vast/:token`, включается в `DeliveryRuntimeConfig`.
+**`AdSessionIdSchema`** — `z.string().uuid().brand<'AdSessionId'>()`. Идентификатор выдаётся сервером; в in-stream конфигурации `adSessionId` первоначально равен `null` и запрашивается при рекламной вставке.
 
 **`PlayerTimeoutsSchema`** — объект с 6 таймаутами (все `z.number().int().positive()`):
 
@@ -813,10 +759,11 @@ Defaults совпадают с seed `delivery_runtime_configs v1.0` в БД и �
 
 **`DeliveryRuntimeConfigSchema`** — полная конфигурация, передаваемая от backend через embed script в `window.__CPMIND_QUEUE__`. Используется display-runtime, player и embed loader. Ключевые поля:
 
-- `adSessionId` — branded `AdSessionId`
+- `adSessionId` — branded `AdSessionId` или `null` для отложенной выдачи in-stream
 - `placementUuid`, `deliveryToken`, `creativeVersionUuid`, `creativeType`, `deliveryMode`
 - `tagUuid`, `tagConstantsVersion`, `tagConstants` — для impression payload и S1–S7
-- `collectEndpoint`, `deliveryEventEndpoint` — эндпоинты для транспорта
+- `collectEndpoint`, `deliveryEventEndpoint`, `sessionEndpoint`, `advanceEndpoint` — адреса сбора, событий, выдачи сессии и перехода к следующему ролику
+- `format`, `subtype`, `slotId`, `videoSelector` и параметры sticky — конфигурация размещения
 - `vastUrl` — URL для VAST fetch (null для display)
 - `clickUrl`, `width`, `height`, `plcmt`, `autoplay`, `initialMuted`, `skippable`, `skipOffsetSec`
 - `timeouts` — `PlayerTimeoutsSchema`
@@ -833,9 +780,9 @@ Defaults совпадают с seed `delivery_runtime_configs v1.0` в БД и �
 
 **`AutoplayModeSchema`** — `z.enum(['autoplay', 'click_to_play'])`.
 
-**`CreatePlacementPayloadSchema`** — обязательные: `campaignUuid`, `creativeUuid`, `mode`. Опциональные с дефолтами: `initialMuted: true`, `skippable: false`. `allowedDomains` — массив доменов с DOMAIN_REGEX валидацией (max 253 символа).
+**`CreatePlacementPayloadSchema`** — обязательные: `campaignUuid`, `creativeUuid`, `mode`. Формат и подтип могут передаваться явно; `initialMuted` при отсутствии выводится сервером из режима, `skippable` по умолчанию равен `false`. `allowedDomains` содержит проверяемые домены длиной до 253 символов.
 
-**`UpdatePlacementPayloadSchema`** — все поля опциональны; refine: хотя бы одно поле должно быть предоставлено.
+**`UpdatePlacementPayloadSchema`** — все поля опциональны; refine: хотя бы одно поле должно быть предоставлено. `PlacementCreativeSetSchema` допускает до 20 уникальных креативов с суммой весов 100% и погрешностью 0,01; пустой набор снимает ротацию. Доступны `weighted_random` и `sequential`, а для доменов — режимы `off`, `monitor`, `block`.
 
 **`PlacementRowSchema`** — контракт детального ответа API. Включает `deliveryToken` (min 32), `embedCode`/`vastUrl` генерируются на сервере и не входят в схему (добавляются сервисом `placements.ts`).
 
@@ -874,9 +821,9 @@ NO_SUPPORTED_MEDIA, MEDIA_LOAD_FAILED, MEDIA_PLAYBACK_BLOCKED, MEDIA_START_TIMEO
 FIRST_FRAME_TIMEOUT, CONTENT_BRIDGE_FAILED, CONTENT_RESUME_FAILED, PLAYER_DESTROYED
 ```
 
-**`AdSessionDeliveryEventTypeSchema`** — `z.enum(['requested', 'asset_load_started', 'creative_ready', 'render_confirmed', 'creative_error', 'player_error', 'closed'])`. Lifecycle события SDK.
+**`AdSessionDeliveryEventTypeSchema`** — события `requested`, `asset_load_started`, `creative_ready`, `render_confirmed`, `autoplay_resolved`, `measurement_started`, `creative_error`, `player_error`, `closed`.
 
-**`DeliveryEventPayloadSchema`** — payload `POST /api/delivery/event`: `adSessionId`, `eventType`, `errorCode` (optional), `timestampMs` (int, positive).
+**`DeliveryEventPayloadSchema`** — payload `POST /api/delivery/event`: идентификатор, тип, положительная метка времени и необязательные детали. Для `autoplay_resolved` обязательны `autoplayOutcome`, `startMuted`, `mutedByBrowser`; в других событиях эти поля запрещены. Причина финализации допустима только в терминальных событиях, код ошибки — только в событиях ошибки.
 
 **`AdSessionPlaybackQualitySchema`** — `{ dropped_frames, total_frames }` с refine `dropped_frames <= total_frames`. Хранится в `ad_sessions.playback_quality` (JSONB).
 
@@ -907,7 +854,7 @@ FIRST_FRAME_TIMEOUT, CONTENT_BRIDGE_FAILED, CONTENT_RESUME_FAILED, PLAYER_DESTRO
 
 Все варианты `.strict()` — исключает лишние поля.
 
-**`VideoMeasurementEventSchema`** — discriminated union по `type` для SDK `reportVideoEvent()`. Типы: `play`, `pause`, `resume`, `progress`, `seek`, `mute`, `unmute`, `volume`, `skip`, `complete`, `replay`, `duration_known`, `quartile`, `audio_connection`. Все с полем `timestampMs` (`performance.now()`, не `Date.now()`). Refine на `progress`: `currentTimeSec <= durationSec + 0.5`.
+**`VideoMeasurementEventSchema`** — discriminated union по `type` для SDK `reportVideoEvent()`. Типы: `play`, `pause`, `resume`, `progress`, `seek`, `mute`, `unmute`, `volume`, `skip`, `close`, `complete`, `replay`, `duration_known`, `quartile`, `audio_connection`, `viewport_enter`, `viewport_exit`. Все с полем `timestampMs` (`performance.now()`, не `Date.now()`). Refine на `progress`: `currentTimeSec <= durationSec + 0.5`.
 
 ---
 

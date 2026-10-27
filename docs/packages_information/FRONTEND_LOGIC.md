@@ -291,11 +291,11 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `approveCalibrationBatch(batchId, itemIds?)`, `discardCalibrationBatch(batchId)`
 - `buildCsvUrl(params)` — строит URL для CSV-экспорта (без fetch, ссылка для `<a download>`)
 
-**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Содержит: `tagConstantsVersion`, `weightsVersion`, `publisherDomain?: string` (фильтр по домену площадки), 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`, `ivtVerdict?: IvtVerdict`.
+**`ListParams`** — интерфейс параметров запроса `GET /api/impressions`. Поддерживает фильтры `format`, `subtype`, `campaignUuid`, а также `tagConstantsVersion`, `weightsVersion`, `publisherDomain?: string` (фильтр по домену площадки), 16 диапазонных параметров (`scoreMin/Max`, `s1Min/Max`...`s6Min/Max`, `s7Min/Max`), `sortBy: SortField`, `ivtVerdict?: IvtVerdict`.
 
 **`fetchPublisherDomainAggregate(creativeId, publisherDomain?, userUuid?, cookie?)`** — вызывает `GET /api/impressions/domain_aggregate`. При `publisherDomain = undefined` — агрегация по всем площадкам для данного creativeId. При наличии cookie — server-side запрос (из Server Component); без cookie — client-side с `credentials: 'include'`. Возвращает `PublisherDomainAggregate` из `@cpmind/shared`.
 
-**Сигнальные модели S1–S7** — 6 интерфейсов (`S1WeibullConfigRow`, `S3LogisticConfigRow`, `S4ConfigRow`, `S5LogisticConfigRow`, `S6LogisticConfigRow`, `S7QuantileConfigRow`) и 30 функций (5 на каждый сигнал: `fetchS*Configs`, `activateS*Config`, `deactivateS*Config`, `scheduleS*Delete`, `cancelS*Delete`). Fetch-функции — server-side с cookie forwarding. Мутирующие функции — client-side с `credentials: 'include'`. Для S3/S5/S6 поля `coefficients`, `featureMeans`, `featureStds` типизированы как `Record<string, number>` (Drizzle возвращает JSONB как именованные ключи `{beta0, beta1, ...}`, не массив).
+**Сигнальные модели S1–S7** — семь типов конфигураций, включая `S2ConfigRow`, и операции получения, активации, деактивации, планирования и отмены удаления для каждого сигнала. Fetch-функции — server-side с cookie forwarding. Мутирующие функции — client-side с `credentials: 'include'`. Для S3/S5/S6 поля `coefficients`, `featureMeans`, `featureStds` типизированы как `Record<string, number>` (Drizzle возвращает JSONB как именованные ключи `{beta0, beta1, ...}`, не массив).
 
 **IVT API-функции (client-side):**
 - `fetchIvtListConfigs(cookie?)` — список версий GIVT-списков (server-side с cookie forwarding)
@@ -307,7 +307,9 @@ type SortField = 'createdAt' | 'scoreFinal' | 's1Normalized' | 's2Normalized'
 - `createIvtThresholdsConfig(body)` — создать конфигурацию порогов (`version`, `thresholds: IvtThresholds`, `description?`)
 - `activateIvtThresholdsConfig(id)` — активировать
 - `deactivateIvtThresholdsConfig(id)` — деактивировать (частичная реализация, логика уточняется)
-- `deleteIvtThresholdsConfig(id)` — удалить неактивную версию Функция `createWeightsConfig` расширена: добавлены `configType: 'banner' | 'video'` и `s6: number` в объект весов.
+- `deleteIvtThresholdsConfig(id)` — удалить неактивную версию
+
+Функция `createWeightsConfig` принимает `CreativeCategory` и поле `s6` в объекте весов.
 - `fetchIvtListConfig(id, cookie)` - список конфигурации для GIVT.
 
 **`buildQuery(params)`** — собирает `URLSearchParams` из `ListParams`. Числовые параметры диапазонов проверяются на `undefined` через явный guard, не `if (params.scoreMin)` — потому что `0` является валидным значением.
@@ -346,7 +348,7 @@ Server Component передаёт `cookie` → запрос через внут�
 - `updatePlacement(uuid, payload)` — client-side; `UpdatePlacementPayload` из `@cpmind/shared`
 - `setPlacementActive(uuid, isActive)` — client-side; `POST /api/placements/:uuid/activate` или `/deactivate`
 
-### `src/lib/admin/searchParams.ts`
+### `src/lib/admin/search-params.ts`
 
 **`parseListSearchParams(searchParams, forceUserUuid?)`** — единственная точка разбора URL query-параметров в `ListParams`. Используется в двух местах: `/admin/impressions/page.tsx` и `/admin/weights/recalculate/page.tsx`.
 
@@ -655,24 +657,6 @@ Client Component. Два режима:
 
 Client Component. Sticky-панель (над таблицей, `top: 64px`). На мобильных — статичная (`position: static`).
 
-### `TagConstantsPanel.tsx`
-
-Client Component. Управление версиями калибруемых констант тега.
-
-**Таблица** — 5 колонок: Версия (expand-триггер `▶`/`▼` + бейдж активности), Скрипт (`scriptPath` с кнопкой копирования в буфер / `—` при деактивированной), Размер (КБ / `—` при `fileSizeBytes=0`), Создана, Действия.
-
-**Accordion** — `expandedId: string | null`, одна строка открыта в момент времени. Раскрытая строка рендерит `<tr colSpan={5}>` с 19 карточками констант в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` отображается как строка `"0, 0.5, 1"`.
-
-**Кнопки действий:** «Активировать» (`ghostBtn`, `disabled` при `isActive=true`) + «Деактивировать» (`dangerBtn`, `disabled` при `isActive=false`). Раздельные `activatingId`/`deactivatingId` — спиннер только в нажатой кнопке, вторая остаётся видимой.
-
-**Форма** — показывается ниже таблицы при `showForm=true`. Без поля версии (auto-assigned backend через sequence). 19 инпутов в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` — `type="text"`, остальные — `type="number"`.
-
-**`CONSTANTS_META`** — массив из 19 записей `{ key, label, type, min?, minStrict?, max?, unit?, step? }`. Единственный источник истины для рендера таблицы, раскрытой строки, формы и валидации.
-
-**Валидация** — touched-aware per-field через `FormState: Record<keyof TagConstantsValues, { value, touched, error }>`. Ошибка вычисляется при каждом `onChange`, красная граница через класс `inputError` при `touched && error !== null`, inline текст под полем. Кнопка «Создать» `disabled` при любом невалидном поле. При сабмите все поля принудительно помечаются `touched=true` перед проверкой. Дефолты полей — `DEFAULT_TAG_CONSTANTS` из `@cpmind/shared`.
-
-**`validateField(meta, value)`** — `thresholds`: split по запятой → `number[]` → длина 1–10 → все в `[0,1]` → строго возрастающие. `integer`: `Number.isInteger` + min/max. `float`: `parseFloat` + min/minStrict/max.
-
 Три кнопки всегда видны:
 - "Пересчитать" — активна при `mode === 'select'`, выбрана версия весов, `selectedCount > 0`
 - "Отменить" — активна только при `mode === 'ready'`
@@ -682,9 +666,27 @@ Client Component. Управление версиями калибруемых �
 
 Баннер черновика: при `mode === 'ready'` — `actionBarDraft` класс (`--moderate` цвет), предупреждение с таймером.
 
+### `TagConstantsPanel.tsx`
+
+Client Component. Управление версиями калибруемых констант тега.
+
+**Таблица** — 6 колонок: Версия (раскрытие, активность и признак версии по умолчанию), Плейсменты (число закреплений), Скрипт, Размер, Создана, Действия.
+
+**Accordion** — `expandedId: string | null`, одна строка открыта в момент времени. Раскрытая строка рендерит `<tr colSpan={6}>` с 19 карточками констант в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` отображается как строка `"0, 0.5, 1"`.
+
+**Кнопки действий:** «Активировать», «Сделать по умолчанию» и «Деактивировать». Деактивация блокируется для версии по умолчанию и закреплённых версий; для назначения по умолчанию требуется активная версия. Раздельные `activatingId`/`deactivatingId` — спиннер только в нажатой кнопке, вторая остаётся видимой.
+
+**Форма** — показывается ниже таблицы при `showForm=true`. Без поля версии (auto-assigned backend через sequence). 19 инпутов в CSS Grid: 3 колонки (desktop) / 2 (≤1024px) / 1 (≤480px). `S1_VIEWPORT_THRESHOLDS` — `type="text"`, остальные — `type="number"`.
+
+**`CONSTANTS_META`** — массив из 19 записей `{ key, label, type, min?, minStrict?, max?, unit?, step? }`. Единственный источник истины для рендера таблицы, раскрытой строки, формы и валидации.
+
+**Валидация** — touched-aware per-field через `FormState: Record<keyof TagConstantsValues, { value, touched, error }>`. Ошибка вычисляется при каждом `onChange`, красная граница через класс `inputError` при `touched && error !== null`, inline текст под полем. Кнопка «Создать» `disabled` при любом невалидном поле. При сабмите все поля принудительно помечаются `touched=true` перед проверкой. Дефолты полей — `DEFAULT_TAG_CONSTANTS` из `@cpmind/shared`.
+
+**`validateField(meta, value)`** — `thresholds`: split по запятой → `number[]` → длина 1–10 → все в `[0,1]` → строго возрастающие. `integer`: `Number.isInteger` + min/max. `float`: `parseFloat` + min/minStrict/max.
+
 ### `/admin/signals` — `page.tsx`
 
-Server Component. 6 параллельных фетчей с cookie forwarding через `Promise.all`: `fetchS1WeibullConfigs`, `fetchS3LogisticConfigs`, `fetchS4Configs`, `fetchS5LogisticConfigs`, `fetchS6LogisticConfigs`, `fetchS7QuantileConfigs`. Обратная ссылка: `/admin/impressions?userUuid=<ownUuid>`. Передаёт данные в `<SignalModelsPanel />`.
+Server Component. Семь параллельных запросов с cookie forwarding через `Promise.all`: `fetchS1WeibullConfigs`, `fetchS2Configs`, `fetchS3LogisticConfigs`, `fetchS4Configs`, `fetchS5LogisticConfigs`, `fetchS6LogisticConfigs`, `fetchS7QuantileConfigs`. Обратная ссылка: `/admin/impressions?userUuid=<ownUuid>`. Передаёт данные в `<SignalModelsPanel />`.
 
 Навигация на страницу: кнопка «Калибровка сигналов» в header `/admin/impressions` (рядом с «Калибровка весов», видна только при `isOwnScopeView`).
 
@@ -692,10 +694,10 @@ Server Component. 6 параллельных фетчей с cookie forwarding �
 
 Client Component. Управление жизненным циклом конфигураций параметрических моделей сигналов S1–S7.
 
-**Структура:** 6 первичных табов (`S1 Weibull | S3 Logistic | S4 Config | S5 Logistic | S6 Logistic | S7 Quantile`). S4, S5, S6, S7 дополнительно имеют вторичные device-табы:
+**Структура:** семь вкладок S1–S7, включая `S2 Quantile`. S4, S5, S6, S7 дополнительно имеют вторичные вкладки устройств:
 - S4: «Базовая | Десктоп | Мобильные» (фильтрация сегментов: `default` / `desktop_*` / `mobile_*`)
 - S5: «Десктоп | Мобильные» (`desktop` / `mobile_tablet`)
-- S6: «Десктоп | Мобильные | Планшет» (по префиксу `desktop|` / `mobile|` / `tablet|`)
+- S6: разделы in-stream, out-stream и прочие; для режимов доступны устройства и общий сегмент. `getS6SegmentPresentation` определяет раздел и устройство по ключу, исторические и неизвестные ключи остаются в разделе прочих
 - S7: «Десктоп | Мобильные | Планшет» (по `device_type`)
 
 **Группировка по сегментам:** `groupByKey()` — утилита группировки в `Map<string, Row[]>`. Порядок сегментов: `global` и `default` всегда первыми, остальные по алфавиту (`orderSegmentKeys()`). Заголовки сегментов (`SegmentHeader`) — кликабельны, сворачивают/разворачивают группу. `collapsedSegments: Set<string>` — ключ `${tab}:${segmentKey}`. При инициализации: `global` и `default` раскрыты, остальные свёрнуты.
@@ -704,12 +706,13 @@ Client Component. Управление жизненным циклом конф�
 
 **Колонки таблиц** — специфичны для каждого сигнала, содержат только релевантные параметры:
 - S1: Подобрана, k, λ, Выборка
+- S2: уровни квантилей и соответствующие значения, сопоставленные по уровню между конфигурациями
 - S3/S5: Подобрана, Коэффициенты β (grouped header + subcolumns), Средние признаков, Станд. откл. (S3), Точность, Выборка, Версия констант
 - S4: Создана, Версия, λ, T_ref (мс), Выборка
-- S6: аналогично S3 с 9 коэффициентами
+- S6: коэффициенты, средние и отклонения, accuracy, AUC, доля положительных меток и пороги разметки
 - S7: Вычислена, relY low, relY mid, Clutter mid, Clutter high, Выборка
 
-Колонка «Точность» (`accuracy`) — только для S3, S5, S6 (остальные сигналы не используют логистическую регрессию и не имеют этого поля в БД).
+Колонки `accuracy` и AUC отображаются для S3, S5 и S6. Для AUC ниже 0,6 компонент показывает визуальную подсказку; отсутствие значения отображается отдельно.
 
 **TTL-таймер:** `deletion_scheduled_at !== null` → badge с обратным отсчётом (`formatCountdown`) в ячейке рядом с кнопкой `⋮`. `useEffect` с `setInterval(1000)` активируется только при наличии хотя бы одного конфига с `deletionScheduledAt !== null` среди всех сигналов (`hasScheduledDeletion`).
 
@@ -897,7 +900,7 @@ Client Component. Единый компонент управления IVT-ко�
 
 ## Shared компоненты
 
-### `ConfirmDialog.tsx`
+### `ConfirmationForm.tsx`
 
 Client Component. Переиспользуемый модальный диалог подтверждения. `ReactDOM.createPortal` в `document.body` — не зависит от z-index стека родителя. Монтируется только на клиенте (`useState(mounted)` + `useEffect`).
 
@@ -943,7 +946,15 @@ Client Component. Рендерит превью по `creativeType` и `assets`.
 
 ### `InlinePlacementForm.tsx`
 
-Client Component. Type-aware форма создания placement. Для `BANNER_CREATIVE_TYPES` — только поле `clickUrl` (опц.), `mode='display'` автоматически. Для `video_creative` — выбор режима из `VIDEO_DELIVERY_MODES`, toggles `initialMuted`/`skippable`, поле `skipOffsetSec` при `skippable=true`. После создания показывает кнопку "Показать embed-код" и открывает `PlacementEmbedModal`. Стиль из `inline-placement-form.module.css`.
+Client Component. Форма учитывает тип креатива: для баннера выбирается формат `banner`, для видео — `instream` или `outstream` с подтипом. В зависимости от формата доступны параметры слота, селектора видео, sticky, звука, автозапуска и пропуска. Настраиваются домен площадки и режим проверки разрешённых доменов. После создания открывается `PlacementEmbedModal`; стиль — `inline-placement-form.module.css`.
+
+### `PlacementCreativeSetEditor.tsx`
+
+Редактор набора видеокреативов размещения. Позволяет выбрать ролики, задать доли и порядок, выбрать `weighted_random` или `sequential` и сохранить набор через API.
+
+### `CreativeActivityBadge.tsx`
+
+Отображает активность размещения как «Активно» или «Неактивно»; при отсутствии значения не выводится.
 
 ### `CreativePlacementPanel.tsx`
 
@@ -955,7 +966,7 @@ Client Component. Возвращает `null`. При монтировании �
 
 ### `ProcessingPoller.tsx`
 
-`onReady` callback изменён: теперь принимает `{ creativeUuid: string; creativeVersionUuid: string }` вместо просто строки. Срабатывает при `result.status === 'ready' && result.creativeUuid !== null && result.creativeVersionUuid !== null`.
+`onReady` принимает `{ creativeUuid: string; creativeVersionUuid: string }`. Срабатывает при `result.status === 'ready' && result.creativeUuid !== null && result.creativeVersionUuid !== null`.
 
 ### `WorkspaceNav.tsx`
 
@@ -973,11 +984,11 @@ Client Component. Badge статуса creative: `processing` → amber, `ready`
 
 ### `PlacementEmbedModal.tsx`
 
-Client Component. Модальное окно отображения embed code (`<script async src="...">`) с кнопкой «Копировать». `navigator.clipboard.writeText()` + визуальная индикация «Скопировано ✓» на 1500ms. Монтируется через `ReactDOM.createPortal` в `document.body`.
+Client Component. Окно показывает embed-код и, для видео при наличии, VAST URL; пояснения зависят от формата, подтипа, слота и селектора. Есть копирование, сведения для диагностики и закрытие кнопкой, Escape или нажатием на подложку. Если версия не готова, вместо кода показывается предупреждение.
 
 ### `ProcessingPoller.tsx`
 
-Client Component. Polling `GET /api/creative-uploads/:uuid` через `setInterval`. Останавливается при `status === 'ready' || status === 'failed'`. Показывает spinner во время processing. При `ready` — вызывает `onReady(creativeVersionUuid)`. При `failed` — отображает `processingError`.
+Client Component. Polling `GET /api/creative-uploads/:uuid` через `setInterval`. Останавливается при `status === 'ready' || status === 'failed'`. Показывает spinner во время processing. При `ready` вызывает `onReady` с идентификаторами креатива и версии. При `failed` — отображает `processingError`.
 
 ### `UploadFlow.tsx`
 

@@ -10,7 +10,7 @@
 
 Полное техническое описание системы. Содержит:
 - Граф зависимостей всех пакетов с Mermaid-диаграммами
-- Docker Compose топологию (6 сервисов + Yandex Cloud Object Storage + CDN)
+- Docker Compose топологию (7 сервисов + Selectel Object Storage + CDN)
 - NGINX и доменную модель (4 домена: app / delivery / creative / cdn)
 - Hosted Creative Delivery flow (embed → loader → runtime → SDK → collect)
 - Upload и Media Processing pipeline (presigned URL → staging → media-worker → delivery)
@@ -34,23 +34,23 @@
 
 #### [`packages_information/SHARED_LOGIC.md`](./packages_information/SHARED_LOGIC.md)
 
-`packages/shared` — единственный источник истины для всех пакетов. Содержит: экспортный контракт (разделение Zod-схем и TypeScript-типов, обязательность пересборки), все схемы (impression, delivery, placement, upload, ad_session, player, VAST и др.), скоринг-слой (формулы S1–S7, `computeEffectiveWeights`, `recomputeScoreFromNormalized`), 19 калибруемых констант тега (`DEFAULT_TAG_CONSTANTS`), IVT-классификацию (`classifyIvtSync`), контроль доступа (`USER_VISIBLE_IMPRESSION_FIELDS`).
+`packages/shared` — единственный источник истины для всех пакетов. Содержит: экспортный контракт (разделение Zod-схем и TypeScript-типов, обязательность пересборки), все схемы (impression, delivery, placement, upload, ad_session, player, VAST и др.), скоринг-слой (формулы S1–S7, `computeEffectiveWeights`, `recomputeScoreFromNormalized`), 19 калибруемых констант тега (`DEFAULT_TAG_CONSTANTS`), сегментацию S6 и квантильную модель S2, IVT-классификацию (`classifyIvtSync`), контроль доступа (`USER_VISIBLE_IMPRESSION_FIELDS`).
 
 #### [`packages_information/SDK_LOGIC.md`](./packages_information/SDK_LOGIC.md)
 
-`packages/sdk` — SDK измерения показов. Два режима использования: legacy tag (прямые вызовы `initS1–S7`) и hosted creative (`prepareMeasurementSession()`). Содержит: `MeasurementSession` API и машину состояний (PREPARED→MEASURING→FINALIZING→FINALIZED→DESTROYED), инвариант §17 (`renderConfirmedAt`), `MeasurementSurface` (оркестратор S1–S7 + presence + unload), S6 accumulator (pure state machine, `audibleTimeStart`, `muted_status` ternary, `replay_count`), transport (`sendBeacon` → `fetch keepalive` fallback, `WeakMap` дедупликация финальных payload'ов), device fingerprint (`collectFpHash`, SHA-256 128 бит), `waitForFirstFrame` (`requestVideoFrameCallback` + timeupdate fallback).
+`packages/sdk` — SDK измерения показов. Два режима использования: legacy tag (прямые вызовы `initS1–S7`) и hosted creative (`prepareMeasurementSession()`). Содержит: `MeasurementSession` API и машину состояний (PREPARED→MEASURING→FINALIZING→FINALIZED→DESTROYED), инвариант §17 (явное время старта), `MeasurementSurface` (оркестратор S1–S7 + presence + unload), S6 accumulator (непрерывно просмотренный отрезок, `audibleTimeStart`, `muted_status`, `replay_count`), transport (`sendBeacon` → `fetch keepalive`, промежуточные снимки и кеширование финальных payload'ов), device fingerprint (`collectFpHash`, SHA-256 128 бит), `waitForFirstFrame` (`requestVideoFrameCallback` + timeupdate fallback).
 
 ### Backend
 
 #### [`packages_information/BACKEND_LOGIC.md`](./packages_information/BACKEND_LOGIC.md)
 
-`packages/backend` — Fastify API-сервер. Содержит: все эндпоинты по группам доступа (публичные: `/api/collect`, `/e/:token`, `/vast/:token`, `/t/vast/:event`, `/api/delivery/event`; панельные; admin-only), полный pipeline обработки показа, delivery-сервисы (`resolveEmbedScript`, `resolveVastContext`, `createAdSession`, `processDeliveryEvent`, VAST генерацию), upload pipeline (`createUploadSession`, `completeUploadSession`, presigned URL / multipart), placement management (`ensureTagForUser`, `generateDeliveryToken`, `buildEmbedCode`), все сервисы с архитектурными решениями, фоновые задачи (asset_gc, scheduled_deletion, IVT frequency, S1–S7 recalibration cron), миграции 0000–0021, схему БД.
+`packages/backend` — Fastify API-сервер. Содержит: все эндпоинты по группам доступа (публичные: `/api/collect`, `/e/:token`, `/vast/:token`, `/t/vast/:event`, `/api/delivery/event`; панельные; admin-only), полный pipeline обработки показа, delivery-сервисы (`resolveEmbedScript`, `resolveVastContext`, `createAdSession`, `processDeliveryEvent`, VAST генерацию), upload pipeline (`createUploadSession`, `completeUploadSession`, presigned URL / multipart), placement management (`ensureTagForUser`, `generateDeliveryToken`, `buildEmbedCode`), ротацию роликов, доменную политику и контекст hosted-показа, все сервисы с архитектурными решениями, фоновые задачи (asset_gc, scheduled_deletion, IVT frequency, S1–S7 recalibration cron), миграции 0000–0031, схему БД.
 
 ### Media Worker
 
 #### [`packages_information/MEDIA_WORKER_LOGIC.md`](./packages_information/MEDIA_WORKER_LOGIC.md)
 
-`packages/media-worker` — автономный сервис обработки рекламных материалов. Содержит: PostgreSQL SKIP LOCKED очередь (claim query, lease + heartbeat механизм, recovery loop), полный processing pipeline (download → detectMime → processor → SHA-256 content-addressed → upload → publish → delete staging), процессоры по типу (static/sharp, gif, svg, html5/ZIP extract + bridge injection + repack, video/ffprobe + FFmpeg renditions + poster), ZIP security (path traversal, null bytes, symlinks, compression ratio static+runtime, total size), retry с exponential backoff + jitter, graceful shutdown (SIGTERM → 60s grace), Dockerfile (3-stage, non-root user, tmpfs 10GB).
+`packages/media-worker` — автономный сервис обработки рекламных материалов. Содержит: PostgreSQL SKIP LOCKED очередь (claim query, lease + heartbeat механизм, recovery loop), полный processing pipeline (download → detectMime → processor → SHA-256 content-addressed → upload → publish → delete staging), процессоры по типу (static/sharp, gif, svg, html5/ZIP extract + bridge injection + пофайловая публикация, video/ffprobe + FFmpeg renditions + poster), ZIP security (path traversal, null bytes, symlinks, compression ratio static+runtime, total size), retry с exponential backoff + jitter, graceful shutdown (SIGTERM → 60s grace), Dockerfile (3-stage, non-root user, tmpfs 10GB).
 
 ### Delivery Runtime
 
@@ -60,21 +60,21 @@
 
 #### [`packages_information/DISPLAY_RUNTIME_LOGIC.md`](./packages_information/DISPLAY_RUNTIME_LOGIC.md)
 
-`packages/display-runtime` — рендеринг и измерение display-форматов (`banner_static`, `banner_gif`, `banner_html5`). Flow: `createDisplaySessionContext` → `mountSurface` → `runStaticFlow`/`runHtml5Flow` → `render_confirmed` → `prepareDisplayMeasurement` → `startMeasurement(renderConfirmedAt)`. Static flow: img + anchor, `toSafeHref` validation, `waitForImageLoaded` + `img.decode()` + rAF. HTML5 flow: iframe sandbox, handshake с creative-bridge, race condition prevention (src после listener). `measurementMode: 'full_direct_display'`.
+`packages/display-runtime` — рендеринг и измерение display-форматов (`banner_static`, `banner_gif`, `banner_html5`). Flow: `createDisplaySessionContext` → `mountSurface` → `runStaticFlow`/`runHtml5Flow` → `render_confirmed` → ожидание области просмотра → `prepareDisplayMeasurement` → `startMeasurement(measurementStartedAt)`. Static flow: img + anchor, `toSafeHref` validation, `waitForImageLoaded` + `img.decode()` + rAF. HTML5 flow: iframe sandbox, handshake с creative-bridge, race condition prevention (src после listener). `measurementMode` поступает в конфигурации от backend.
 
 #### [`packages_information/PLAYER_LOGIC.md`](./packages_information/PLAYER_LOGIC.md)
 
-`packages/player` — VAST 4.3 player для `video_creative`. Два режима: `mountOutstream` (IntersectionObserver lifecycle, state machine: mounting→loading→eligible→playing→paused_by_scroll→completed/closed) и `attachNative` (content video play event, iOS Safari defer pause). Содержит: VAST fetch (manual timeout, Safari 14 compat — нет `AbortSignal.any()`), parse (DOMParser, InLine only), media selection (DPR-aware, CDN_HOSTNAME trust check), autoplay policy (muted fallback, Coalition for Better Ads), VAST tracking (quartile fire-and-forget keepalive, `vastFired` Set), SDK bridge (`setPendingSource` 100ms attribution window, `VideoPlaybackState`, S6 accumulator через explicit calls, `detectAudioConnection`), UI (compact mode 400px, auto-hide controls 3s). `measurementMode: 'full_cpmind_player'`.
+`packages/player` — VAST 4.3 player для `video_creative`. Три метода: `mountOutstream` (IntersectionObserver lifecycle, state machine: mounting→loading→eligible→playing→paused_by_scroll→completed/closed), `mountSticky` (закреплённая поверхность) и `attachNative` (привязка к content video, поддержка pre/mid/post/pause-roll). Содержит: VAST fetch (manual timeout, Safari 14 compat — нет `AbortSignal.any()`), parse (DOMParser, InLine only), media selection (DPR-aware, CDN_HOSTNAME trust check), autoplay policy (muted fallback, Coalition for Better Ads), VAST tracking (quartile fire-and-forget keepalive, `vastFired` Set), SDK bridge (`setPendingSource` 100ms attribution window, `VideoPlaybackState`, передача событий в SDK, `detectAudioConnection`), UI (compact mode 400px, auto-hide controls 3s). `measurementMode: 'full_cpmind_player'`.
 
 #### [`packages_information/CREATIVE_BRIDGE_LOGIC.md`](./packages_information/CREATIVE_BRIDGE_LOGIC.md)
 
-`packages/creative-bridge` — ~0.8 KB IIFE, инжектируется media-worker'ом в HTML5-креативы. postMessage протокол: `cpmind:ready` → `cpmind:init` → `cpmind:click`/`cpmind:destroy`. Валидация источника через `event.source === window.parent` (event.origin всегда `'null'` в opaque sandbox). AbortController cleanup при destroy.
+`packages/creative-bridge` — IIFE, инжектируется media-worker'ом в HTML5-креативы. postMessage протокол: `cpmind:ready` → `cpmind:init` → `cpmind:click`/`cpmind:activity`/`cpmind:interaction`/`cpmind:destroy`. Валидация источника через `event.source === window.parent` (event.origin всегда `'null'` в opaque sandbox). AbortController cleanup при destroy.
 
 ### Frontend
 
 #### [`packages_information/FRONTEND_LOGIC.md`](./packages_information/FRONTEND_LOGIC.md)
 
-`packages/frontend` — Next.js 14 App Router панель. Содержит: ролевой роутинг (admin / user / workspace route group), middleware, авторизацию (cookie forwarding, `decodeTokenUuid`, `decodeTokenRole`), workspace flow (campaigns → upload → creatives → placements → embed code), upload pipeline (`UploadFlow`, XHR + progress, `ProcessingPoller`), delivery (`PlacementEmbedModal`), весь lib-слой (`use-popover` — position: fixed + почему не CSS Anchor Positioning, `parseListSearchParams`, `SIGNALS_META`, `buildSegmentColorMap`, `upload-api.ts` с PART_CONCURRENCY=4), все страницы и компоненты, TypeScript-конфигурацию (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`), историю диагностики зависания (IntersectionObserver + бесконечный цикл), таблицу технического долга.
+`packages/frontend` — Next.js 14 App Router панель. Содержит: ролевой роутинг (admin / user / workspace route group), middleware, авторизацию (cookie forwarding, `decodeTokenUuid`, `decodeTokenRole`), workspace flow (campaigns → upload → creatives → placements → embed code), настройки форматов и наборов роликов, upload pipeline (`UploadFlow`, XHR + progress, `ProcessingPoller`), delivery (`PlacementEmbedModal`), весь lib-слой (`use-popover` — position: fixed + почему не CSS Anchor Positioning, `parseListSearchParams`, `SIGNALS_META`, `buildSegmentColorMap`, `upload-api.ts` с PART_CONCURRENCY=4), все страницы и компоненты, TypeScript-конфигурацию (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`), историю диагностики зависания (IntersectionObserver + бесконечный цикл), таблицу технического долга.
 
 ### Legacy Tag
 
@@ -98,7 +98,7 @@ Production-развёртывание: подготовка сервера, пе
 
 ## Технический долг и история
 
-### [`TECH_DEBT.md`](./TECH_DEBT.md)
+### [`development_history/TECH_DEBT.md`](./development_history/TECH_DEBT.md)
 
 Все открытые пункты технического долга с датами и источниками: незакрытые пункты клиентского тестирования, согласованные отступления от ТЗ, архитектурные ограничения.
 

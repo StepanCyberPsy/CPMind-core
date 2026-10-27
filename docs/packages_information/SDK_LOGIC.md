@@ -23,6 +23,7 @@ SDK не имеет собственного bundle — это library package (
             ├── [FILE] session.ts
             ├── [DIR] signals
                 ├── [FILE] frame.ts
+                ├── [FILE] frame_trust.ts
                 ├── [FILE] headless.ts
                 ├── [FILE] presence.ts
                 ├── [FILE] s1.ts
@@ -57,7 +58,7 @@ SDK не имеет собственного bundle — это library package (
 
 **Режим 2 — Hosted Creative** (`@cpmind/display-runtime`, `@cpmind/player`):
 
-Использует высокоуровневый `MeasurementSession` API через `prepareMeasurementSession()`. Runtime создаёт сессию, вызывает `startMeasurement(renderConfirmedAt)` после подтверждения первого frame, передаёт `VideoMeasurementEvent` через `reportVideoEvent()`.
+Использует высокоуровневый `MeasurementSession` API через `prepareMeasurementSession()`. Runtime создаёт сессию и задаёт время начала через `startMeasurement(timestampMs)`. Display-runtime начинает измерение после подтверждения рендеринга и входа в область просмотра; player — после ожидания первого кадра видео; при ошибке ожидания воспроизведение и измерение продолжаются. Видеособытия передаются через `reportVideoEvent()`.
 
 ### Зависимости
 
@@ -86,15 +87,15 @@ prepareMeasurementSession({ creativeEl, meta, config })
     │
     ▼ state: PREPARED
 
-startMeasurement(renderConfirmedAt)
+startMeasurement(timestampMs)
     │  state: PREPARED → MEASURING
-    │  session.timestampStart = renderConfirmedAt (инвариант §17)
+    │  session.timestampStart = timestampMs, если начало ещё не задано
     │
     ▼ state: MEASURING
 
-reportVideoEvent(event)  ← только в MEASURING
-    │  инициализирует s6 при первом вызове
-    │  роутит event → S6 accumulator функции
+reportVideoEvent(event)
+    │  до старта сохраняет состояние видео без накопления S6
+    │  в MEASURING передаёт события накопителю S6
     │
     ▼
 
@@ -123,14 +124,14 @@ PREPARED → MEASURING → FINALIZING → FINALIZED → DESTROYED
 
 Переходы строго односторонние. Guard `if (this._state !== 'MEASURING') return` в `reportVideoEvent` — события после finalize молча игнорируются.
 
-### Инвариант §17 — `renderConfirmedAt`
+### Время начала измерения
 
-`startMeasurement(timestampMs)` устанавливает `session.timestampStart` только если он равен 0. S1 устанавливает его при первом viewport entry. Для instream creative (без IntersectionObserver) `timestampStart` остаётся 0 до явного вызова `startMeasurement` — что корректно, т.к. render confirmation приходит после `waitForFirstFrame`.
+`startMeasurement(timestampMs)` устанавливает `session.timestampStart`, если тот ещё равен 0, и ограничивает начало видимости этим временем. В hosted-сессии используется `explicitStart`: время задаёт runtime. Для legacy-тега S1 устанавливает его при первом входе в область просмотра.
 
 ### `MeasuredElement` — детектор демонтажа
 
 ```typescript
-new MeasurementSurface(creativeEl, () => this.finalize('creative_removed'))
+new MeasuredElement(creativeEl, () => this.finalize('creative_removed'))
 ```
 
 `MutationObserver` на `document.documentElement` следит за `childList + subtree`. При `!creativeEl.isConnected` — вызывает `onRemoved` → `finalize('creative_removed')`. Корректно обрабатывает SPA-навигацию, когда creative удаляется из DOM без unload событий.
@@ -178,7 +179,7 @@ interface Session {
 ### Сегментирование
 
 При срабатывании presence idle timer (`startNewSegment`):
-1. `finalizeAndSend(session, meta, config, false)` — отправляем текущий сегмент (`isFinal=false`)
+1. `finalizeAndSend(session, meta, config, { kind: 'segment', finalizationReason: 'idle' })` — отправляем текущий сегмент
 2. `resetSessionForNewSegment(session)` — новый `impressionId`, `segmentIndex++`, сброс транспортных флагов
 3. `resetSegmentS1..S7` — сброс накопленных данных каждого сигнала
 4. Presence handle сбрасывается, idle timer перезапускается
@@ -212,7 +213,7 @@ IntersectionObserver callback:
         viewStart = null
 ```
 
-**Первый viewport entry:** устанавливает `session.timestampStart` если ещё 0. Для display creative это момент начала измерения.
+**Первый viewport entry:** устанавливает `session.timestampStart`, если начало ещё не задано и `explicitStart` не включён. Для hosted-сессии начало задаёт runtime.
 
 **Reset при новом сегменте:** `resetters` WeakMap хранит observer по `creativeEl`. При сбросе старый observer отключается, новый создаётся с теми же параметрами.
 
@@ -220,7 +221,7 @@ IntersectionObserver callback:
 
 ### S2 — Share of Screen
 
-Периодический sampling (`S2_SAMPLE_INTERVAL_MS` из TagConstants) доли экрана занятой creative. Результат: `shareOfScreenSamples[]` → среднее и максимум в payload.
+Периодические замеры видимой площади креатива относительно области просмотра выполняются с интервалом `S2_SAMPLE_INTERVAL_MS`. Среднее взвешивается по длительности между замерами; интервал ограничен двумя штатными периодами. При скрытой вкладке или отсутствии видимости накопление приостанавливается. В payload передаются среднее и максимум.
 
 ### S3 — Scroll Velocity
 
@@ -286,22 +287,16 @@ Desktop: hover (count, duration, proximity, trajectory entropy, click latency), 
 - `pause_initiated = true`
 - `accumulateAudibleTime()` → `audible_time_sec += elapsed`, `audibleTimeStart = null`
 
-**`onS6Ended(state, isMuted, volume)`**
-- `completion = true`, `completion_rate_pct = 100`, `videoEndedInSegment = true`
-- `accumulateAudibleTime()`
-- Если audible в момент ended → `audible_quartile_100 = true`
+**`onS6Ended(state, isMuted, volume)`** закрывает аудируемый интервал и проверяет завершение по непрерывно просмотренному отрезку. При неизвестной длительности завершение подтверждается событием `ended`.
 
-**`onS6TimeUpdate(state, currentTime, isMuted, volume)`**
-- `checkQuartiles(state, currentTime, isMuted, volume)` — проставляет quartile флаги по threshold'ам 25/50/75/100%
+**`onS6TimeUpdate(state, currentTime, isMuted, volume)`** продвигает `watchedFrontierSec` только при непрерывном допустимом шаге позиции. Квартили и процент досмотра вычисляются по этой границе, поэтому перемотка вперёд сама по себе не увеличивает досмотр.
 - `volume_level = round(volume * 100)`
 - Если не seeking → `lastSeekTime = currentTime`
 
-**`onS6VolumeChange(state, isMuted, volume, isPaused, isEnded, previouslyMuted)`**
-- Если видео играет (!isPaused && !isEnded):
-  - `nowAudible && !wasAudible` → стартует `audibleTimeStart`, `everUnmutedWhilePlaying = true`
-  - `previouslyMuted && !isMuted` → `unmuted_by_user = true` (пользователь явно включил звук)
-  - `!nowAudible && wasAudible` → `accumulateAudibleTime()`, `everMutedWhilePlaying = true`
-- `updateMutedStatus()`
+**`onS6VolumeChange(state, isMuted, volume, isPaused, isEnded, previouslyMuted, initiatedByUser)`**
+- Источник `initiatedByUser` определяет, фиксировать ли пользовательское включение или выключение звука.
+- Во время воспроизведения переход к слышимому звуку запускает `audibleTimeStart`, а отключение закрывает текущий интервал через `accumulateAudibleTime()`.
+- `updateMutedStatus()` обновляет классификацию звука.
 
 **`onS6Seeking(state)`** → `isSeeking = true`
 
@@ -310,9 +305,11 @@ Desktop: hover (count, duration, proximity, trajectory entropy, click latency), 
 - Если `newTime < lastSeekTime - 0.5` (seek назад более 0.5s) → `replay_count++`
 - Если `videoEndedInSegment && newTime < duration - 0.5` → `videoEndedInSegment = false`
 
-**`onS6Skip(state)`** → `skipped = true`
+**`onS6Skip(state)`** → `skipped = true`; **`onS6Close(state)`** фиксирует закрытие пользователем.
 
 **`onS6AudioConnectionDetected(state, connection)`** → `audio_connection = connection`
+
+Дополнительно сохраняются `start_muted`, `muted_by_user`, `closed_by_user`, граница непрерывного просмотра и время последнего отсчёта.
 
 #### `muted_status` — тернарная классификация
 
@@ -341,6 +338,10 @@ const muted_throughout = state.play_initiated && !state.everUnmutedWhilePlaying;
 
 Вызывается при `startNewSegment`. Накапливает audible time перед сбросом (`accumulateAudibleTime`), затем сбрасывает все метрики. Если видео играет в момент сброса — корректно стартует новый audible период.
 
+### Взаимодействия внутри iframe
+
+`reportFrameInteraction(kind, trust)` передаёт взаимодействие в `MeasurementSurface` во время измерения. `classifyFrameInteraction` классифицирует события как `direct`, `window` или `rejected` по видимости документа и iframe, положению курсора, фокусу и активации пользователя. Для сенсорного ввода окно после доверенного события составляет 30 секунд. `trackSkipZone` регистрирует элемент зоны пропуска для наблюдения за курсором.
+
 ### S7 — Page Context
 
 Геометрические характеристики страницы: позиция creative по Y, высота страницы, признак above the fold, количество конкурирующих рекламных блоков в viewport, `viewabilityPersistenceSamples[]` (периодические boolean-снимки видимости).
@@ -361,14 +362,15 @@ const muted_throughout = state.play_initiated && !state.everUnmutedWhilePlaying;
 
 ### Отправка impression payload
 
+`finalizeAndSend` различает `segment`, `checkpoint` и `final`. Промежуточный снимок не завершает сегмент и может быть заменён более поздней отправкой с тем же `impression_id`. До начала измерения отправка не выполняется.
+
 ```typescript
 function sendPayload(body: string, endpoint: string): void {
-    // Приоритет 1: sendBeacon (гарантированная доставка при закрытии)
-    const blob = new Blob([body], { type: 'application/json' });
-    const queued = navigator.sendBeacon(endpoint, blob);
-    if (queued) return;
-
-    // Fallback: если sendBeacon вернул false (64KB shared queue overflow)
+    if (typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([body], { type: 'application/json' });
+        const queued = navigator.sendBeacon(endpoint, blob);
+        if (queued) return;
+    }
     fetchKeepalive(body, endpoint);
 }
 
@@ -382,7 +384,7 @@ function fetchKeepalive(body: string, endpoint: string): void {
 }
 ```
 
-`sendBeacon` возвращает `false` при переполнении 64KB shared буфера. `fetch + keepalive` как fallback гарантирует доставку.
+Если `sendBeacon` недоступен или возвращает `false`, используется `fetch + keepalive`; постановка в очередь не гарантирует доставку.
 
 ### Дедупликация финальных payload'ов
 
@@ -390,11 +392,11 @@ function fetchKeepalive(body: string, endpoint: string): void {
 const finalizedPayloads = new WeakMap<Session, string>();
 ```
 
-При `isFinal=true` — сериализованный payload кешируется. Повторный вызов (например, при двойном `pagehide`) отправляет закешированный payload без пересериализации. `WeakMap` автоматически освобождает память при GC session объекта.
+При `kind: 'final'` сериализованный payload кешируется. Повторный вызов (например, при двойном `pagehide`) отправляет закешированный payload без пересериализации. `WeakMap` автоматически освобождает память при GC session объекта.
 
 ### Unload handlers
 
-Три обработчика с `{ once: true }` — каждый срабатывает максимум один раз:
+Обработчики используют следующие события:
 
 | Событие | Назначение |
 |---|---|
@@ -402,7 +404,7 @@ const finalizedPayloads = new WeakMap<Session, string>();
 | `document.visibilitychange → hidden` | Фоновый таб, переключение вкладок |
 | `window.pagehide` | bfcache, мобильные браузеры, закрытие вкладки |
 
-При click дополнительно проверяется `[data-cpmind-skip]` — если нажата кнопка skip, вызывается `onS6Skip` перед финализацией.
+Клик и скрытие вкладки отправляют промежуточный снимок; click ограничен одним снимком в секунду. `pagehide` отправляет финальный payload с причиной `page_unload` и снимает обработчики. Клик по элементу `[data-cpmind-skip]` фиксирует пропуск в S6 до снимка.
 
 ### Delivery Events
 
@@ -415,11 +417,13 @@ export async function sendDeliveryEvent(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        keepalive: true,
+        credentials: 'omit',
     });
 }
 ```
 
-Delivery events (requested, asset_load_started, creative_ready, render_confirmed, creative_error, closed) отправляются на `/api/delivery/event` — отдельный endpoint от impression collect. Fire-and-forget в caller'ах через `.catch(() => {})`.
+Delivery events (requested, asset_load_started, creative_ready, render_confirmed, autoplay_resolved, measurement_started, creative_error, player_error, closed) отправляются на `/api/delivery/event` — отдельный endpoint от impression collect. Fire-and-forget в caller'ах через `.catch(() => {})`.
 
 ---
 

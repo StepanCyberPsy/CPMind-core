@@ -2,7 +2,7 @@
 
 ## Обзор
 
-`@cpmind/creative-bridge` — изолированный IIFE-бандл (~0.8 KB), встраиваемый в HTML5-креативы на стадии обработки media-worker'ом. Исполняется внутри sandbox iframe на `creative.cpmind.tech` и обеспечивает двустороннее взаимодействие между HTML5-креативом и display-runtime хоста через `postMessage`.
+`@cpmind/creative-bridge` — изолированный IIFE-бандл, встраиваемый в HTML5-креативы на стадии обработки media-worker'ом. Исполняется внутри sandbox iframe на `creative.cpmind.tech` и обеспечивает двустороннее взаимодействие между HTML5-креативом и display-runtime хоста через `postMessage`.
 
 Пакет решает одну специфическую проблему: HTML5-креатив загружается в `<iframe sandbox="allow-scripts">` без `allow-same-origin` — у него нет доступа к DOM хоста, его `window.opener` недоступен, а `event.origin` всегда `'null'`. Стандартные механизмы межфреймового взаимодействия не работают. Creative Bridge реализует минимальный протокол поверх `postMessage`, не требующий совпадения origin.
 
@@ -31,7 +31,7 @@ creative.cpmind.tech        app.cpmind.tech / publisher site
 │  HTML5 creative │         │  display-runtime (host)      │
 │                 │         │                              │
 │  creative-bridge│◀───────▶│  html5_bridge.ts             │
-│  (IIFE, ~0.8KB) │postMsg  │                              │
+│  (IIFE)         │postMsg  │                              │
 └─────────────────┘         └──────────────────────────────┘
          ↑
    media-worker инжектирует
@@ -39,7 +39,7 @@ creative.cpmind.tech        app.cpmind.tech / publisher site
    при обработке
 ```
 
-Media-worker инжектирует `<script src="cpmind-creative-bridge_v1.min.js">` в `<head>` HTML5-файла при обработке. Bridge исполняется при каждой загрузке iframe — не требует действий от разработчика креатива.
+Media-worker добавляет ссылку на версионированный бандл bridge перед `</body>` HTML5-файла или в конец файла, если закрывающий тег отсутствует. Bridge исполняется при каждой загрузке iframe — не требует действий от разработчика креатива.
 
 ### Протокол обмена сообщениями
 
@@ -54,6 +54,7 @@ Creative (bridge)                    Host (display-runtime)
       │                                      │
       │  (пользователь кликает)              │
       │──── cpmind:click ──────────────────▶│  href для перехода
+      │──── cpmind:activity / interaction ─▶│  активность и жесты
       │                                      │
       │◀─── cpmind:destroy ─────────────────│  iframe демонтируется
       │                                      │
@@ -67,13 +68,15 @@ Creative (bridge)                    Host (display-runtime)
 |---|---|---|
 | `cpmind:ready` | `version: string` | При инициализации bridge — до получения init |
 | `cpmind:click` | `href: string` | При клике пользователя на ссылку |
+| `cpmind:activity` | — | При доверенной активности после инициализации |
+| `cpmind:interaction` | `kind`: `click`, `tap`, `swipe` или `zoom` | При распознанном взаимодействии; значения `kind` передаются строкой |
 | `cpmind:error` | `code: string`, `message: string` | При критической ошибке инициализации |
 
 **Host → Creative (`HostToCreativeMessage`):**
 
 | Тип | Поля | Когда |
 |---|---|---|
-| `cpmind:init` | `clickUrl: string \| null`, `bridgeVersion: string` | После получения `cpmind:ready` |
+| `cpmind:init` | `clickUrl: string \| null`, `bridgeVersion: string`, `gestures` | После получения `cpmind:ready`; `gestures` содержит пороги тапа, свайпа и pinch |
 | `cpmind:destroy` | — | Перед демонтажем iframe |
 
 ---
@@ -85,7 +88,7 @@ Creative (bridge)                    Host (display-runtime)
 Bridge исполняется как IIFE при загрузке страницы. Точка входа — функция `init()`, обёрнутая в `try/catch` с отправкой `cpmind:error` при сбое.
 
 ```typescript
-const BRIDGE_VERSION = '1';
+declare const BRIDGE_VERSION: string; // значение задаётся при сборке
 let clickUrl: string | null = null;
 let initialized = false;
 const ac = new AbortController();
@@ -93,7 +96,7 @@ const ac = new AbortController();
 
 `initialized` — guard: клики не обрабатываются до получения `cpmind:init`. Предотвращает обработку кликов в момент когда `clickUrl` ещё не установлен.
 
-`AbortController` — единый механизм cleanup: при получении `cpmind:destroy` `ac.abort()` снимает оба event listener'а (`click` и `message`) через опцию `{ signal }`.
+`AbortController` — единый механизм очистки: при получении `cpmind:destroy` `ac.abort()` снимает зарегистрированные с его сигналом обработчики документа и сообщений.
 
 ### Handshake
 
@@ -124,7 +127,11 @@ Bridge делегирует все клики внутри iframe хосту:
 document.addEventListener('click', (e: MouseEvent) => {
     if (!initialized) return;
 
-    const target = (e.target as HTMLElement).closest('a');
+    if (e.isTrusted && lastPointerType !== 'touch') {
+        reportInteraction('click');
+    }
+
+    const target = e.target instanceof Element ? e.target.closest('a') : null;
     if (target === null) return;
 
     const href = target.getAttribute('href');
@@ -143,6 +150,10 @@ document.addEventListener('click', (e: MouseEvent) => {
 
 `e.preventDefault()` предотвращает стандартную навигацию в iframe. Хост (display-runtime) выполняет `window.open` с валидацией URL.
 
+### Активность и жесты
+
+После handshake bridge пересылает доверенную активность не чаще одного сообщения за 500 мс. Виды взаимодействия ограничиваются отдельно: не чаще одного сообщения каждого вида за 100 мс. Пороги `tapMaxOffsetPx`, `tapMaxDurationMs`, `swipeMinDistancePx`, `pinchDeltaMinPx` принимаются из `cpmind:init`; если они непригодны, распознавание touch-жестов не запускается. Синтетический click после touch не дублирует tap.
+
 ### Cleanup
 
 При получении `cpmind:destroy`:
@@ -154,7 +165,7 @@ if (msg.type === 'cpmind:destroy') {
 }
 ```
 
-`ac.abort()` снимает оба addEventListener через `{ signal }`. Нет утечек памяти при повторном монтировании iframe.
+`ac.abort()` снимает обработчики, зарегистрированные с `{ signal }`.
 
 ---
 
@@ -168,7 +179,7 @@ if (msg.type === 'cpmind:destroy') {
     platform: 'browser',
     target: [...TAG_BUILD_TARGETS],  // из @cpmind/shared
     format: 'iife',
-    outfile: 'dist/cpmind-creative-bridge_v1.min.js',
+    outfile: `dist/cpmind-creative-bridge_v${version}.min.js`,
 }
 ```
 
@@ -177,7 +188,7 @@ if (msg.type === 'cpmind:destroy') {
 - **`legalComments: 'none'`** — минимальный размер бандла
 - Нет внешних зависимостей — всё инлайнится, только стандартные Web API
 
-Результирующий файл: `dist/cpmind-creative-bridge_v1.min.js`, ~0.8 KB.
+Версия берётся из `BRIDGE_VERSION` (по умолчанию `1`) и включается в имя файла и сообщение `cpmind:ready`.
 
 ---
 

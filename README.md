@@ -24,6 +24,7 @@ packages/
 ├── display-runtime # Рендеринг и измерение display-форматов (banner_*)
 ├── player          # VAST player + измерение video_creative
 ├── creative-bridge # postMessage bridge для HTML5 creatives в iframe
+├── runtime-publisher # Публикация версионированных браузерных бандлов
 └── tag             # Legacy JS-тег для прямого встраивания
 ```
 
@@ -73,8 +74,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 | [`docs/PLACEMENT.md`](./docs/PLACEMENT.md) | Руководство по размещению: Tilda, WordPress, Битрикс, React/Next.js, PHP, Python |
 | [`docs/packages_information/`](./docs/packages_information/) | Детальная документация по каждому пакету |
 | [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) | Production-развёртывание, SSL, бэкапы, мониторинг |
-| [`docs/TECH_DEBT.md`](./docs/TECH_DEBT.md) | Открытые пункты технического долга |
+| [`docs/development_history/TECH_DEBT.md`](./docs/development_history/TECH_DEBT.md) | Открытые пункты технического долга |
 
 ## Ключевые технологии
 
-TypeScript · Node.js 20 · Fastify · Next.js 14 · PostgreSQL 16 · Drizzle ORM · Zod · esbuild · FFmpeg · sharp · Docker · NGINX · Yandex Cloud Object Storage · pnpm workspaces
+TypeScript · Node.js 22 в Docker · Fastify · Next.js 14 · PostgreSQL 16 · Drizzle ORM · Zod · esbuild · FFmpeg · sharp · Docker · NGINX · Selectel Object Storage · pnpm workspaces

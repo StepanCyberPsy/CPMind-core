@@ -2,7 +2,7 @@
 
 ## Обзор
 
-`@cpmind/embed` — легковесный IIFE-бандл (embed loader), генерируемый backend'ом как динамический embed script и загружаемый на странице издателя. Единственная ответственность loader'а — определить тип creative из очереди `__CPMIND_QUEUE__` и загрузить соответствующий runtime bundle (display-runtime или player) с CDN. Loader не рендерит creative сам — он делегирует это специализированным runtime'ам.
+`@cpmind/embed` — легковесный статический IIFE-бандл (embed loader), который загружается динамическим embed-скриптом backend на странице издателя. Единственная ответственность loader'а — определить тип creative из очереди `__CPMIND_QUEUE__` и загрузить соответствующий runtime bundle (display-runtime или player) с CDN. Loader не рендерит creative сам — он делегирует это специализированным runtime'ам.
 
 ---
 
@@ -46,7 +46,7 @@ Publisher page
 └─────────────────────────────────────────────────────────────┘
                               │
                     cdn.cpmind.tech
-               (Yandex CDN → delivery bucket)
+               (CDN → delivery bucket)
 ```
 
 ### Двухступенчатая загрузка
@@ -223,7 +223,7 @@ define: {
     platform: 'browser',
     target: [...TAG_BUILD_TARGETS],
     format: 'iife',
-    outfile: 'dist/cpmind-loader_v1.min.js',
+    outfile: `dist/cpmind-loader_v${version}.min.js`,
     define: {
         'process.env.NODE_ENV': '"production"',
         CDN_BASE_URL: JSON.stringify(cdnBaseUrl),
@@ -234,7 +234,7 @@ define: {
 - **IIFE формат** — исполняется немедленно при загрузке
 - **`TAG_BUILD_TARGETS`** — целевые браузеры из `@cpmind/shared`
 - **Нет внешних зависимостей** — только `@cpmind/shared` типы (инлайнятся при сборке)
-- Результат: `dist/cpmind-loader_v1.min.js` — статический файл, деплоится на CDN
+- Версия задаётся `LOADER_RUNTIME_VERSION` (по умолчанию `1`); результат — `dist/cpmind-loader_v{version}.min.js`, статический файл для CDN
 
 ---
 
@@ -250,7 +250,7 @@ Backend-сервис `services/delivery/embed.ts` генерирует JS для
    - `displayRuntimeVersion`, `playerRuntimeVersion` — из env backend'а
 3. Загружает loader с CDN: `<script async src="{CDN_BASE_URL}/runtime/cpmind-loader_v1.min.js">`
 
-Каждый вызов `GET /e/{token}.js` возвращает уникальный JS (`Cache-Control: no-store`) — adSessionId генерируется при каждом запросе для отслеживания уникальных показов.
+`GET /e/{token}.js` возвращает динамический JS с `Cache-Control: no-store`. Для in-stream идентификатор сессии запрашивается player при рекламной вставке; для самостоятельно монтируемых размещений он выдаётся вместе с конфигурацией.
 
 ---
 
@@ -263,4 +263,4 @@ Backend-сервис `services/delivery/embed.ts` генерирует JS для
 | Скрипт уже загружен | `document.querySelector` проверка — дублирование невозможно |
 | CDN недоступен | Браузер получает сетевую ошибку — creative не отображается, остальная страница работает |
 | Несколько placement'ов | `Set` + DOM-дедупликация — один runtime бандл на тип, не зависит от количества placement'ов |
-| `__CPMIND_QUEUE__` не определён | `window.__CPMIND_QUEUE__ ?? []` — безопасный fallback |
+| `__CPMIND_QUEUE__` не определён | Внешний `try/catch` защищает страницу при ошибке инициализации; динамический embed-скрипт обычно создаёт очередь заранее |

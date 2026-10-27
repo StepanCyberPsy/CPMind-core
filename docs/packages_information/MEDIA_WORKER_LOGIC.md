@@ -56,7 +56,7 @@
 ### Позиция в системе
 
 ```
-Backend API                    Media Worker                  Yandex Object Storage
+Backend API                    Media Worker                  Selectel Object Storage
 ┌─────────────┐               ┌─────────────────────┐       ┌──────────────────────┐
 │ POST        │               │                     │       │                      │
 │ /creative-  │──creates──▶   │  creative_processing │  ◀──  │  staging bucket      │
@@ -206,10 +206,10 @@ processJob(job, workerId, tempDir, signal)
 │
 ├─ prepareProcessedFiles()       ← для каждого файла:
 │    ├─ stat() → проверка существования и ненулевого размера
-│    ├─ computeFileSha256()      ← content-addressed key
-│    ├─ deliveryAssetKey(sha256, ext) ← storage key
+│    ├─ computeFileSha256()      ← content-addressed key; для HTML5 используется хеш дерева
+│    ├─ deliveryAssetKey(sha256, ext) ← storage key; HTML5 использует ключ index.html под префиксом дерева
 │    ├─ findAssetBySha256()      ← проверка дедупликации
-│    └─ uploadProcessedFile()    ← PUT в delivery bucket (если нет дубля)
+│    └─ uploadProcessedFile()    ← PUT в delivery bucket; для HTML5 файлы уже опубликованы процессором
 │
 ├─ publishProcessedFiles()       ← транзакция:
 │    ├─ createAsset() ON CONFLICT DO NOTHING  ← upsert по SHA-256
@@ -218,7 +218,7 @@ processJob(job, workerId, tempDir, signal)
 │    ├─ setUploadSessionReady()              ← status → 'ready'
 │    └─ setProcessingJobReady()              ← status → 'ready'
 │
-└─ deleteStagingBestEffort()     ← best-effort DELETE из staging (403 → WARN, не ошибка)
+└─ deleteStagingBestEffort()     ← best-effort DELETE из staging; ошибка записывается в журнал
 ```
 
 ### Дедупликация ассетов
@@ -226,7 +226,7 @@ processJob(job, workerId, tempDir, signal)
 Ассеты хранятся content-addressed по SHA-256. Если файл с таким SHA-256 уже существует в `assets` таблице:
 
 1. Проверяется совместимость существующего ассета (статус, размер, MIME)
-2. Повторная загрузка в Object Storage пропускается
+2. Для обычного файла повторный PUT выполняется по существующему ключу, чтобы восстановить объект при параллельной очистке
 3. Существующий `storageKey` используется повторно
 
 `createAsset` использует `ON CONFLICT (sha256) DO NOTHING` — конкурентные inserts безопасны.
@@ -330,7 +330,7 @@ application/zip, video/mp4, video/quicktime, video/x-msvideo, video/webm
 
 ### GIF (`processing/gif.ts`)
 
-Обрабатывает анимированные GIF через `sharp`. Сохраняет анимацию, нормализует размер.
+Читает метаданные GIF через `sharp` с `animated: true`, проверяет ширину и высоту отдельного кадра и копирует исходный файл без перекодирования, сохраняя тайминг и палитру.
 
 ### SVG (`processing/svg.ts`)
 
@@ -354,10 +354,12 @@ ZIP (входной файл)
 │
 ├─ writeFile('index.html')  ← перезапись с инжектированным bridge
 │
-└─ repackZip()              ← архивирование extracted/ → bundle.zip (level 9)
+├─ собрать обычные файлы и их SHA-256, отсортировать по относительному пути
+├─ вычислить SHA-256 дерева из пар путь/хеш
+└─ загрузить каждый файл под общим префиксом html5/{hash}/ с соответствующим Content-Type
 ```
 
-Bridge injection — ключевая операция: каждый HTML5-креатив получает CPMind bridge при обработке, не требуя действий от разработчика.
+Bridge injection — ключевая операция: каждый HTML5-креатив получает CPMind bridge при обработке, не требуя действий от разработчика. В `assets` записывается точка входа `index.html` с хешем и размером всего дерева; относительные ссылки разрешаются благодаря общему префиксу файлов.
 
 ### Video (`processing/video.ts`)
 
@@ -420,7 +422,7 @@ localPath (video file)
 
 ### Ключи в Object Storage
 
-`deliveryAssetKey(sha256, extension)` — content-addressed ключ. Формат: `assets/{sha256}.{ext}`. Иммутабельность гарантирована: один SHA-256 → один файл → один URL на CDN.
+`deliveryAssetKey(sha256, extension)` строит ключ `assets/sha256/{первые 2 символа}/{следующие 2 символа}/{sha256}.{ext}`. HTML5 использует отдельный префикс `html5/{первые 2 символа}/{следующие 2 символа}/{sha256 дерева}/{относительный путь}`.
 
 Источник (source) загружается в `SOURCE_BUCKET` (для архива), обработанные ассеты — в `DELIVERY_BUCKET` (для CDN раздачи).
 
@@ -452,7 +454,7 @@ localPath (video file)
 **Трёхстадийная сборка:**
 - `deps` — установка зависимостей через pnpm
 - `builder` — TypeScript компиляция (`tsc`)
-- `runner` — минимальный образ `node:20-alpine` + `ffmpeg` (из apk)
+- `runner` — минимальный образ `node:22-alpine` + `ffmpeg` (из apk)
 
 **Ключевые особенности runner stage:**
 - `USER cpmind` — non-root пользователь
@@ -463,8 +465,8 @@ localPath (video file)
 **Зависимости:**
 - `sharp` — обработка изображений (libvips)
 - `file-type` — magic bytes детекция MIME
-- `unzipper` / `archiver` — ZIP extraction и repacking
-- `@aws-sdk/client-s3` — S3-совместимый API Yandex Object Storage
+- `unzipper` — распаковка ZIP с проверками безопасности
+- `@aws-sdk/client-s3` — S3-совместимый API Selectel Object Storage
 - `pg` — прямое подключение к PostgreSQL (не через ORM)
 - FFmpeg — системный бинарный, устанавливается через `apk add ffmpeg`
 
@@ -483,7 +485,7 @@ localPath (video file)
 | INFO | Pipeline completed | jobId, sourceSha256, assetCount |
 | WARN | Heartbeat failed | jobId, workerId, err |
 | WARN | Lease lost | jobId, workerId |
-| WARN | Staging cleanup failed | jobId, err (403 — ожидаемо) |
+| WARN | Staging cleanup failed | jobId, err |
 | WARN | Expired jobs recovered | requeued, failed |
 | ERROR | Job permanently failed | jobId, attempts, error |
 | ERROR | Worker slot error | slotId, err |
@@ -492,6 +494,6 @@ localPath (video file)
 
 | Проблема | Описание | Решение |
 |---|---|---|
-| DELETE staging 403 | IAM роль `storage.uploader` не включает DELETE | Добавить `storage.editor` в `iam.tf` |
-| Node.js ≥22 | AWS SDK требует Node 22 после 2027 | Обновить базовый образ |
+| Удаление staging | Выполняется после публикации в режиме best-effort | Проверять журнал при ошибке удаления |
+| Базовый образ | Dockerfile использует `node:22-alpine` | Версия локального Node.js задаётся требованиями корневого манифеста |
 | Последовательная транскодирование | Видео-профили обрабатываются последовательно, не параллельно | Параллелизация через Promise.all если CPU позволяет |

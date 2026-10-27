@@ -24,6 +24,7 @@
             ├── [FILE] session.ts
             ├── [FILE] static.ts
             ├── [FILE] types.ts
+            ├── [FILE] viewport.ts
         ├── [FILE] tsconfig.json
 ```
 
@@ -78,8 +79,6 @@ Embed loader заполняет `__CPMIND_QUEUE__` до загрузки runtime
 ```typescript
 interface DisplayQueueEntry extends DeliveryRuntimeConfig {
     container: HTMLElement;    // DOM-элемент издателя
-    campaignId: string;
-    creativeId: string;
     assetUrl: string;          // CDN URL ассета
 }
 ```
@@ -96,7 +95,9 @@ interface DisplayQueueEntry extends DeliveryRuntimeConfig {
 | `asset_load_started` | После монтирования контейнера |
 | `creative_ready` | После загрузки ассета (до render confirmation) |
 | `render_confirmed` | После `requestAnimationFrame` — первый отрисованный frame |
-| `creative_error` | При любой ошибке flow |
+| `measurement_started` | После входа контейнера в область просмотра и старта измерения |
+| `closed` | При завершении или отмене из-за удаления либо выгрузки |
+| `creative_error` | При ошибке загрузки или ожидания |
 
 ---
 
@@ -123,12 +124,14 @@ sendDisplayEvent('asset_load_started')
     ▼
 sendDisplayEvent('render_confirmed')
     │
+waitForViewportEntry()          ← первое ненулевое пересечение
+    │
 prepareDisplayMeasurement()     ← инициализация SDK session
     │
-startDisplayMeasurement(renderConfirmedAt)
+startDisplayMeasurement(measurementStartedAt)
 ```
 
-Весь flow выполняется в `runDisplayFlowAsync()`. AbortController с timeout `entry.timeouts.adLoadTotalMs` — если creative не загрузился за отведённое время, отправляется `creative_error` с кодом `MEDIA_START_TIMEOUT`.
+Весь flow выполняется в `runDisplayFlowAsync()`. Таймаут `entry.timeouts.adLoadTotalMs` ограничивает загрузку до подтверждения рендеринга. После него ожидание входа в область просмотра продолжается без этого таймера. При `pagehide` или удалении контейнера ожидание отменяется с событием `closed`; ошибка наблюдателя и ошибка загрузки обрабатываются как `creative_error`.
 
 ### Монтирование контейнера (`mount.ts`)
 
@@ -157,7 +160,7 @@ container
 1. `waitForImageLoaded(img, signal)` — ждёт `img.complete && naturalWidth > 0` или событие `load`
 2. `img.decode()` (если доступно) — ждёт полного декодирования
 3. `waitForFramePainted()` — `requestAnimationFrame` → гарантия что браузер отрисовал frame
-4. `Date.now()` → `renderConfirmedAt` (инвариант §17 SDK: timestamp начала измерения = момент первого видимого frame)
+4. `Date.now()` → `renderConfirmedAt`; начало измерения определяется отдельно после входа контейнера в область просмотра
 
 ### HTML5 flow (`iframe.ts` + `html5_bridge.ts`)
 
@@ -178,7 +181,7 @@ iframe.ts                        html5_bridge.ts (в iframe)
     │◀─────── cpmind:ready ─────────────│
     │                                    │
     │  postMessage(cpmind:init,          │
-    │    clickUrl, bridgeVersion)        │
+    │    clickUrl, bridgeVersion, gestures)│
     │────────── cpmind:init ───────────▶│
     │                                    │  initialized = true
     │  sendDisplayEvent('creative_ready')│
@@ -192,7 +195,9 @@ window.addEventListener('message', onHandshake);
 iframe.src = assetUrl;  // только после listener — иначе cpmind:ready может прийти раньше
 ```
 
-**Cleanup:** `waitForHtml5Ready` возвращает `cleanup` функцию (снимает click message listener). Сохраняется в `ctx.bridgeCleanup` и вызывается при `destroyDisplaySession`.
+**Взаимодействия:** обработчик проверяет `event.source`, формат сообщений и частоту событий; наблюдения хоста за фокусом, курсором, видимостью и активацией передаются в классификатор SDK. После создания измерительной сессии обработчик подключается к ней через `frameConnect`.
+
+**Cleanup:** `waitForHtml5Ready` возвращает `cleanup` и `connect`. Очистка снимает обработчики и наблюдатель, затем отправляет `cpmind:destroy`.
 
 При демонтаже iframe хост отправляет `cpmind:destroy` → bridge вызывает `ac.abort()` → снимает все listeners в iframe.
 
@@ -211,10 +216,10 @@ createDisplaySessionContext()
     │
 prepareDisplayMeasurement(ctx, container)
     │  создаёт MeasurementSession через SDK.prepareMeasurementSession()
-    │  вызывается СТРОГО после render_confirmed
+    │  вызывается после render_confirmed и входа в область просмотра
     │
-startDisplayMeasurement(ctx, renderConfirmedAt)
-    │  session.startMeasurement(renderConfirmedAt)
+startDisplayMeasurement(ctx, measurementStartedAt)
+    │  session.startMeasurement(measurementStartedAt)
     │  запускает сигналы S1-S7 через SDK
     │
 destroyDisplaySession(ctx, reason)
@@ -222,11 +227,11 @@ destroyDisplaySession(ctx, reason)
     │  bridgeCleanup?.() → снимает HTML5 message listeners
 ```
 
-**Инвариант:** `prepareDisplayMeasurement` вызывается строго после render confirmation. До этого момента `measurementSession === null`. Это гарантирует что S1 (time-in-view) начинает отсчёт с реального момента появления creative на экране.
+**Инвариант:** `measurementSession` создаётся после подтверждения рендеринга и первого ненулевого пересечения контейнера с областью просмотра. Время ожидания этого пересечения не входит в измерение.
 
 ### `measurementMode`
 
-Display-runtime всегда устанавливает `measurementMode: 'full_direct_display'`. Это поле передаётся в backend для корреляции ad session и impression record.
+`measurementMode` поступает в конфигурации от backend и передаётся в SDK без переопределения runtime. Оно связывает рекламную сессию с записью показа.
 
 ---
 
@@ -286,3 +291,5 @@ function isValidClickthroughUrl(url: string): boolean {
 | Исключение в `processEntry` | `.catch(() => {})` — ошибки одного creative не ломают другие |
 | Ошибка инициализации runtime | outer `try/catch` в `index.ts` — не ломает страницу издателя |
 | Невалидный clickUrl | `toSafeHref()` → `null`, clickthrough отключается |
+| Удаление контейнера или `pagehide` до начала измерения | Ожидание отменяется, отправляется `closed`, ресурсы освобождаются |
+| `IntersectionObserver` недоступен | Ожидание завершается ошибкой, SDK-сессия не создаётся |

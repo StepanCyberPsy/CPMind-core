@@ -53,6 +53,16 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] 0019_seed_default_weights.sql
                 ├── [FILE] 0020_wide_marauders.sql
                 ├── [FILE] 0021_aromatic_silver_samurai.sql
+                ├── [FILE] 0022_lush_crystal.sql
+                ├── [FILE] 0023_majestic_donald_blake.sql
+                ├── [FILE] 0024_public_roulette.sql
+                ├── [FILE] 0025_quick_black_tom.sql
+                ├── [FILE] 0026_free_scourge.sql
+                ├── [FILE] 0027_spicy_boomerang.sql
+                ├── [FILE] 0028_superb_scorpion.sql
+                ├── [FILE] 0029_known_iron_patriot.sql
+                ├── [FILE] 0030_sharp_miracleman.sql
+                ├── [FILE] 0031_mighty_shocker.sql
                 ├── [DIR] meta
                     ├── [FILE] 0000_snapshot.json
                     ├── [FILE] 0001_snapshot.json
@@ -87,6 +97,10 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] ivt_frequency.ts
                 ├── [FILE] retention.ts
                 ├── [FILE] s1_weibull_recalibration.ts
+                ├── [FILE] s2_calibration.ts
+                ├── [FILE] recalibration_sample.ts
+                ├── [FILE] sample_split.ts
+                ├── [FILE] logistic_quality.ts
                 ├── [FILE] s3_logistic_recalibration.ts
                 ├── [FILE] s4_calibration.ts
                 ├── [FILE] s5_logistic_recalibration.ts
@@ -110,6 +124,7 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] ivt_thresholds.ts
                 ├── [FILE] placements.ts
                 ├── [FILE] s1_weibull.ts
+                ├── [FILE] s2_config.ts
                 ├── [FILE] s3_logistic.ts
                 ├── [FILE] s4_config.ts
                 ├── [FILE] s5_logistic.ts
@@ -131,6 +146,8 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] campaigns.ts
                 ├── [DIR] configs
                     ├── [FILE] logistic_config.ts
+                    ├── [FILE] s2_config.ts
+                    ├── [FILE] s6_label.ts
                     ├── [FILE] s4_config.ts
                     ├── [FILE] s4_fit.ts
                     ├── [FILE] s5_logistic_config.ts
@@ -143,6 +160,10 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] csv.ts
                 ├── [DIR] delivery
                     ├── [FILE] embed.ts
+                    ├── [FILE] creative_rotation.ts
+                    ├── [FILE] domain_policy.ts
+                    ├── [FILE] impression_context.ts
+                    ├── [FILE] impression_context_rules.ts
                     ├── [FILE] events.ts
                     ├── [FILE] publisher.ts
                     ├── [FILE] sessions.ts
@@ -189,7 +210,7 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 - Zod-валидация `ImpressionPayloadSchema`
 - 422 при неизвестном или неактивном `tag_uuid` или `tag_constants_version`
 - 202 при успехе (намеренно, не 200 — данные еще в обработке)
-- `ON CONFLICT DO NOTHING` на `impression_id` — дедупликация повторных отправок
+- `ON CONFLICT DO UPDATE` обновляет только промежуточный снимок того же владельца и рекламной сессии при неубывающем времени окончания; финальная запись не перезаписывается
 - Rate limit: 100 req/s с одного IP, burst 200 (настроен в NGINX, не в Fastify)
 - CORS: `Access-Control-Allow-Origin: *` — работает с любого домена
 
@@ -202,35 +223,13 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 Генерация embed script для placement. Основной delivery-эндпоинт для hosted creative flow.
 
 - `token` — `delivery_token` из таблицы `placements` (base64url 32 символа)
-- `Cache-Control: no-store` — каждый запрос уникален (`adSessionId` генерируется при каждом вызове)
+- `Cache-Control: no-store`; для in-stream сессия выдаётся при рекламной вставке, для остальных размещений — при выдаче скрипта
 - CORS: `Access-Control-Allow-Origin: *`, `credentials: false`
 - Возвращает пустую строку (не ошибку) при: неизвестном token, неактивном placement, отсутствии ready creative version, отсутствии primary asset
 
 **Логика резолвинга версии:** используется закреплённая (`creativeVersionId` в placement) если она в статусе `ready`; иначе — последняя `ready` версия по `version DESC`. Если ни одной нет — пустая строка.
 
-**Структура генерируемого JS:**
-```javascript
-(function() {
-  'use strict';
-  var el = document.createElement('div');
-  el.style.width = '{width}px'; el.style.height = '{height}px';
-  el.style.overflow = 'hidden';
-  document.body.appendChild(el);
-  window.__CPMIND_QUEUE__ = window.__CPMIND_QUEUE__ || [];
-  var cfg = { /* DeliveryRuntimeConfig + displayRuntimeVersion + playerRuntimeVersion */ };
-  cfg.container = el;
-  window.__CPMIND_QUEUE__.push(cfg);
-  if (!window.__CPMIND_LOADER__) {
-    window.__CPMIND_LOADER__ = true;
-    var s = document.createElement('script');
-    s.src = '{CDN_BASE_URL}/runtime/cpmind-loader_v1.min.js';
-    s.async = true;
-    document.head.appendChild(s);
-  }
-})();
-```
-
-Контейнер `div` создаётся и монтируется в `document.body` embed script'ом — издатель вставляет только `<script>` тег. `__CPMIND_LOADER__` guard — один loader на страницу при нескольких placement'ах.
+**Структура генерируемого JS:** скрипт создаёт очередь `__CPMIND_QUEUE__`, конфигурацию и функцию монтирования. Для banner и out-stream контейнер добавляется в `slotId` или в `document.body`; для in-stream в качестве контейнера используется `document.body`. Если место ещё не найдено, монтирование повторяется при `DOMContentLoaded`. Guard `__CPMIND_LOADER__` обеспечивает одну загрузку версионированного loader на страницу.
 
 **`assetUrl`:** для `banner_html5` — `buildCreativeUrl(storageKey)` (`creative.cpmind.tech`), для всех остальных — `buildCdnUrl(storageKey)` (`cdn.cpmind.tech`).
 
@@ -239,12 +238,16 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 | `creativeType` | `measurementMode` |
 |---|---|
 | `video_creative` | `full_cpmind_player` |
-| `banner_html5` | `partial_embedded_iframe` |
+| `banner_html5` | `full_direct_display` |
 | остальные | `full_direct_display` |
 
-**Создание `ad_session`:** вызов `createAdSession()` происходит при каждом `GET /e/:token` — до первого клиентского события. `adSessionId` генерируется сервером (`randomUUID()`), включается в `DeliveryRuntimeConfig` и передаётся в SDK через queue entry. Последующие delivery events от SDK приходят с этим id.
+**Создание `ad_session`:** banner и out-stream получают идентификатор при выдаче embed-скрипта. Для in-stream `adSessionId` в очереди равен `null`; player запрашивает сессию через `POST /api/delivery/session` при вставке рекламы. Версия креатива и константы фиксируются в выданном сервером контексте.
 
 ---
+
+### `POST /api/delivery/session` и `POST /api/delivery/advance`
+
+`session` принимает `deliveryToken` и выдаёт `adSessionId` для in-stream. `advance` принимает токен и идентификатор существующей сессии, выбирает следующий видеокреатив, обновляет `videoShowIndex` и возвращает идентификатор версии. Переход выполняется в транзакции с блокировкой строки сессии.
 
 ### `POST /api/delivery/event`
 
@@ -262,6 +265,8 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 | `asset_load_started` | `assetLoadStartedAt` |
 | `creative_ready` | `creativeReadyAt` |
 | `render_confirmed` | `renderConfirmedAt` |
+| `measurement_started` | `measurementStartedAt` |
+| `autoplay_resolved` | результат автозапуска и поля звука |
 | `creative_error`, `player_error` | `errorAt`, `errorCode` |
 | `closed` | `measurementEndedAt` |
 | `requested` | только `lastSeenAt` |
@@ -281,7 +286,7 @@ VAST 4.3 InLine XML для видео placement'а.
 
 **Tracking URLs** генерируются с паттерном `{DELIVERY_BASE_URL}/t/vast/{event}?sid={adSessionId}`. Для `error` — дополнительный параметр `&code=[ERRORCODE]` (IAB macro, заменяется плеером).
 
-**Создание `ad_session`:** аналогично embed endpoint — новая сессия при каждом запросе.
+**`ad_session`:** VAST с допустимым `sid` привязывается к ранее выданной сессии и использует её зафиксированную версию; без `sid` создаётся отдельная сессия `vast_only`.
 
 ---
 
@@ -367,6 +372,7 @@ VAST tracking pixel. Обновляет временны́е метки виде
 | `GET/POST` | `/api/tag-constants` | список / создание версии констант |
 | `POST` | `/api/tag-constants/:configId/activate` | активировать версию |
 | `POST` | `/api/tag-constants/:configId/deactivate` | деактивировать версию |
+| `POST` | `/api/tag-constants/:configId/set-default` | назначить активную версию по умолчанию |
 | `GET/POST` | `/api/ivt-lists` | список версий GIVT-списков / загрузка CSV |
 | `POST` | `/api/ivt-lists/:id/activate` | активировать версию списка |
 | `GET/POST` | `/api/ivt-thresholds` | список версий порогов / создание |
@@ -376,6 +382,8 @@ VAST tracking pixel. Обновляет временны́е метки виде
 | `POST` | `/api/s1-weibull/:id/deactivate` | деактивировать конфиг S1 |
 | `POST` | `/api/s1-weibull/:id/schedule-delete` | запланировать удаление (TTL 60 мин) |
 | `POST` | `/api/s1-weibull/:id/cancel-delete` | отменить удаление |
+| `GET` | `/api/s2-config` | список квантильных конфигов S2 |
+| `POST` | `/api/s2-config/:id/activate`, `/deactivate`, `/schedule-delete`, `/cancel-delete` | управление жизненным циклом S2 |
 | `GET` | `/api/s3-logistic` | список логистических конфигов S3 |
 | `POST` | `/api/s3-logistic/:id/activate` | активировать конфиг S3 |
 | `POST` | `/api/s3-logistic/:id/deactivate` | деактивировать конфиг S3 |
@@ -416,37 +424,42 @@ VAST tracking pixel. Обновляет временны́е метки виде
    → JOIN tags+users, оба isActive проверяются
    → 422 если тег неизвестен или неактивен, или владелец неактивен
 
-3. resolveTagConstants(tag_constants_version)
-   → PRESENCE_IDLE_TIMEOUT_MS для F_Presence
-   → 422 если версия неизвестна или неактивна (жёсткая блокировка)
+3. resolveImpressionContext(payload, owner.userId)
+   → hosted: проверка владельца, срока, режима измерения и полноты контекста
+   → доменная политика off / monitor / block; мягкие нарушения сохраняются
+   → legacy при отсутствии ad_session_id и hosted-режима
 
-4. creativeType → CreativeCategory
-   → 'video_creative' = 'video', остальные = 'banner'
-   → skippable: payload.skippable (top-level, не из signals.s6)
-   → s6SegmentKey = `${deviceType}|${skippable ? 'skippable' : 'non_skippable'}` для video,
-     null для banner
+4. resolveTagConstantsVersion(tag_constants_version)
+   → PRESENCE_IDLE_TIMEOUT_MS для F_Presence
+   → 422 для неизвестной версии; для hosted-сессии учитывается окно приёма
+
+4.1. creativeType → CreativeCategory
+   → banner / video / video_instream / video_outstream по типу и формату
+   → для hosted-показа атрибуция и skippable берутся из ad_session
+   → resolveS6SegmentKeys(device, format, subtype, skippable) для video
 
 5. Promise.all — параллельная загрузка всех зависимостей:
    → getActiveWeightsConfig(category)
-     двухключевой in-memory кэш { banner, video }
+     in-memory кэш по четырём категориям
    → getActiveIvtList()          in-memory кэш, nullable
    → getActiveIvtThresholds()    in-memory кэш, fallback DEFAULT_IVT_THRESHOLDS
-   → getActiveS1WeibullParams(segmentKey)
+   → getActiveWeibullParams(segmentKey)
      segmentKey = `${deviceType}|${creativeGroup}`, fallback DEFAULT_WEIBULL_PARAMS
      возвращает { params: WeibullParams, modelVersion: string }
-   → getActiveS3LogisticParams(segmentKey)
-     9 сегментов device×creative_group, fallback DEFAULT_LOGISTIC_PARAMS
+   → getActiveS2Params(segmentKey)
+     квантили по устройству и группе креатива, fallback DEFAULT_S2_PARAMS
+   → getActiveS3LogisticParams(segmentKey, tagConstantsVersion)
+     группы static для баннеров и video для видео, fallback DEFAULT_LOGISTIC_PARAMS
      возвращает { params: LogisticParams, modelVersion: string }
    → getActiveS4Config(segmentKey)
      5 сегментов (desktop_banner, mobile_banner, desktop_video, mobile_video, default)
      возвращает S4ConfigResolution { config: S4Config, modelVersion: string }
-   → getActiveS5LogisticParams(segmentKey)
+   → getActiveS5LogisticParams(segmentKey, tagConstantsVersion)
      2 сегмента (desktop, mobile_tablet), fallback DEFAULT_S5_*
      возвращает { params: S5LogisticParams, modelVersion: string }
-   → getActiveS6LogisticParams(s6SegmentKey)
-     s6SegmentKey = null для banner → возвращает null (не DEFAULT)
-     6 сегментов device×skippable для video, fallback DEFAULT_S6_LOGISTIC_PARAMS
-     возвращает { params: S6LogisticParams, modelVersion: string } | null
+   → getActiveS6LogisticParams(s6SegmentKeys, tagConstantsVersion)
+     цепочка группы размещения, режима и совместимого legacy-сегмента
+     возвращает параметры выбранного режима и версию модели
    → getActiveS7Thresholds(deviceType)
      3 сегмента (desktop, mobile, tablet), fallback DEFAULT_S7_THRESHOLDS[deviceType]
      возвращает S7ThresholdsResolution { thresholds: S7Thresholds, modelVersion: string }
@@ -460,19 +473,19 @@ VAST tracking pixel. Обновляет временны́е метки виде
      S5: hover_duration_max_ms ≥ 0; cursor_proximity ≥ 0; entropy [0,1]
      S6: completion_rate_pct [0,100]; audible_time_sec [0,3600];
          duration_sec [0,3600]; replay_count ≥ 0; volume_level [0,100]
-   → structuredClone — не мутирует входной payload
+   → копия через JSON — не мутирует входной payload
 
 7. normalizeAll(capped, modelParams)
    → normalizeS1(s1, weibullParams) — Weibull CDF, 9 сегментов
-   → normalizeS2(s2) — sqrt(shareAvg × shareMax) / 100
-   → normalizeS3(s3, logisticParams) — логистика, 9 сегментов; null для iframe
+   → normalizeS2(s2, s2Params) — интерполированная квантильная CDF
+   → normalizeS3(s3, logisticParams) — логистика по группам баннер/video; null для недоступного сигнала
    → normalizeS4(s4, s4Config) — нелинейная функция λ/T_ref, 5 сегментов
-   → normalizeS5(s5, s5Params, deviceType) — логистика, 2 сегмента
-   → normalizeS6(s6, s6Params) — логистика с interaction term; null для banner
+   → normalizeS5(s5, s5Params) — логистика, 2 сегмента
+   → normalizeS6(s6, s6Params) — отдельные модели in-stream/out-stream; null для banner
    → normalizeS7(s7, deviceType, s7Thresholds) — квантильная формула, 3 сегмента
    Pure-функции, без side effects
 
-8. computeScore(normalized, presenceThreshold, weights)
+8. computeScore(payload, weights, параметры моделей, presenceThreshold)
    → computeEffectiveWeights() — перераспределение при S3=null или S6=null
    → F_Presence по скользящему окну (presenceThreshold из version констант)
    → CPMind Score ∈ [0, 100]
@@ -491,9 +504,9 @@ VAST tracking pixel. Обновляет временны́е метки виде
 
 10. INSERT в impressions
     → tag_id, user_id, tag_constants_version, weights_version денормализованы
-    → publisher_domain из payload.publisher_domain
-    → skippable из payload.skippable (boolean)
-    → s1_model_version, s3_model_version, s4_model_version,
+    → publisher_domain из серверного контекста hosted-показа либо payload legacy-показа
+    → skippable из серверного контекста hosted-показа либо payload legacy-показа
+    → s1_model_version, s2_model_version, s3_model_version, s4_model_version,
       s5_model_version, s6_model_version, s7_model_version
       (UUID активного конфига или 'default' при fallback)
     → s6_completion_rate_pct, s6_audible_time_sec, s6_duration_sec,
@@ -501,7 +514,7 @@ VAST tracking pixel. Обновляет временны́е метки виде
     → signals_raw включает presence
     → ivt_verdict (DEFAULT 'valid'), ivt_category, ivt_confidence, score_reliable,
       fp_hash (из payload, nullable), ivt_signals (null при пустом массиве)
-    → ON CONFLICT DO NOTHING на impression_id
+    → ON CONFLICT DO UPDATE только для более свежего checkpoint той же сессии и владельца
 
 11. Ответ 202 Accepted
 ```
@@ -572,7 +585,11 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 ### `services/configs/weibull_config.ts`
 
-`getActiveS1WeibullParams(segmentKey: string)` — in-memory кэш `Map<segmentKey, {params, modelVersion}>`. При отсутствии активного конфига для сегмента — fallback на global-сегмент, затем на `DEFAULT_WEIBULL_PARAMS {k:1.0, λ:5.0}`. `invalidateWeibullCache()` очищает весь Map. CRUD: `listS1WeibullConfigs()`, `activateS1WeibullConfig(id)`, `deactivateS1WeibullConfig(id)`, `scheduleS1WeibullDeletion(id)`, `cancelS1WeibullDeletion(id)`. Активация — транзакция: деактивировать другие конфиги того же `segment_key` → активировать целевой → инвалидировать кэш. `scheduleS1WeibullDeletion` — запрещён для активных конфигов (409 S1_WEIBULL_CONFIG_ACTIVE). `activateS1WeibullConfig` — запрещён при `deletion_scheduled_at IS NOT NULL` (409 S1_WEIBULL_CONFIG_DELETION_SCHEDULED).
+`getActiveWeibullParams(segmentKey: string)` — in-memory кэш `Map<segmentKey, {params, modelVersion}>`. При отсутствии активного конфига для сегмента проверяется группа креатива, затем global-сегмент и `DEFAULT_WEIBULL_PARAMS {k:1.0, λ:5.0}`. `invalidateWeibullCache()` очищает весь Map. CRUD: `listS1WeibullConfigs()`, `activateS1WeibullConfig(id)`, `deactivateS1WeibullConfig(id)`, `scheduleS1WeibullDeletion(id)`, `cancelS1WeibullDeletion(id)`. Активация — транзакция: деактивировать другие конфиги того же `segment_key` → активировать целевой → инвалидировать кэш. `scheduleS1WeibullDeletion` — запрещён для активных конфигов (409 S1_WEIBULL_CONFIG_ACTIVE). `activateS1WeibullConfig` — запрещён при `deletion_scheduled_at IS NOT NULL` (409 S1_WEIBULL_CONFIG_DELETION_SCHEDULED).
+
+### `services/configs/s2_config.ts`
+
+`getActiveS2Params(segmentKey)` выбирает активную конфигурацию по цепочке устройство×группа → группа → global → `DEFAULT_S2_PARAMS`, проверяет массивы квантилей и кэширует результат. Поддерживаются активация, деактивация и отложенное удаление.
 
 ### `services/configs/logistic_config.ts`
 
@@ -592,7 +609,7 @@ export const NUMERIC_RANGE_COLUMNS = {
 
 ### `services/configs/s6_logistic_config.ts`
 
-`getActiveS6LogisticParams(segmentKey: string | null)` — ключевая особенность: `segmentKey = null` для баннеров → возвращает `null` (не DEFAULT). Баннер не имеет S6 физически — нет смысла в параметрах. 6 сегментов: `{desktop|mobile|tablet}|{skippable|non_skippable}` (разделитель `|`). Параметры: `{beta0..beta8, featureMeans, featureStds}` — 9 коэффициентов включая терм взаимодействия `completionZ×audibleZ`.
+`getActiveS6LogisticParams` получает цепочку ключей группы размещения и версию констант. Сначала проверяется модель соответствующей версии, затем последняя активная модель на каждом уровне цепочки; предусмотрены резервные параметры режима. Баннерный сигнал при нормализации остаётся `null`.
 
 ### `services/configs/s7_quantile_config.ts`
 
@@ -607,19 +624,20 @@ export const NUMERIC_RANGE_COLUMNS = {
 `bootstrapAll()` отсутствует — `index.ts` вызывает каждую функцию напрямую в строгой последовательности, каждая в собственном `try/catch` с `process.exit(1)` при ошибке. Функции:
 - `bootstrapAdmin()` — идемпотентно (skip if exists)
 - `bootstrapTagConstants()` — v0 из `DEFAULT_TAG_CONSTANTS`
-- `bootstrapDefaultWeights()` — banner и video конфиги из `DEFAULT_BANNER_WEIGHTS` / `DEFAULT_VIDEO_WEIGHTS`
+- `bootstrapDefaultWeights()` — профили `banner`, `video`, `video_instream`, `video_outstream` из значений по умолчанию
 - `bootstrapS1WeibullDefault()` — глобальный сегмент `'global'` × `DEFAULT_WEIBULL_PARAMS`, `is_active=true`
+- `bootstrapS2Default()` — глобальная квантильная конфигурация S2
 - `bootstrapS3LogisticDefault()` — глобальный сегмент `'global'`, нулевые коэффициенты
 - `bootstrapS4Default()` — 5 сегментов × дефолтные λ/T_ref
 - `bootstrapS5Default()` — 2 сегмента × prior-коэффициенты
-- `bootstrapS6Default()` — 6 сегментов, нулевые коэффициенты → S6=50
+- `bootstrapS6Default()` — группы размещений, уровни режимов и legacy-сегменты с нулевыми коэффициентами → S6=50
 - `bootstrapS7Default()` — 3 сегмента × `DEFAULT_S7_THRESHOLDS`
 
 Все `bootstrapS*` функции: `INSERT ... ON CONFLICT DO NOTHING` — idempotent при повторном старте.
 
 ### `services/configs/weights_config.ts`
 
-`getActiveWeightsConfig(category: CreativeCategory)` — двухключевой in-memory кэш `{ banner: WeightsValues | null, video: WeightsValues | null }`. Запрос фильтруется по `configType = category`. Fallback на `DEFAULT_BANNER_WEIGHTS` / `DEFAULT_VIDEO_WEIGHTS` по категории. `s6: w['s6'] ?? 0` — страховка для исторических строк без S6 в JSONB. `invalidateWeightsCache()` инвалидирует оба ключа.
+`getActiveWeightsConfig(category: CreativeCategory)` использует in-memory кэш по категориям `banner`, `video`, `video_instream`, `video_outstream`. Запрос фильтруется по `configType = category`. Fallback на профиль по умолчанию для соответствующей категории. `s6: w['s6'] ?? 0` — страховка для исторических строк без S6 в JSONB. `invalidateWeightsCache()` очищает кэш всех категорий.
 
 `createWeightsConfig()` — принимает `configType: CreativeCategory`, валидирует сумму 7 весов (включая s6) = 1.00.
 
@@ -710,9 +728,17 @@ interface CreativeListItem {
 
 ### `services/delivery/embed.ts`
 
-`resolveEmbedScript(token, publisherDomain)` — по `delivery_token` загружает placement + active creative version + assets + delivery_runtime_config. Генерирует JS скрипт с `window.__CPMIND_QUEUE__` содержащим полный `DeliveryRuntimeConfig`. Создаёт `ad_session` запись. Возвращает `null` при неактивном placement или отсутствии ready версии.
+`resolveEmbedScript(token, publisherDomain)` загружает размещение, версию креатива, ассеты и конфигурацию, затем формирует очередь `DeliveryRuntimeConfig`. Для in-stream сессия выдаётся отдельно функцией `issueAdSession`; для остальных форматов создаётся при выдаче скрипта. `advanceAdSessionCreative` переводит сессию к следующему ролику.
 
 `resolveVastContext(token, publisherDomain)` — аналогично для VAST: загружает контекст, возвращает `VastInLineInput` или null.
+
+### `services/delivery/creative_rotation.ts` и `domain_policy.ts`
+
+Ротация выбирает готовый ролик взвешенно либо последовательно для out-stream; при случайном выборе предыдущий ролик исключается, если есть альтернатива. Доменная политика учитывает разрешённые домены и поддомены: `off` пропускает, `monitor` отмечает нарушение, `block` отклоняет; неопределённый домен сам по себе не считается нарушением.
+
+### `services/delivery/impression_context.ts` и `impression_context_rules.ts`
+
+Контекст hosted-показа связывается с серверной `ad_session`; проверяются владелец, срок, режим измерения, полнота данных и доменная политика. Различаются отклонение и принятие с признаками расхождения.
 
 ### `services/delivery/events.ts`
 
@@ -808,7 +834,7 @@ Delivery: `assets/sha256/{sha256[0:2]}/{sha256[2:4]}/{sha256}.{extension}` — �
 
 - `tag_constants_configs` — много одновременно активных версий (в отличие от `weight_configs`).
 - Runtime-сборка через `services/tag_builder.ts`, без Docker-сервиса.
-- Деактивация = удаление физического файла + жёсткая блокировка `POST /api/collect` для этой версии.
+- Версия по умолчанию и закреплённые за размещениями версии защищены от деактивации. Выданная hosted-сессии версия может приниматься после деактивации в пределах окна приёма; для legacy применяется проверка активности.
 - Bootstrap `v0` из `DEFAULT_TAG_CONSTANTS` при пустой таблице.
 - `PRESENCE_IDLE_TIMEOUT_MS` синхронизирован с backend через резолв активной версии констант в `/api/collect` — не дублируется.
 
@@ -827,14 +853,16 @@ Delivery: `assets/sha256/{sha256[0:2]}/{sha256[2:4]}/{sha256}.{extension}` — �
 | `0 4 * * 0` | `s1_weibull_recalibration.ts` (Sunday) |
 | `0 5 * * 0` | `s3_logistic_recalibration.ts` (Sunday) |
 | `0 6 * * 0` | `s5_logistic_recalibration.ts` (Sunday) |
-| `0 7 * * 0` | `s6_logistic_recalibration.ts` (Sunday) |
+| `0 7 * * 0` | `s6_logistic_recalibration.ts` — in-stream (Sunday) |
+| `0 8 * * 0` | `s6_logistic_recalibration.ts` — out-stream (Sunday) |
+| `0 10 1 * *` | `s2_calibration.ts` (monthly 1st) |
 | `0 6 1 * *` | `s4_calibration.ts` (monthly 1st) |
 | `0 8 1 * *` | `s7_quantile_recalibration.ts` (monthly 1st) |
 | `30 3 * * *` | `asset_gc.ts` — GC ассетов без FK-ссылок |
 
 ### `jobs/retention.ts`
 
-Ежедневно 03:00 UTC. Удаляет `impressions` старше 90 дней. Связанные `calibration_items` удаляются каскадно (`ON DELETE CASCADE`).
+Ежедневно 03:00 UTC. Пакетами удаляет `impressions` старше 90 дней, затем оставшиеся без показов `ad_sessions` за тем же окном. Связанные `calibration_items` удаляются каскадно (`ON DELETE CASCADE`).
 
 ### `jobs/calibration_cleanup.ts`
 
@@ -854,7 +882,7 @@ WHERE deletion_scheduled_at IS NOT NULL
   AND deletion_scheduled_at <= NOW()
 ```
 
-`Promise.all` по всем 6 таблицам: `s1_weibull_configs`, `s3_logistic_configs`, `s4_configs`, `s5_logistic_configs`, `s6_logistic_configs`, `s7_quantile_configs`. После удаления инвалидирует соответствующие in-memory кэши.
+`Promise.all` по всем 7 таблицам: `s1_weibull_configs`, `s2_configs`, `s3_logistic_configs`, `s4_configs`, `s5_logistic_configs`, `s6_logistic_configs`, `s7_quantile_configs`. После удаления инвалидирует соответствующие in-memory кэши.
 
 **Инварианты:** активные конфиги (`is_active=true`) не могут иметь `deletion_scheduled_at` — guard в `scheduleS*Deletion()` возвращает 409. Физическое удаление не производится над активными конфигами (дополнительная защита в WHERE).
 
@@ -868,11 +896,15 @@ WHERE deletion_scheduled_at IS NOT NULL
 
 ### `jobs/s1_weibull_recalibration.ts` (новый)
 
-Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней, фильтр `is_suspicious=false`. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions` через `inArray(impressions.creativeType, matchingCreativeTypes)`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skipped — insufficient sample size` если выборка мала.
+Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней; используется общий фильтр пригодных SDK-показов. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions` через `inArray(impressions.creativeType, matchingCreativeTypes)`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skipped — insufficient sample size` если выборка мала.
+
+### `jobs/s2_calibration.ts`
+
+Ежемесячно первого числа в 10:00 UTC. По пригодным SDK-показам за 30 дней строит квантильные конфигурации для групп `static`, `animated`, `video` и устройств; минимум — 1000 наблюдений. Новые конфигурации сохраняются неактивными до ручной активации.
 
 ### `jobs/s3_logistic_recalibration.ts` (новый)
 
-Cron `0 5 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 9 сегментов. Фильтр по `creative_type` через `inArray(impressions.creativeType, matchingCreativeTypes)`. Доминирующая `tag_constants_version` резолвится одним запросом перед сегментным циклом — только данные с этой версией констант попадают в обучение. Прокси-метка: `y=1` если `clicked=true ИЛИ time_in_view > медиана по сегменту`. `fitLogisticMLE(X, y)` из `@cpmind/shared` (IRLS). Hold-out 20% для оценки test accuracy.
+Cron `0 5 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. Группы `static` для всех баннеров и `video` для видео, с сегментами по устройству и общим уровнем группы. Фильтр по `creative_type` через `inArray(impressions.creativeType, matchingCreativeTypes)`. Доминирующая `tag_constants_version` резолвится одним запросом перед сегментным циклом — только данные с этой версией констант попадают в обучение. Прокси-метка: `y=1` если `clicked=true ИЛИ time_in_view > медиана по сегменту`. `fitLogisticMLE(X, y)` из `@cpmind/shared` (IRLS). Hold-out 20% для оценки test accuracy.
 
 ### `jobs/s4_calibration.ts` (новый)
 
@@ -880,19 +912,21 @@ Cron `0 6 1 * *` (ежемесячно, 1-е число 06:00 UTC). Окно 30d
 
 ### `jobs/s5_logistic_recalibration.ts` (новый)
 
-Cron `0 6 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 2 сегмента. Прокси-метка: `y=1` если `clicked=true ИЛИ hover_duration_max_ms ≥ p75` по сегменту. `fitLogisticMLE` для desktop и mobile_tablet раздельно.
+Cron `0 6 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 2 сегмента. Метка учитывает клик, а также hover с достаточной длительностью для desktop либо zoom или достаточное число свайпов для mobile/tablet. Порог выводится из ненулевых наблюдений или резервного значения. `fitLogisticMLE` для desktop и mobile_tablet раздельно.
 
 ### `jobs/s6_logistic_recalibration.ts` (новый)
 
-Cron `0 7 * * 0`. Окно 30d. `MIN_SAMPLE_SIZE=1000`. 6 сегментов `device×skippable`. Только `creative_type='video_creative'`, `s6_normalized IS NOT NULL`. Прокси-метка: `y=1` если `completion=true AND (unmuted_by_user OR NOT muted_throughout)`.
+Расписание раздельное: in-stream — воскресенье 07:00 UTC, out-stream — 08:00 UTC. Окно 30 дней, минимум 1000 наблюдений. Группы и резервные уровни выбираются по формату и устройству. Метки строятся по признакам присутствия с подбором порогов; сохраняются параметры метки, доля положительных примеров, accuracy и AUC.
 
 ### `jobs/s7_quantile_recalibration.ts` (новый)
 
 Cron `0 8 1 * *`. Окно **60 дней** (больше чем у остальных — квантилям нужен шире разброс данных, MIN_SAMPLE_SIZE=300 на сегмент). 3 сегмента по `device_type`. `fitS7Quantiles(data)` из `services/s7_quantile_fit.ts`. Вычисляет `relativeYLow` (p33 ATF), `relativeYMid` (p67 BTF), `clutterMid` (p50), `clutterHigh` (p80).
 
+Для задач калибровки общий фильтр исключает недостоверные показы и расхождение клиентского контекста. Некоторые модели используют только SDK-показы. Для S3/S5/S6 разбиение обучающей и тестовой выборок детерминировано; учитываются accuracy, AUC и проверки пригодности выборки.
+
 ### `jobs/asset_gc.ts`
 
-Ежедневно 03:30 UTC (`30 3 * * *`). Физически удаляет ассеты из Object Storage и таблицы `assets` если они: (а) старше 45 дней (`GC_GRACE_DAYS = 45`) и (б) не имеют FK-ссылок в `creative_version_assets`. Пакетная обработка по 100 записей (`GC_BATCH_SIZE = 100`). Bucket определяется по `asset_class`: `source` → `SOURCE_BUCKET`, остальные → `DELIVERY_BUCKET`. `NoSuchKey` на DELETE не является ошибкой (идемпотентность). Credentials: `cpmind-backend-signer` IAM ключ.
+Ежедневно 03:30 UTC (`30 3 * * *`). Физически удаляет ассеты из Object Storage и таблицы `assets` если они: (а) старше 45 дней (`GC_GRACE_DAYS = 45`) и (б) не имеют FK-ссылок в `creative_version_assets`. Постраничная обработка по 100 записей с ограничением 5000 ассетов и 30 минут на запуск; строка блокируется и ссылки повторно проверяются. Bucket определяется по `asset_class`: `source` → `SOURCE_BUCKET`, остальные → `DELIVERY_BUCKET`. `NoSuchKey` на DELETE не является ошибкой (идемпотентность). Учётные данные читаются из настроек signer. Для HTML5 удаляется весь префикс дерева.
 
 ---
 
@@ -937,7 +971,7 @@ Path A (текущая реализация): поведенческая дет�
 - **IDOR:** владелец из JWT, не из URL. Несуществующий или чужой ресурс → 404.
 - **Нераскрытый пробел (MVP):** `tag_uuid` виден в HTML-разметке страницы клиента. Отправка показов под чужим `tag_uuid` физически возможна — засоряет данные владельца, не даёт доступа к чтению. Принятый риск, не закрыт.
 - **Delivery token:** `randomBytes(24).toString('base64url')` = 32 символа base64url = 192 бит энтропии. Непредсказуем, не является UUID (нет структурных атак). Единственный способ получить embed script или VAST — знать token, который выдаётся только аутентифицированному владельцу placement через `GET /api/placements/:uuid`.
-- **`allowedDomains`:** поле placement для whitelist доменов. В текущей реализации хранится в БД и возвращается в API, принудительная проверка при embed script resolution — в дорожной карте.
+- **`allowedDomains`:** список доменов проверяется при приёме hosted-показа согласно `domainEnforcement`: `off`, `monitor` или `block`.
 
 ---
 
@@ -956,8 +990,8 @@ Drizzle ORM. Миграции применяются автоматически 
 
 `weight_configs`: `is_active`, partial unique `(config_type) WHERE is_active = true`. `users`: `uuid` (UNIQUE), `login` (UNIQUE), `role`. `tags`: `uuid` (UNIQUE), `user_id`. `tag_constants_configs`: `is_active`.
 
-Каждая таблица сигнальных конфигов (`s1_weibull_configs`, `s3_logistic_configs`, `s4_configs`, `s5_logistic_configs`, `s6_logistic_configs`, `s7_quantile_configs`) имеет:
-- Partial unique index `(segment_key/device_type) WHERE is_active = true` — database-enforced инвариант единственного активного конфига на сегмент
+Каждая таблица сигнальных конфигов (`s1_weibull_configs`, `s2_configs`, `s3_logistic_configs`, `s4_configs`, `s5_logistic_configs`, `s6_logistic_configs`, `s7_quantile_configs`) имеет:
+- Partial unique index для активных конфигураций: по сегменту или устройству, а для S3/S5/S6 — по сегменту и версии констант
 - Index по `deletion_scheduled_at` — для эффективной выборки в `scheduled_deletion.ts`
 
 ### Retention
@@ -965,7 +999,7 @@ Drizzle ORM. Миграции применяются автоматически 
 - `impressions`: 90 дней → retention job 03:00 UTC
 - `calibration_items`: ON DELETE CASCADE с `impressions` (аудит удаляется вместе с данными)
 - `calibration_items (pending)`: по TTL cleanup job каждые 15 минут
-- `s1/s3/s4/s5/s6/s7_*_configs` (неактивные с `deletion_scheduled_at`): физическое удаление каждые 15 минут через `scheduled_deletion.ts`. TTL задаётся в `scheduleS*Deletion()` — по умолчанию +60 минут от момента вызова
+- `s1/s2/s3/s4/s5/s6/s7_*_configs` (неактивные с `deletion_scheduled_at`): физическое удаление каждые 15 минут через `scheduled_deletion.ts`. TTL задаётся в `scheduleS*Deletion()` — по умолчанию +60 минут от момента вызова
 - `weight_configs`, `users`, `tags`, `tag_constants_configs`: не удаляются автоматически
 - Бэкапы pg_dump: 02:00 UTC, ротация 30 дней
 
@@ -1001,6 +1035,21 @@ Drizzle ORM. Миграции применяются автоматически 
 | `full_cpmind_player` | player (video_creative) |
 | `partial_embedded_iframe` | HTML5 в iframe без полного SDK |
 | `vast_only` | только VAST без SDK measurement |
+
+### Миграции 0022–0031
+
+| Миграция | Назначение |
+|---|---|
+| 0022 | `slot_id` и `video_selector` размещения |
+| 0023 | checkpoint, нарушения контекста, поля автозапуска и связь показов с сессией |
+| 0024 | версия констант по умолчанию, закрепление за размещением и индексы моделей по версии |
+| 0025 | доменная политика и переопределение начального звука |
+| 0026 | формат и подтип размещения, параметры sticky и перенос существующих значений |
+| 0027 | набор роликов, режим ротации и номер показа |
+| 0028 | версия SDK в показе и индекс типа креатива |
+| 0029 | AUC для моделей S3/S5/S6 |
+| 0030 | конфигурации S2 и версия модели в показе |
+| 0031 | параметры и доля положительных меток S5/S6 |
 
 ### Коды миграций
 
@@ -1964,6 +2013,228 @@ CREATE INDEX IF NOT EXISTS "idx_cpj_pending_available" ON "creative_processing_j
 CREATE INDEX IF NOT EXISTS "idx_cpj_processing_lease_expires_at" ON "creative_processing_jobs" USING btree ("lease_expires_at") WHERE "creative_processing_jobs"."status" = 'processing' AND "creative_processing_jobs"."lease_expires_at" IS NOT NULL;
 ```
 
+#### 22. packages/backend/drizzle/migrations/0022_lush_crystal.sql
+
+```sql
+ALTER TABLE "placements" ADD COLUMN "slot_id" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "video_selector" text;
+```
+
+#### 23. packages/backend/drizzle/migrations/0023_majestic_donald_blake.sql
+
+```sql
+ALTER TABLE "impressions" DROP CONSTRAINT "impressions_ad_session_id_ad_sessions_ad_session_id_fk";
+--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "start_muted" boolean;--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "muted_by_browser" boolean;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "context_violations" text[];--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "is_checkpoint" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "impressions" ADD CONSTRAINT "impressions_ad_session_id_ad_sessions_ad_session_id_fk" FOREIGN KEY ("ad_session_id") REFERENCES "public"."ad_sessions"("ad_session_id") ON DELETE restrict ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD CONSTRAINT "chk_impressions_hosted_ad_session" CHECK ("measurement_mode" = 'legacy_tag' OR "ad_session_id" IS NOT NULL);
+```
+
+#### 24. packages/backend/drizzle/migrations/0024_public_roulette.sql
+
+```sql
+DROP INDEX IF EXISTS "uidx_s3_logistic_active_segment";--> statement-breakpoint
+DROP INDEX IF EXISTS "uidx_s5_logistic_active_segment";--> statement-breakpoint
+DROP INDEX IF EXISTS "uidx_s6_logistic_active_segment";--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "tag_constants_version" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "tag_constants_config_id" uuid;--> statement-breakpoint
+ALTER TABLE "tag_constants_configs" ADD COLUMN "is_default" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "ad_sessions" ADD CONSTRAINT "ad_sessions_tag_constants_version_tag_constants_configs_version_fk" FOREIGN KEY ("tag_constants_version") REFERENCES "public"."tag_constants_configs"("version") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placements" ADD CONSTRAINT "placements_tag_constants_config_id_tag_constants_configs_id_fk" FOREIGN KEY ("tag_constants_config_id") REFERENCES "public"."tag_constants_configs"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_placements_tag_constants_config_id" ON "placements" USING btree ("tag_constants_config_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s3_logistic_active_segment_version" ON "s3_logistic_configs" USING btree ("segment_key","tag_constants_version") WHERE "s3_logistic_configs"."is_active" = true;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s5_logistic_active_segment_version" ON "s5_logistic_configs" USING btree ("segment_key","tag_constants_version") WHERE "s5_logistic_configs"."is_active" = true;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s6_logistic_active_segment_version" ON "s6_logistic_configs" USING btree ("segment_key","tag_constants_version") WHERE "s6_logistic_configs"."is_active" = true;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_tag_constants_configs_default" ON "tag_constants_configs" USING btree ("is_default") WHERE "tag_constants_configs"."is_default" = true;
+```
+
+#### 25. packages/backend/drizzle/migrations/0025_quick_black_tom.sql
+
+```sql
+ALTER TABLE "placements" ADD COLUMN "domain_enforcement" text DEFAULT 'monitor' NOT NULL;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "publisher_domain" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "initial_muted_overridden" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "placements" ADD CONSTRAINT "chk_placements_domain_enforcement" CHECK ("domain_enforcement" IN ('off', 'monitor', 'block'));--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_campaigns_user_lower_name" ON "campaigns" USING btree ("user_id", lower("name"));
+```
+
+#### 26. packages/backend/drizzle/migrations/0026_free_scourge.sql
+
+```sql
+ALTER TABLE "ad_sessions" ADD COLUMN "format" text;--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "subtype" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "format" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "subtype" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "format" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "subtype" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "sticky_corner" text;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "sticky_offset_x" integer;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "sticky_offset_y" integer;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "sticky_width" integer;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "sticky_height" integer;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_format_subtype" ON "impressions" USING btree ("format","subtype") WHERE "impressions"."format" IS NOT NULL;
+--> statement-breakpoint
+UPDATE "placements" SET
+  "format" = CASE
+    WHEN "mode" = 'display' THEN 'banner'
+    WHEN "mode" IN ('instream_preroll', 'instream_midroll', 'instream_postroll') THEN 'instream'
+    ELSE 'outstream'
+  END,
+  "subtype" = CASE
+    WHEN "mode" = 'display' THEN NULL
+    WHEN "mode" = 'instream_preroll' THEN 'preroll'
+    WHEN "mode" = 'instream_midroll' THEN 'midroll'
+    WHEN "mode" = 'instream_postroll' THEN 'postroll'
+    ELSE 'inpage'
+  END;--> statement-breakpoint
+UPDATE "ad_sessions" SET
+  "format" = CASE
+    WHEN "delivery_mode" = 'display' THEN 'banner'
+    WHEN "delivery_mode" IN ('instream_preroll', 'instream_midroll', 'instream_postroll') THEN 'instream'
+    ELSE 'outstream'
+  END,
+  "subtype" = CASE
+    WHEN "delivery_mode" = 'display' THEN NULL
+    WHEN "delivery_mode" = 'instream_preroll' THEN 'preroll'
+    WHEN "delivery_mode" = 'instream_midroll' THEN 'midroll'
+    WHEN "delivery_mode" = 'instream_postroll' THEN 'postroll'
+    ELSE 'inpage'
+  END;--> statement-breakpoint
+UPDATE "impressions" SET
+  "format" = CASE
+    WHEN "delivery_mode" = 'display' THEN 'banner'
+    WHEN "delivery_mode" IN ('instream_preroll', 'instream_midroll', 'instream_postroll') THEN 'instream'
+    ELSE 'outstream'
+  END,
+  "subtype" = CASE
+    WHEN "delivery_mode" = 'display' THEN NULL
+    WHEN "delivery_mode" = 'instream_preroll' THEN 'preroll'
+    WHEN "delivery_mode" = 'instream_midroll' THEN 'midroll'
+    WHEN "delivery_mode" = 'instream_postroll' THEN 'postroll'
+    ELSE 'inpage'
+  END
+WHERE "delivery_mode" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "placements" ADD CONSTRAINT "chk_placements_format_subtype" CHECK (
+  ("format" IS NULL AND "subtype" IS NULL)
+  OR ("format" = 'banner' AND "subtype" IS NULL)
+  OR ("format" = 'instream' AND "subtype" IN ('preroll', 'midroll', 'postroll', 'pauseroll'))
+  OR ("format" = 'outstream' AND "subtype" IN ('inpage', 'sticky'))
+);--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD CONSTRAINT "chk_ad_sessions_format_subtype" CHECK (
+  ("format" IS NULL AND "subtype" IS NULL)
+  OR ("format" = 'banner' AND "subtype" IS NULL)
+  OR ("format" = 'instream' AND "subtype" IN ('preroll', 'midroll', 'postroll', 'pauseroll'))
+  OR ("format" = 'outstream' AND "subtype" IN ('inpage', 'sticky'))
+);--> statement-breakpoint
+ALTER TABLE "impressions" ADD CONSTRAINT "chk_impressions_format_subtype" CHECK (
+  ("format" IS NULL AND "subtype" IS NULL)
+  OR ("format" = 'banner' AND "subtype" IS NULL)
+  OR ("format" = 'instream' AND "subtype" IN ('preroll', 'midroll', 'postroll', 'pauseroll'))
+  OR ("format" = 'outstream' AND "subtype" IN ('inpage', 'sticky'))
+);--> statement-breakpoint
+ALTER TABLE "placements" ADD CONSTRAINT "chk_placements_sticky_corner" CHECK (
+  "sticky_corner" IS NULL
+  OR "sticky_corner" IN ('top_left', 'top_right', 'bottom_left', 'bottom_right')
+);
+```
+
+#### 27. packages/backend/drizzle/migrations/0027_spicy_boomerang.sql
+
+```sql
+CREATE TABLE IF NOT EXISTS "placement_creative_set" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"placement_id" uuid NOT NULL,
+	"creative_id" uuid NOT NULL,
+	"weight_pct" real NOT NULL,
+	"display_order" integer DEFAULT 0 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "video_show_index" integer;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "video_show_index" integer;--> statement-breakpoint
+ALTER TABLE "placements" ADD COLUMN "rotation_mode" text DEFAULT 'weighted_random' NOT NULL;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placement_creative_set" ADD CONSTRAINT "placement_creative_set_placement_id_placements_id_fk" FOREIGN KEY ("placement_id") REFERENCES "public"."placements"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "placement_creative_set" ADD CONSTRAINT "placement_creative_set_creative_id_creatives_id_fk" FOREIGN KEY ("creative_id") REFERENCES "public"."creatives"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_pcs_placement_creative" ON "placement_creative_set" USING btree ("placement_id","creative_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_pcs_placement_order" ON "placement_creative_set" USING btree ("placement_id","display_order");
+--> statement-breakpoint
+ALTER TABLE "placements" ADD CONSTRAINT "chk_placements_rotation_mode" CHECK ("rotation_mode" IN ('weighted_random', 'sequential'));--> statement-breakpoint
+ALTER TABLE "placement_creative_set" ADD CONSTRAINT "chk_pcs_weight_pct" CHECK ("weight_pct" > 0 AND "weight_pct" <= 100);--> statement-breakpoint
+ALTER TABLE "placement_creative_set" ADD CONSTRAINT "chk_pcs_display_order" CHECK ("display_order" >= 0);
+```
+
+#### 28. packages/backend/drizzle/migrations/0028_superb_scorpion.sql
+
+```sql
+ALTER TABLE "impressions" ADD COLUMN "sdk_runtime_version" text;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_impressions_creative_type" ON "impressions" USING btree ("creative_type");
+```
+
+#### 29. packages/backend/drizzle/migrations/0029_known_iron_patriot.sql
+
+```sql
+ALTER TABLE "s3_logistic_configs" ADD COLUMN "auc" real;--> statement-breakpoint
+ALTER TABLE "s5_logistic_configs" ADD COLUMN "auc" real;--> statement-breakpoint
+ALTER TABLE "s6_logistic_configs" ADD COLUMN "auc" real;
+```
+
+#### 30. packages/backend/drizzle/migrations/0030_sharp_miracleman.sql
+
+```sql
+CREATE TABLE IF NOT EXISTS "s2_configs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"segment_key" text NOT NULL,
+	"quantile_levels" jsonb NOT NULL,
+	"quantile_values" jsonb NOT NULL,
+	"sample_size" integer NOT NULL,
+	"fitted_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"is_active" boolean DEFAULT false NOT NULL,
+	"deletion_scheduled_at" timestamp with time zone
+);
+--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "s2_model_version" text;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s2_configs_active_segment" ON "s2_configs" USING btree ("segment_key") WHERE "s2_configs"."is_active" = true;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_s2_configs_deletion_scheduled_at" ON "s2_configs" USING btree ("deletion_scheduled_at");
+```
+
+#### 31. packages/backend/drizzle/migrations/0031_mighty_shocker.sql
+
+```sql
+ALTER TABLE "s5_logistic_configs" ADD COLUMN "label_params" jsonb;--> statement-breakpoint
+ALTER TABLE "s5_logistic_configs" ADD COLUMN "label_positive_rate" real;--> statement-breakpoint
+ALTER TABLE "s6_logistic_configs" ADD COLUMN "label_params" jsonb;--> statement-breakpoint
+ALTER TABLE "s6_logistic_configs" ADD COLUMN "label_positive_rate" real;
+```
+
 #### Журнал миграций packages/backend/drizzle/migrations/meta/_journal.json
 
 ```json
@@ -2123,6 +2394,76 @@ CREATE INDEX IF NOT EXISTS "idx_cpj_processing_lease_expires_at" ON "creative_pr
       "version": "7",
       "when": 1788083944523,
       "tag": "0021_aromatic_silver_samurai",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789062161750,
+      "tag": "0022_lush_crystal",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789653377628,
+      "tag": "0023_majestic_donald_blake",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790154449694,
+      "tag": "0024_public_roulette",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790165428527,
+      "tag": "0025_quick_black_tom",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790169672226,
+      "tag": "0026_free_scourge",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790172504682,
+      "tag": "0027_spicy_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790186266012,
+      "tag": "0028_superb_scorpion",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790240992013,
+      "tag": "0029_known_iron_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791299601605,
+      "tag": "0030_sharp_miracleman",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791373394831,
+      "tag": "0031_mighty_shocker",
       "breakpoints": true
     }
   ]
