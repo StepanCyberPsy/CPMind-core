@@ -9,6 +9,11 @@ import {
 } from '@tanstack/react-table';
 import { useState, useCallback, useMemo } from 'react';
 import type { UserImpressionRow, PublisherDomainAggregate } from '@cpmind/shared';
+import {
+  resolveMeasurementLevel,
+  MEASUREMENT_LEVEL_LABELS,
+  MEASUREMENT_LEVEL_HINTS,
+} from '@cpmind/shared';
 import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
 import { formatCreativeType, formatPlacement } from '@/lib/config';
 import { SignalFilterModal } from './SignalFilterModal';
@@ -259,11 +264,28 @@ function buildColumns({
           ? <span className={`${styles.cellSuspicious} ${styles.suspicious}`}>⚠ Аномалия</span>
           : <span className={`${styles.cellSuspicious} ${styles.notSuspicious}`}>Чисто</span>,
     }),
+    col.display({
+      id: 'measurement_level',
+      header: 'Измерение',
+      cell: ({ row }) => {
+        const level = resolveMeasurementLevel(row.original);
+        const cls = level === 'full' ? styles.levelFull : styles.levelPartial;
+        return (
+          <span
+            className={`${styles.levelBadge} ${cls}`}
+            title={MEASUREMENT_LEVEL_HINTS[level]}
+          >
+            {MEASUREMENT_LEVEL_LABELS[level]}
+          </span>
+        );
+      },
+    }),
     col.accessor('score_final', {
       header: () => renderFilterableHeader('Score', 'score_final', currentParams, navigateTo),
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
+        if (v === null) return <span className={styles.cellNull}>—</span>;
         const cls = v >= 70 ? styles.scorePositive : v >= 40 ? styles.scoreModerate : styles.scoreNegative;
         return <span className={`${styles.cellScore} ${cls}`}>{v.toFixed(1)}</span>;
       },

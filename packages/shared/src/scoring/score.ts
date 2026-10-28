@@ -84,7 +84,7 @@ export function computeScore(
     s7Thresholds,
   );
 
-  // 3. Перераспределение весов: Null-сигнал (только S3 в MVP) -> его вес пропорционально переходит к остальным
+  // 3. Перераспределение весов: Null-сигнал -> его вес пропорционально переходит к остальным
   const nullSignals = detectNullSignals(normalized);
   const effective_weights = computeEffectiveWeights(nullSignals, weights);
 

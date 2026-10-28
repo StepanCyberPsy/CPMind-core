@@ -59,6 +59,12 @@ export function getPlayerRuntimeVersion(): string {
     return process.env['PLAYER_RUNTIME_VERSION'] ?? '1';
 }
 
+// Версия бандла скрипта верификации OMID. Загрузчик и полная ветка версионируются
+// совместно: обе собираются из одного пакета и публикуются одной версией
+export function getOmidRuntimeVersion(): string {
+    return process.env['OMID_RUNTIME_VERSION'] ?? '1';
+}
+
 export function getAdSessionTtlMs(): number {
     const raw = process.env['AD_SESSION_TTL_HOURS'];
     if (!raw) return DEFAULT_AD_SESSION_TTL_HOURS * HOUR_MS;

@@ -4,6 +4,7 @@ import {
   inArray,
   desc,
   sql,
+  isNotNull,
   type SQL,
 } from 'drizzle-orm';
 import pino from 'pino';
@@ -238,14 +239,18 @@ async function processCalibrationBatch(
           weightsVersion: impressions.weightsVersion,
         })
         .from(impressions)
-        .where(where)
+        .where(and(where, isNotNull(impressions.scoreFinal)))
         .orderBy(impressions.id)
         .limit(PROCESSING_BATCH_SIZE)
         .offset(offset);
 
       if (rows.length === 0) break;
 
-      const draftItems = rows.map((row) => {
+      const draftItems = rows.flatMap((row) => {
+        // Страховка к условию выборки: показ без композитного Score или без presence
+        // пересчитать нельзя — часть сигналов не измерялась
+        if (row.scoreFinal === null || row.fPresence === null) return [];
+
         const normalized = row.signalsNormalized as NormalizedSignals;
         const fPresence = row.fPresence as 0 | 1;
         const fIvt: 0 | 1 = (row.ivtVerdict === 'givt' || row.ivtVerdict === 'sivt_confirmed') ? 0 : 1;
@@ -256,7 +261,7 @@ async function processCalibrationBatch(
           weights
         );
 
-        return {
+        return [{
           batchId,
           impressionId: row.id,
           previousScoreFinal: row.scoreFinal,
@@ -264,10 +269,12 @@ async function processCalibrationBatch(
           newScoreFinal: score_final,
           newWeightsVersion: weights.version,
           status: 'pending' as const,
-        };
+        }];
       });
 
-      await db.insert(calibrationItems).values(draftItems);
+      if (draftItems.length > 0) {
+        await db.insert(calibrationItems).values(draftItems);
+      }
 
       offset += PROCESSING_BATCH_SIZE;
       if (rows.length < PROCESSING_BATCH_SIZE) break;

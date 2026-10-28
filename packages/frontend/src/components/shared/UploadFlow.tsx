@@ -6,7 +6,11 @@ import {
     useState,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { createUploadSession, completeUploadSession } from '@/lib/admin/api';
+import {
+    createUploadSession,
+    completeUploadSession,
+    createExternalVastCreative,
+} from '@/lib/admin/api';
 import { uploadFile } from '@/lib/admin/upload-api';
 import { ProcessingPoller } from './ProcessingPoller';
 import { buildDefaultCreativeName } from '@/lib/config';
@@ -82,6 +86,10 @@ type Phase =
     | 'done'
     | 'error';
 
+// Файл загружается и обрабатывается; внешний VAST-тег только регистрируется —
+// CPMind оборачивает указанный адрес своим Wrapper при выдаче
+type CreativeSource = 'file' | 'external_vast';
+
 interface Props {
     campaigns: CampaignRow[];
     onDone?: ((creativeUuid: string) => void) | undefined;
@@ -93,6 +101,12 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
     const [campaignUuid, setCampaignUuid] = useState<string>(
         campaigns[0]?.uuid ?? '',
     );
+    // Источник креатива. Внешний тег не проходит загрузку и обработку:
+    // версия создаётся сразу готовой, поэтому ветки не пересекаются
+    const [source, setSource] = useState<CreativeSource>('file');
+    const [vastTagUrl, setVastTagUrl] = useState('');
+    const [vastClickUrl, setVastClickUrl] = useState('');
+    const [submitting, setSubmitting] = useState(false);
     const [file, setFile] = useState<File | null>(null);
     const [creativeName, setCreativeName] = useState('');
     const [dragging, setDragging] = useState(false);
@@ -150,6 +164,47 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
     const removeFile = (): void => {
         setFile(null);
         setError(null);
+    };
+
+    const submitExternalVast = async (): Promise<void> => {
+        if (campaignUuid === '') return;
+
+        const trimmedName = creativeName.trim();
+        if (trimmedName === '') {
+            setError('Укажите название creative');
+            return;
+        }
+
+        const trimmedUrl = vastTagUrl.trim();
+        if (trimmedUrl === '') {
+            setError('Укажите адрес VAST-тега');
+            return;
+        }
+
+        setSubmitting(true);
+        setError(null);
+
+        try {
+            const trimmedClickUrl = vastClickUrl.trim();
+            const created = await createExternalVastCreative({
+                campaignUuid,
+                name: trimmedName,
+                vastTagUrl: trimmedUrl,
+                ...(trimmedClickUrl !== '' && { clickUrl: trimmedClickUrl }),
+            });
+
+            setPhase('done');
+
+            if (onDone !== undefined) {
+                onDone(created.creativeUuid);
+            } else {
+                router.refresh();
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Не удалось создать креатив');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const startUpload = async (): Promise<void> => {
@@ -232,6 +287,8 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
 
     const reset = (): void => {
         setPhase('idle');
+        setVastTagUrl('');
+        setVastClickUrl('');
         setFile(null);
         setUploadId(null);
         setUploadPct(0);
@@ -276,6 +333,113 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
                         )}
                     </div>
 
+                    <div className={styles.section}>
+                        <span className={styles.label}>Источник креатива</span>
+                        <div className={styles.sourceToggle} role="radiogroup" aria-label="Источник креатива">
+                            <button
+                                type="button"
+                                role="radio"
+                                aria-checked={source === 'file'}
+                                className={`${styles.sourceOption} ${source === 'file' ? styles.sourceOptionActive : ''}`}
+                                onClick={() => { setSource('file'); setError(null); }}
+                            >
+                                Загрузить файл
+                            </button>
+                            <button
+                                type="button"
+                                role="radio"
+                                aria-checked={source === 'external_vast'}
+                                className={`${styles.sourceOption} ${source === 'external_vast' ? styles.sourceOptionActive : ''}`}
+                                onClick={() => { setSource('external_vast'); setError(null); }}
+                            >
+                                Внешний VAST-тег
+                            </button>
+                        </div>
+                    </div>
+
+                    {source === 'external_vast' ? (
+                        <>
+                            <div className={styles.section}>
+                                <label className={styles.label} htmlFor="vast-tag-url">
+                                    Адрес VAST-тега
+                                </label>
+                                <input
+                                    id="vast-tag-url"
+                                    type="url"
+                                    className={styles.textInput}
+                                    value={vastTagUrl}
+                                    onChange={(e) => setVastTagUrl(e.target.value)}
+                                    placeholder="https://adserver.example/vast?..."
+                                    maxLength={2048}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                />
+                                <span className={styles.fieldHint}>
+                                    Тег вашего адсервера. CPMind обернёт его своим VAST Wrapper
+                                    и добавит трекинг и блок верификации — исходный тег остаётся
+                                    без изменений. Адрес должен быть доступен по https
+                                    с площадок размещения.
+                                </span>
+                            </div>
+
+                            <div className={styles.section}>
+                                <label className={styles.label} htmlFor="vast-name">
+                                    Название creative
+                                </label>
+                                <input
+                                    id="vast-name"
+                                    type="text"
+                                    className={styles.textInput}
+                                    value={creativeName}
+                                    onChange={(e) => setCreativeName(e.target.value)}
+                                    placeholder="Название для идентификации в кабинете"
+                                    maxLength={255}
+                                />
+                            </div>
+
+                            <div className={styles.section}>
+                                <label className={styles.label} htmlFor="vast-click-url">
+                                    Click URL
+                                </label>
+                                <input
+                                    id="vast-click-url"
+                                    type="url"
+                                    className={styles.textInput}
+                                    value={vastClickUrl}
+                                    onChange={(e) => setVastClickUrl(e.target.value)}
+                                    placeholder="Не обязательно"
+                                    maxLength={2048}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                />
+                                <span className={styles.fieldHint}>
+                                    Заполняйте, только если переход должен вести не на ту
+                                    страницу, которая указана в самом теге.
+                                </span>
+                            </div>
+
+                            {error !== null && (
+                                <div className={styles.errorBox}>{error}</div>
+                            )}
+
+                            <div className={styles.actions}>
+                                <button
+                                    type="button"
+                                    className={styles.primaryBtn}
+                                    onClick={() => { void submitExternalVast(); }}
+                                    disabled={
+                                        submitting ||
+                                        campaignUuid === '' ||
+                                        creativeName.trim() === '' ||
+                                        vastTagUrl.trim() === ''
+                                    }
+                                >
+                                    {submitting ? 'Создание…' : 'Создать креатив'}
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                    <>
                     <div className={styles.section}>
                         <span className={styles.label}>Файл</span>
                         {file === null ? (
@@ -356,6 +520,8 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
                             Загрузить
                         </button>
                     </div>
+                    </>
+                    )}
                 </>
             ) : null}
 
@@ -396,7 +562,9 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
             {phase === 'done' && (
                 <div className={styles.section}>
                     <div className={styles.successBox}>
-                        Файл успешно обработан и готов к размещению.
+                        {source === 'external_vast'
+                            ? 'Креатив создан и готов к размещению.'
+                            : 'Файл успешно обработан и готов к размещению.'}
                     </div>
                     <div className={styles.actions}>
                         <button
@@ -404,7 +572,7 @@ export function UploadFlow({ campaigns, onDone }: Props): React.ReactElement {
                             className={styles.ghostBtn}
                             onClick={reset}
                         >
-                            Загрузить ещё
+                            {source === 'external_vast' ? 'Создать ещё' : 'Загрузить ещё'}
                         </button>
                     </div>
                 </div>

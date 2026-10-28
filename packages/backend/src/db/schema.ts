@@ -89,6 +89,7 @@ export const measurementModeEnum = pgEnum('measurement_mode', [
   'full_cpmind_player',
   'partial_embedded_iframe',
   'vast_only',
+  'vast_omid',
   'legacy_tag',
 ]);
 
@@ -193,9 +194,12 @@ export const impressions = pgTable('impressions', {
   s6Normalized: real('s6_normalized'),
   s7Normalized: real('s7_normalized'),
 
-  // Score
-  fPresence: smallint('f_presence').notNull(),
-  scoreFinal: real('score_final').notNull(),
+  // Score. Для показов vast_omid в ограниченных режимах доступа композитный Score
+  // не рассчитывается: часть сигналов физически не измеряется, а модели нормализации
+  // обучены на данных другого происхождения. Обязательность для остальных режимов
+  // сохранена CHECK-ограничением chk_score_final_required / chk_f_presence_required
+  fPresence: smallint('f_presence'),
+  scoreFinal: real('score_final'),
   weightsVersion: text('weights_version').notNull(),
   s1ModelVersion: text('s1_model_version'),
   s2ModelVersion: text('s2_model_version'),
@@ -243,6 +247,14 @@ export const impressions = pgTable('impressions', {
   sdkRuntimeVersion: text('sdk_runtime_version'),
 
   measurementMode: measurementModeEnum('measurement_mode').notNull().default('legacy_tag'),
+
+  // Режим доступа, фактически выданный плеером площадки показу vast_omid:
+  // full_page | creative | limited | not_executed. Пусто для остальных режимов измерения
+  omidAccessMode: text('omid_access_mode'),
+
+  // Форма VAST-доставки показа vast_omid: inline | wrapper. Пусто для остальных режимов
+  vastDeliveryKind: text('vast_delivery_kind'),
+
   finalizationReason: text('finalization_reason'),
   contextViolations: text('context_violations').array(),
 
@@ -621,6 +633,11 @@ export const creativeVersions = pgTable('creative_versions', {
   creativeId: uuid('creative_id').notNull().references(() => creatives.id),
   version: integer('version').notNull(),
   sourceAssetId: uuid('source_asset_id').references(() => assets.id),
+
+  // Сторонний VAST-тег вместо загруженного файла. Версия с заполненным полем не имеет
+  // ассетов и не проходит обработку: CPMind оборачивает этот тег во Wrapper
+  externalVastUrl: text('external_vast_url'),
+
   status: creativeVersionStatusEnum('status').notNull().default('draft'),
   processingError: text('processing_error'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -855,6 +872,16 @@ export const adSessions = pgTable('ad_sessions', {
   // Ошибки и диагностика
   errorAt: timestamp('error_at', { withTimezone: true }),
   errorCode: text('error_code'),
+
+  // Плеер площадки не исполнил скрипт верификации OMID. Единственный источник
+  // ответа на вопрос, почему по показу нет данных: показа при отказе не возникает,
+  // и записать причину больше некуда. Код хранится как прислан (VAST 4.3 §3.17.4:
+  // 1 — вендор отклонён, 2 — фреймворк не поддержан, 3 — ошибка загрузки);
+  // расшифровка выполняется при отображении, чтобы новые коды IAB не обесценили
+  // накопленные записи
+  omidVerificationNotExecutedAt: timestamp('omid_verification_not_executed_at', { withTimezone: true }),
+  omidNotExecutedReason: text('omid_not_executed_reason'),
+
   finalizationReason: text('finalization_reason'),
   playbackQuality: jsonb('playback_quality'),
 

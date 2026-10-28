@@ -131,6 +131,7 @@ export const MeasurementModeSchema = z.enum([
     'full_cpmind_player',
     'partial_embedded_iframe',
     'vast_only',
+    'vast_omid',
     'legacy_tag',
 ]);
 

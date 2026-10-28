@@ -33,10 +33,13 @@ export default async function ImpressionDetailPage({ params, searchParams }: Pro
     )
   ).items;
 
+  const scoreValue = impression.score_final;
+
   const scoreClass =
-    impression.score_final >= 70 ? styles.scorePositive :
-      impression.score_final >= 40 ? styles.scoreModerate :
-        styles.scoreNegative;
+    scoreValue === null ? styles.scoreNegative :
+      scoreValue >= 70 ? styles.scorePositive :
+        scoreValue >= 40 ? styles.scoreModerate :
+          styles.scoreNegative;
 
   return (
     <div className={styles.page}>
@@ -53,7 +56,7 @@ export default async function ImpressionDetailPage({ params, searchParams }: Pro
         <div className={styles.headerScore}>
           <div className={styles.headerScoreLabel}>CPMind Score</div>
           <div className={`${styles.headerScoreValue} ${scoreClass}`}>
-            {impression.score_final.toFixed(1)}
+            {scoreValue !== null ? scoreValue.toFixed(1) : '—'}
           </div>
         </div>
       </header>

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TagUuidSchema } from './tag.js';
 import { UserUuidSchema } from './user.js';
 import { IvtVerdictSchema } from './ivt.js';
+import { MeasurementModeSchema } from './delivery.js';
 import { CREATIVE_CATEGORIES } from '../scoring/weights.js';
 
 // Список импрессенов
@@ -34,6 +35,13 @@ export const ImpressionRowSchema = z.object({
   // Версия рантайма, собравшего показ. null для показов legacy-тега
   sdk_runtime_version: z.string().nullable(),
 
+  // Режим измерения и — для показов vast_omid — уровень доступа, выданный
+  // плеером площадки, и форма VAST-доставки. Диагностика неполных показов:
+  // по ним видно, почему в показе нет S3, S7 и композитного Score
+  measurement_mode: MeasurementModeSchema,
+  omid_access_mode: z.string().nullable(),
+  vast_delivery_kind: z.string().nullable(),
+
   device_type: z.string(),
   skippable: z.boolean(),
   publisher_domain: z.string(),
@@ -59,8 +67,8 @@ export const ImpressionRowSchema = z.object({
   s5_normalized: z.number().nullable(),
   s6_normalized: z.number().nullable(),
   s7_normalized: z.number().nullable(),
-  f_presence: z.number().int(),
-  score_final: z.number(),
+  f_presence: z.number().int().nullable(),
+  score_final: z.number().nullable(),
   weights_version: z.string(),
   s1_model_version: z.string().nullable(),
   s2_model_version: z.string().nullable(),

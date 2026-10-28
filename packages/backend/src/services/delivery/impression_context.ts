@@ -24,7 +24,7 @@ import {
 
 // Контекст ad_session одним запросом. Кампания резолвится через креатив выданной версии —
 // атрибуция соответствует тому, что сервер фактически отдал, а не текущему состоянию placement
-async function loadAdSessionContextRow(
+export async function loadAdSessionContextRow(
     adSessionId: string,
 ): Promise<AdSessionContextRow | null> {
     const [row] = await db

@@ -141,7 +141,13 @@ export type {
 } from '../scoring/segments.js';
 
 export type {
+  OmidAccessLevel,
+  OmidPartialImpression,
+} from '../schemas/omid.js';
+
+export type {
   CreativeType,
+  CreateExternalVastCreative,
   CreativeStatus,
   DeviceType,
 } from '../schemas/creative.js';

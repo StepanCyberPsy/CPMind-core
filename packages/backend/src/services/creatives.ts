@@ -40,6 +40,11 @@ export interface CreativeVersionView {
     processingError: string | null;
     createdAt: string;
     readyAt: string | null;
+
+    // Адрес стороннего VAST-тега. Непусто только у версий, созданных из тега:
+    // ассетов у них нет, и без этого поля версия выглядит как необработанная
+    externalVastUrl: string | null;
+
     assets: AssetView[];
 }
 
@@ -179,6 +184,7 @@ export async function getCreativeDetail(
             processingError: creativeVersions.processingError,
             createdAt: creativeVersions.createdAt,
             readyAt: creativeVersions.readyAt,
+            externalVastUrl: creativeVersions.externalVastUrl,
         })
         .from(creativeVersions)
         .where(eq(creativeVersions.creativeId, creative.id))
@@ -218,6 +224,7 @@ export async function getCreativeDetail(
                 processingError: version.processingError,
                 createdAt: version.createdAt.toISOString(),
                 readyAt: version.readyAt?.toISOString() ?? null,
+                externalVastUrl: version.externalVastUrl,
                 assets: assetRows.map(toAssetView),
             };
         }),

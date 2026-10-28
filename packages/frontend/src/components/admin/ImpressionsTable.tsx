@@ -10,6 +10,11 @@ import {
 import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ImpressionRow, PublisherDomainAggregate } from '@cpmind/shared';
+import {
+  resolveMeasurementLevel,
+  MEASUREMENT_LEVEL_LABELS,
+  MEASUREMENT_LEVEL_HINTS,
+} from '@cpmind/shared';
 import { usePopover } from '@/lib/shared/use-popover';
 import { buildSegmentColorMap, type SegmentColor } from '@/lib/admin/segment-color';
 import { getSignalMeta, type SignalField } from '@/lib/shared/signals-meta';
@@ -359,11 +364,31 @@ function buildColumns({
   ];
 
   const normalizedColumns = [
+    // Полнота измерения перед Score: пустое значение у показа vast_omid —
+    // следствие ограниченного доступа, а не потери данных
+    col.display({
+      id: 'measurement_level',
+      header: 'Измерение',
+      cell: ({ row }) => {
+        const level = resolveMeasurementLevel(row.original);
+        const cls = level === 'full' ? styles.levelFull : styles.levelPartial;
+        const accessMode = row.original.omid_access_mode;
+        const hint = accessMode === null
+          ? MEASUREMENT_LEVEL_HINTS[level]
+          : `${MEASUREMENT_LEVEL_HINTS[level]}. Уровень доступа OMID: ${accessMode}`;
+        return (
+          <span className={`${styles.levelBadge} ${cls}`} title={hint}>
+            {MEASUREMENT_LEVEL_LABELS[level]}
+          </span>
+        );
+      },
+    }),
     col.accessor('score_final', {
       header: () => renderFilterableHeader('Score', 'score_final', currentParams, navigateTo),
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue();
+        if (v === null) return <span className={styles.cellNull}>—</span>;
         const cls = v >= 70 ? styles.scorePositive : v >= 40 ? styles.scoreModerate : styles.scoreNegative;
         return <span className={`${styles.cellScore} ${cls}`}>{v.toFixed(1)}</span>;
       },

@@ -214,6 +214,10 @@ export interface CreativeVersionView {
   processingError: string | null;
   createdAt: string;
   readyAt: string | null;
+
+  // Адрес стороннего VAST-тега; null у версий, созданных загрузкой файла
+  externalVastUrl: string | null;
+
   assets: AssetView[];
 }
 
@@ -1199,6 +1203,52 @@ export async function createUploadSession(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error ?? `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export interface ExternalVastCreativePayload {
+  campaignUuid: string;
+  name: string;
+  vastTagUrl: string;
+  clickUrl?: string;
+}
+
+export interface ExternalVastCreativeResponse {
+  creativeUuid: string;
+  versionUuid: string;
+}
+
+// Причины отказа, которые бэкенд возвращает в поле code. Текст подбирается
+// на клиенте: пользователю нужно понять, что исправить в адресе тега
+const EXTERNAL_VAST_ERRORS: Record<string, string> = {
+  CAMPAIGN_NOT_FOUND: 'Кампания не найдена или неактивна',
+  CREATIVE_KEY_TAKEN: 'Креатив с таким ключом в кампании уже есть',
+  VAST_TAG_URL_MALFORMED: 'Адрес тега указан неверно',
+  VAST_TAG_URL_NOT_HTTPS: 'Адрес тега должен начинаться с https://',
+  VAST_TAG_URL_TOO_LONG: 'Адрес тега слишком длинный',
+  VAST_TAG_URL_HAS_CREDENTIALS: 'Адрес тега не должен содержать логин и пароль',
+  VAST_TAG_URL_PRIVATE_HOST:
+    'Адрес тега указывает на внутренний хост — такой тег недоступен с площадок',
+};
+
+export async function createExternalVastCreative(
+  payload: ExternalVastCreativePayload,
+): Promise<ExternalVastCreativeResponse> {
+  const res = await fetch(`${CLIENT_BACKEND}/api/creatives/external-vast`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const code = typeof err?.code === 'string' ? err.code : null;
+    throw new Error(
+      (code !== null ? EXTERNAL_VAST_ERRORS[code] : undefined)
+        ?? err?.error
+        ?? `API error: ${res.status}`,
+    );
   }
   return res.json();
 }
