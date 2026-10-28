@@ -549,8 +549,8 @@ Keyboard navigation использует `e.code` (не `e.key`) — не зав
 
 | Ограничение | Описание |
 |---|---|
-| VAST Wrapper | Только InLine — Wrapper chains не поддерживается |
-| OMID | `AdVerifications` парсятся, но JS vendor scripts не исполняются |
+| VAST Wrapper | Только InLine — Wrapper chains не поддерживается. Следствие: креатив, заданный сторонним VAST-тегом, через плеер CPMind не воспроизводится — backend отдаёт для него `Wrapper`. Такой креатив рассчитан на сторонний плеер, которому передаётся VAST URL |
+| OMID | `AdVerifications` парсятся, но JS vendor scripts не исполняются. Измерение в плеере CPMind выполняет собственный SDK-мост, блок верификации предназначен плеерам площадок |
 | Streaming | Только progressive delivery — HLS/DASH не поддерживается |
 | Multi-Ad | Один ad на session — Ad pods/sequences не поддерживаются |
 | Safari 14 | `AbortSignal.any()` не используется — ручной timeout через второй AbortController |

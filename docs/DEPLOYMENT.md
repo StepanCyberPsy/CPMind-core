@@ -471,7 +471,26 @@ server_name app.cpmind.tech;
 
 В обоих блоках `server {}` (HTTP и HTTPS).
 
-Полный файл `nginx/nginx.conf`:
+### Точки приёма показов и rate limiting
+
+В конфигурации обязательны **два** отдельных блока для приёма показов, оба в зоне `beacon`:
+
+```nginx
+location = /api/collect { limit_req zone=beacon burst=200 nodelay; ... }
+location = /api/collect/omid { limit_req zone=beacon burst=200 nodelay; ... }
+```
+
+Второй блок нужен потому, что `location = /api/collect` — **точное** совпадение, и путь `/api/collect/omid` в него не попадает. Без отдельного блока запросы проваливаются в `location /api/` с лимитом панели (30 r/s вместо 100, таймаут чтения 30 с вместо 5): на рабочем объёме приём показов упрётся в 429 и заодно будет душить кабинет через общую зону.
+
+После правки конфигурации всегда выполняйте проверку синтаксиса до перезапуска:
+
+```bash
+docker compose -f docker-compose.prod.yml exec nginx nginx -t
+```
+
+> **Внимание:** приведённый ниже листинг — устаревший фрагмент, сохранённый для истории. Он не соответствует текущему `nginx/nginx.conf` (в актуальном файле четыре `server`-блока, четыре зоны rate limiting и описанные выше точки приёма). Авторитетный источник — файл в репозитории, а не этот листинг.
+
+Исторический листинг `nginx/nginx.conf`:
 
 ```nginx
 events {
@@ -554,6 +573,10 @@ COOKIE_SECRET=
 ADMIN_LOGIN=
 ADMIN_PASSWORD_HASH=
 ```
+
+**Необязательные переопределения версий браузерных бандлов.** Все заданы в `docker-compose.prod.yml` со значением по умолчанию `1` и переопределяются только при выкатке новой версии рантайма: `LOADER_RUNTIME_VERSION`, `DISPLAY_RUNTIME_VERSION`, `PLAYER_RUNTIME_VERSION`, `BRIDGE_VERSION`, `OMID_RUNTIME_VERSION`.
+
+`OMID_RUNTIME_VERSION` используется дважды: как build-arg сервиса `runtime-publisher` (под этой версией бандлы скрипта верификации публикуются в префикс `runtime/` объектного хранилища) и как переменная окружения backend (под этой версией backend формирует адрес скрипта в блоке `<AdVerifications>`). Значения обязаны совпадать, иначе плеер площадки запросит несуществующий файл.
 
 ### Генерация секретов
 

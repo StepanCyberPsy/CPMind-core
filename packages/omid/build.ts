@@ -63,7 +63,7 @@ const BUNDLES: ReadonlyArray<{ entry: string; outfile: string; label: string }> 
 
 
     // src/simid.ts здесь намеренно отсутствует: задел по интерактивному креативу
-    // SIMID не подключён к продукту. Причины — в src/simid/README.md.
+    // SIMID не подключён к продукту. Причины — в docs/packages_information/OMID_LOGIC.md.
     // Значение SIMID_RUNTIME_VERSION остаётся в define, чтобы точка входа
     // собиралась без правок, когда и если задел будет подключён
 ];

@@ -516,6 +516,10 @@ Client Component. TanStack Table v8, `manualSorting: true`, `getCoreRowModel()`.
 
 **Колонка "Валидность" (`ivt_verdict`):** badge-компонент, расположена перед "Аномалии". Три состояния: `valid` → зелёный badge "Валиден" (`.ivtValid`), `givt` → красный "GIVT-Нарушение" (`.ivtViolation`), `sivt_suspected`/`sivt_confirmed` → красный "SIVT-Нарушение" (`.ivtViolation`). Стили в `table.module.css`: `.ivtBadge`, `.ivtValid`, `.ivtViolation`.
 
+**Колонка "Измерение" (`measurement_level`):** `col.display` перед Score, в пользовательской и административной таблицах. Уровень определяется `resolveMeasurementLevel` из `@cpmind/shared` по наличию `score_final`. Два состояния: `full` → зелёный badge «Полное» (`.levelFull`), `partial` → жёлтый «Частичное» (`.levelPartial`); пояснение в `title`. В административной таблице пояснение дополняется уровнем доступа OMID из `omid_access_mode`. Стили в `table.module.css`: `.levelBadge`, `.levelFull`, `.levelPartial`.
+
+Колонка нужна потому, что у частичного показа пустые S3, S7 и Score неотличимы от потери данных: без неё пользователь видит прочерки и не понимает, сбой это или свойство режима измерения.
+
 **Колонка "Действия" (`__actions__`):** `col.display` после `creative_id`. Содержит компонент `ImpressionActionsMenu` — меню `⋮` через `usePopover()`. Два пункта: «Детали импрешена» (навигация с `back`-параметром) и «Фильтр по площадке» (`navigateTo({ creativeId, domainView: '1', publisherDomain: '', page: '1' })`). Колонка скрыта в domainView-режиме (`display: none` на `th` и `td`) — используется единый `col.display` с условным рендером `null` для ячейки, что избегает нестабильности TanStack при динамическом изменении количества колонок.
 
 **`isDomainView` пропс:** при `true` — строка становится кликабельной (`.trClickable`, `cursor: pointer`), клик открывает детальную страницу с `back`-параметром. При `false` — `cursor: default`, клик по строке не выполняет навигацию. Это инверсия прежнего поведения: раньше клик по строке всегда открывал детали; теперь детали открываются только через меню (вне domainView) или клик по строке (в domainView).
@@ -944,6 +948,8 @@ Client Component. Обёртка над `CreativePreview` с кнопкой `▾
 
 Client Component. Рендерит превью по `creativeType` и `assets`. `video_creative`: нативный `<video controls playsInline preload="metadata" poster={...}>` с source-ассетом. `banner_static`/`banner_gif`: `<img>` по CDN URL ассета `role='source'`. `banner_html5`: статичный placeholder с иконкой. При отсутствии ассетов — placeholder с текстом. Стиль из `creative-preview.module.css`.
 
+**Внешний VAST-тег:** при непустом пропсе `externalVastUrl` ветка срабатывает раньше разбора по типу. Такой креатив ассетов не имеет и никогда их не получит — ролик отдаёт сторонний адсервер в момент показа, — поэтому общая ветка приняла бы отсутствие ассета за незавершённую обработку и показывала бы «Видео обрабатывается» у готового креатива. Вместо этого выводится состояние «Внешний VAST-тег» с пояснением и адресом тега (`.placeholderHint`, `.placeholderUrl`). Адрес прокидывается со страницы креатива через `CollapsiblePreview`.
+
 ### `InlinePlacementForm.tsx`
 
 Client Component. Форма учитывает тип креатива: для баннера выбирается формат `banner`, для видео — `instream` или `outstream` с подтипом. В зависимости от формата доступны параметры слота, селектора видео, sticky, звука, автозапуска и пропуска. Настраиваются домен площадки и режим проверки разрешённых доменов. После создания открывается `PlacementEmbedModal`; стиль — `inline-placement-form.module.css`.
@@ -986,13 +992,19 @@ Client Component. Badge статуса creative: `processing` → amber, `ready`
 
 Client Component. Окно показывает embed-код и, для видео при наличии, VAST URL; пояснения зависят от формата, подтипа, слота и селектора. Есть копирование, сведения для диагностики и закрытие кнопкой, Escape или нажатием на подложку. Если версия не готова, вместо кода показывается предупреждение.
 
+Предупреждение у VAST URL описывает фактическую полноту измерения: она зависит от плеера площадки. Плеер с поддержкой OMID даёт S1, S2, S4, S5 и S6; S3, S7 и композитный Score требуют доступа к странице издателя и доступны, только если плеер его предоставил. Плеер без поддержки OMID даёт лишь базовое отслеживание воспроизведения. Прежний текст утверждал, что сигналы S1–S7 и Score недоступны вовсе, — после подключения блока верификации это перестало быть верным.
+
 ### `ProcessingPoller.tsx`
 
 Client Component. Polling `GET /api/creative-uploads/:uuid` через `setInterval`. Останавливается при `status === 'ready' || status === 'failed'`. Показывает spinner во время processing. При `ready` вызывает `onReady` с идентификаторами креатива и версии. При `failed` — отображает `processingError`.
 
 ### `UploadFlow.tsx`
 
-Client Component. Полный upload flow:
+Client Component. Переключатель источника креатива (`.sourceToggle`): **загрузить файл** или **внешний VAST-тег**. Ветки независимы — внешний тег не проходит загрузку и обработку, версия создаётся сразу готовой.
+
+**Внешний VAST-тег:** поля адреса тега, названия и необязательного Click URL; `createExternalVastCreative(payload)` → `POST /api/creatives/external-vast`. Коды отказа бэкенда (`VAST_TAG_URL_NOT_HTTPS`, `VAST_TAG_URL_PRIVATE_HOST`, `CREATIVE_KEY_TAKEN` и др.) переводятся в сообщения на русском в `lib/admin/api.ts`. Текстовые поля используют `.textInput`, а не `.select`: последний несёт шеврон выпадающего списка, и адрес тега с ним выглядел бы как список.
+
+**Загрузка файла** — прежний полный upload flow:
 1. Выбор кампании и файла (drag-and-drop + file input)
 2. `createUploadSession(payload)` → получение presigned URL
 3. `uploadFile(session, file, onProgress, signal)` → прогресс-бар

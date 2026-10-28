@@ -29,6 +29,7 @@ Production-зависимость только одна — Zod. Всё оста
         ├── [DIR] src
             ├── [DIR] access
                 ├── [FILE] impression-fields.ts
+                ├── [FILE] measurement-level.ts
             ├── [FILE] index.ts
             ├── [DIR] schemas
                 ├── [FILE] ad_session.ts
@@ -40,8 +41,10 @@ Production-зависимость только одна — Zod. Всё оста
                 ├── [FILE] delivery.ts
                 ├── [FILE] impression.ts
                 ├── [FILE] ivt.ts
+                ├── [FILE] omid.ts
                 ├── [FILE] placement.ts
                 ├── [FILE] player.ts
+                ├── [FILE] simid.ts
                 ├── [FILE] tag-constants.ts
                 ├── [FILE] tag.ts
                 ├── [FILE] upload.ts
@@ -142,6 +145,12 @@ Production-зависимость только одна — Zod. Всё оста
 - `s2_model_version` — версия квантильной конфигурации S2
 - `s3_model_version`, `s4_model_version`, `s5_model_version`, `s6_model_version`, `s7_model_version` — аналогично
 
+- `measurement_mode: MeasurementModeSchema` — режим измерения показа
+- `omid_access_mode: z.string().nullable()` — уровень доступа, фактически выданный плеером площадки показу `vast_omid`; пусто для остальных режимов
+- `vast_delivery_kind: z.string().nullable()` — форма VAST-доставки: `inline` или `wrapper`
+
+`score_final` и `f_presence` объявлены `.nullable()`: показ режима `vast_omid` с ограниченным доступом не имеет части сигналов, и композитная оценка для него не рассчитывается. Для всех остальных режимов значения обязательны — это гарантируют ограничения `chk_score_final_required` и `chk_f_presence_required` на уровне БД.
+
 Также содержит: все `s*_normalized`, `ivt_verdict: IvtVerdictSchema`, `ivt_category`, `ivt_confidence`, `score_reliable`, `tag_constants_version`, `weights_version`.
 
 **`ImpressionDetailSchema`** — расширяет `ImpressionRowSchema`. Добавляет:
@@ -219,6 +228,20 @@ Production-зависимость только одна — Zod. Всё оста
 | `PRESENCE_IDLE_TIMEOUT_MS` | Порог простоя для F_Presence и сегментации показа |
 
 `EVENT_TYPES` и `AD_SELECTORS` сознательно **не** калибруются и не входят в этот список.
+
+### `schemas/omid.ts`
+
+Контракт показа, измеренного через OMID без доступа к странице издателя. Отдельная схема, а не расширение `ImpressionPayloadSchema`: основной путь приёма и его контракт остаются нетронутыми.
+
+**`OmidPartialImpressionSchema`** — строгая схема с каноническими именами полей: `signals_raw` должен оставаться сопоставимым между режимами измерения. Содержит `omid_runtime_version`, `access_level`, `page_collectors_loaded`, идентификаторы показа и вложенный `signals` с S1, S2, S4, S5 и S6.
+
+Набор сигналов здесь заведомо неполный: прокрутки, курсора и окружения рекламы в таких режимах не существует, поэтому S3, S5 в полном виде, S7 и присутствие отсутствуют **по построению, а не по ошибке**.
+
+**`OmidAccessLevelSchema`** — уровень доступа, фактически выданный плеером: `full_page`, `creative`, `limited`, `not_executed`. `page_collectors_loaded: false` при полном уровне означает, что ветка коллекторов не догрузилась — такой показ не выдаётся за полное измерение.
+
+### `schemas/simid.ts`
+
+Контракт отчёта интерактивного креатива SIMID 1.2. **Не входит в публичный экспорт пакета** — задел не подключён к продукту, подробности в [`OMID_LOGIC.md`](./OMID_LOGIC.md).
 
 ---
 
@@ -443,6 +466,18 @@ effectiveWeight[key] = nullSet.has(key) ? 0 : weights[key] / availableSum
 **`UserImpressionRowSchema`** — производный через `ImpressionRowSchema.pick(USER_VISIBLE_IMPRESSION_FIELDS)`. Не отдельно поддерживаемая копия — изменение whitelist автоматически меняет схему.
 
 `signals_raw`, `signals_normalized`, детальные флаги (`no_events`, `tab_mostly_hidden`, `anomaly_duration`), `fp_hash`, `ivt_signals` — недоступны роли `user`. Доступны: основные метаданные, S1–S7 raw и normalized, `s6_normalized`, `score_final`, `is_suspicious`, `ivt_verdict`, `ivt_category`, `ivt_confidence`, `score_reliable`, `publisher_domain`.
+
+### `access/measurement-level.ts`
+
+**`resolveMeasurementLevel(row)`** — полнота измерения показа в терминах кабинета: `full` или `partial`.
+
+Показ режима `vast_omid` существует в двух видах. Если плеер площадки выдал скрипту верификации полный доступ к странице и ветка коллекторов подключилась, показ собирается штатным рантаймом и приходит на основную точку приёма со всеми семью сигналами и композитным Score. Если доступ ограничен уровнем креатива или ниже, прокрутки и окружения рекламы на странице не существует, S3 и S7 не измеряются, а веса предполагают полный набор — композитный Score в таком показе не рассчитывается.
+
+Дискриминатор — **наличие `score_final`, а не режим измерения**: ограничение `chk_score_final_required` допускает пустое значение исключительно для `vast_omid`, так что обратное невозможно. Выводить уровень из `measurement_mode` было бы неверно — один и тот же режим даёт оба исхода.
+
+`MEASUREMENT_LEVEL_LABELS` и `MEASUREMENT_LEVEL_HINTS` — подписи и пояснения. Пояснение показывается рядом с пустыми значениями: иначе частичный показ неотличим от сбойного, пустые S3, S7 и Score выглядят как потеря данных.
+
+Уровень выводится из `score_final`, которое уже входит в `USER_VISIBLE_IMPRESSION_FIELDS`, поэтому расширения пользовательского контракта не требуется. Диагностические поля `measurement_mode`, `omid_access_mode` и `vast_delivery_kind` в whitelist роли `user` намеренно не входят — внутренние идентификаторы режимов и уровней доступа OMID в кабинет не отдаются.
 
 ---
 

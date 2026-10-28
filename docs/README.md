@@ -34,7 +34,7 @@
 
 #### [`packages_information/SHARED_LOGIC.md`](./packages_information/SHARED_LOGIC.md)
 
-`packages/shared` — единственный источник истины для всех пакетов. Содержит: экспортный контракт (разделение Zod-схем и TypeScript-типов, обязательность пересборки), все схемы (impression, delivery, placement, upload, ad_session, player, VAST и др.), скоринг-слой (формулы S1–S7, `computeEffectiveWeights`, `recomputeScoreFromNormalized`), 19 калибруемых констант тега (`DEFAULT_TAG_CONSTANTS`), сегментацию S6 и квантильную модель S2, IVT-классификацию (`classifyIvtSync`), контроль доступа (`USER_VISIBLE_IMPRESSION_FIELDS`).
+`packages/shared` — единственный источник истины для всех пакетов. Содержит: экспортный контракт (разделение Zod-схем и TypeScript-типов, обязательность пересборки), все схемы (impression, delivery, placement, upload, ad_session, player, VAST и др.), скоринг-слой (формулы S1–S7, `computeEffectiveWeights`, `recomputeScoreFromNormalized`), 19 калибруемых констант тега (`DEFAULT_TAG_CONSTANTS`), сегментацию S6 и квантильную модель S2, IVT-классификацию (`classifyIvtSync`), контроль доступа (`USER_VISIBLE_IMPRESSION_FIELDS`), контракт частичного показа OMID (`OmidPartialImpressionSchema`) и полноту измерения (`resolveMeasurementLevel`).
 
 #### [`packages_information/SDK_LOGIC.md`](./packages_information/SDK_LOGIC.md)
 
@@ -44,7 +44,7 @@
 
 #### [`packages_information/BACKEND_LOGIC.md`](./packages_information/BACKEND_LOGIC.md)
 
-`packages/backend` — Fastify API-сервер. Содержит: все эндпоинты по группам доступа (публичные: `/api/collect`, `/e/:token`, `/vast/:token`, `/t/vast/:event`, `/api/delivery/event`; панельные; admin-only), полный pipeline обработки показа, delivery-сервисы (`resolveEmbedScript`, `resolveVastContext`, `createAdSession`, `processDeliveryEvent`, VAST генерацию), upload pipeline (`createUploadSession`, `completeUploadSession`, presigned URL / multipart), placement management (`ensureTagForUser`, `generateDeliveryToken`, `buildEmbedCode`), ротацию роликов, доменную политику и контекст hosted-показа, все сервисы с архитектурными решениями, фоновые задачи (asset_gc, scheduled_deletion, IVT frequency, S1–S7 recalibration cron), миграции 0000–0031, схему БД.
+`packages/backend` — Fastify API-сервер. Содержит: все эндпоинты по группам доступа (публичные: `/api/collect`, `/api/collect/omid`, `/e/:token`, `/vast/:token`, `/t/vast/:event`, `/api/delivery/event`; панельные; admin-only), полный pipeline обработки показа, delivery-сервисы (`resolveEmbedScript`, `resolveVastContext`, `createAdSession`, `processDeliveryEvent`, генерацию VAST InLine и Wrapper, блок верификации OMID), upload pipeline (`createUploadSession`, `completeUploadSession`, presigned URL / multipart), placement management (`ensureTagForUser`, `generateDeliveryToken`, `buildEmbedCode`), ротацию роликов, доменную политику и контекст hosted-показа, все сервисы с архитектурными решениями, приём частичных показов OMID (`/api/collect/omid`, `buildPartialImpressionRecord`), креатив из стороннего VAST-тега (`createExternalVastCreative`, политика внешних адресов), фоновые задачи (asset_gc, scheduled_deletion, IVT frequency, S1–S7 recalibration cron), миграции 0000–0033, схему БД.
 
 ### Media Worker
 
@@ -66,6 +66,10 @@
 
 `packages/player` — VAST 4.3 player для `video_creative`. Три метода: `mountOutstream` (IntersectionObserver lifecycle, state machine: mounting→loading→eligible→playing→paused_by_scroll→completed/closed), `mountSticky` (закреплённая поверхность) и `attachNative` (привязка к content video, поддержка pre/mid/post/pause-roll). Содержит: VAST fetch (manual timeout, Safari 14 compat — нет `AbortSignal.any()`), parse (DOMParser, InLine only), media selection (DPR-aware, CDN_HOSTNAME trust check), autoplay policy (muted fallback, Coalition for Better Ads), VAST tracking (quartile fire-and-forget keepalive, `vastFired` Set), SDK bridge (`setPendingSource` 100ms attribution window, `VideoPlaybackState`, передача событий в SDK, `detectAudioConnection`), UI (compact mode 400px, auto-hide controls 3s). `measurementMode: 'full_cpmind_player'`.
 
+#### [`packages_information/OMID_LOGIC.md`](./packages_information/OMID_LOGIC.md)
+
+`packages/omid` — скрипт верификации IAB OMID. Исполняется плеером площадки из блока `<AdVerifications>` VAST-ответа — единственный стандартный путь измерения, когда на странице издателя нет кода CPMind. Содержит: рукопожатие с клиентом верификации (`registerSessionObserver`, ключ вендора), определение уровня доступа (`resolveAccessLevel`, `friendlyToTop`), две ветки измерения (полная через `prepareMeasurementSession` SDK и ограниченная — собственный накопитель S1, S2, S4, S5, S6), доставку параметров через `<VerificationParameters>`, отправку на `/api/collect/omid`, два бандла IIFE и задел SIMID 1.2 (не подключён). `measurementMode: 'vast_omid'`.
+
 #### [`packages_information/CREATIVE_BRIDGE_LOGIC.md`](./packages_information/CREATIVE_BRIDGE_LOGIC.md)
 
 `packages/creative-bridge` — IIFE, инжектируется media-worker'ом в HTML5-креативы. postMessage протокол: `cpmind:ready` → `cpmind:init` → `cpmind:click`/`cpmind:activity`/`cpmind:interaction`/`cpmind:destroy`. Валидация источника через `event.source === window.parent` (event.origin всегда `'null'` в opaque sandbox). AbortController cleanup при destroy.
@@ -74,7 +78,7 @@
 
 #### [`packages_information/FRONTEND_LOGIC.md`](./packages_information/FRONTEND_LOGIC.md)
 
-`packages/frontend` — Next.js 14 App Router панель. Содержит: ролевой роутинг (admin / user / workspace route group), middleware, авторизацию (cookie forwarding, `decodeTokenUuid`, `decodeTokenRole`), workspace flow (campaigns → upload → creatives → placements → embed code), настройки форматов и наборов роликов, upload pipeline (`UploadFlow`, XHR + progress, `ProcessingPoller`), delivery (`PlacementEmbedModal`), весь lib-слой (`use-popover` — position: fixed + почему не CSS Anchor Positioning, `parseListSearchParams`, `SIGNALS_META`, `buildSegmentColorMap`, `upload-api.ts` с PART_CONCURRENCY=4), все страницы и компоненты, TypeScript-конфигурацию (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`), историю диагностики зависания (IntersectionObserver + бесконечный цикл), таблицу технического долга.
+`packages/frontend` — Next.js 14 App Router панель. Содержит: ролевой роутинг (admin / user / workspace route group), middleware, авторизацию (cookie forwarding, `decodeTokenUuid`, `decodeTokenRole`), workspace flow (campaigns → upload → creatives → placements → embed code), настройки форматов и наборов роликов, upload pipeline (`UploadFlow` с выбором источника креатива — файл или сторонний VAST-тег, XHR + progress, `ProcessingPoller`), delivery (`PlacementEmbedModal`), отображение полноты измерения показа, весь lib-слой (`use-popover` — position: fixed + почему не CSS Anchor Positioning, `parseListSearchParams`, `SIGNALS_META`, `buildSegmentColorMap`, `upload-api.ts` с PART_CONCURRENCY=4), все страницы и компоненты, TypeScript-конфигурацию (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`), историю диагностики зависания (IntersectionObserver + бесконечный цикл), таблицу технического долга.
 
 ### Legacy Tag
 
@@ -88,7 +92,7 @@
 
 ### [`PLACEMENT.md`](./PLACEMENT.md)
 
-Руководство по размещению рекламных плейсментов — для технических и нетехнических специалистов. Содержит: пошаговое создание плейсмента через личный кабинет (кампания → загрузка → плейсмент → embed-код), объяснение всех форматов (display: static/gif/html5; видео: outstream, instream pre/mid/post-roll, skippable/non-skippable, VAST URL), детальные инструкции по платформам: **Tilda** (блок T123 / настройки сайта → перед `</body>`), **WordPress** (WP Code plugin / `functions.php` `wp_footer` hook / блок «Пользовательский HTML»), **1С-Битрикс** (пользовательские скрипты / `footer.php` / HTML-блок), **кастомный код** (чистый HTML, PHP с `htmlspecialchars`, React с `useEffect`, Next.js App Router с `<Script strategy="lazyOnload">`, Python Flask/Django с Jinja2). Раздел миграции со старой интеграции (data-атрибуты → embed-скрипт).
+Руководство по размещению рекламных плейсментов — для технических и нетехнических специалистов. Содержит: пошаговое создание плейсмента через личный кабинет (кампания → загрузка → плейсмент → embed-код), объяснение всех форматов (display: static/gif/html5; видео: outstream, instream pre/mid/post-roll, skippable/non-skippable, VAST URL, креатив из стороннего VAST-тега), детальные инструкции по платформам: **Tilda** (блок T123 / настройки сайта → перед `</body>`), **WordPress** (WP Code plugin / `functions.php` `wp_footer` hook / блок «Пользовательский HTML»), **1С-Битрикс** (пользовательские скрипты / `footer.php` / HTML-блок), **кастомный код** (чистый HTML, PHP с `htmlspecialchars`, React с `useEffect`, Next.js App Router с `<Script strategy="lazyOnload">`, Python Flask/Django с Jinja2). Раздел миграции со старой интеграции (data-атрибуты → embed-скрипт).
 
 ### [`DEPLOYMENT.md`](./DEPLOYMENT.md)
 
