@@ -20,10 +20,19 @@ export interface SampleExclusions {
     unreliable: number;
     contextMismatch: number;
     legacy: number;
+    restrictedAccess: number;
 }
 
 function contextMismatchCondition(): SQL {
     return sql`COALESCE(${impressions.contextViolations}, ARRAY[]::text[]) @> ARRAY['CLIENT_CONTEXT_MISMATCH']::text[]`;
+}
+
+// Показ, измеренный через OMID без доступа к верхнему окну, в обучение не идёт.
+// Сигналы там получены из событий OMID с ненормированной частотой, а не наблюдением
+// элемента на странице: смешивание источников сместило бы подгонку моделей.
+// omid_access_mode пуст у всех режимов, кроме vast_omid — они проходят условие
+function restrictedAccessCondition(): SQL {
+    return sql`${impressions.omidAccessMode} IS NOT NULL AND ${impressions.omidAccessMode} <> 'full_page'`;
 }
 
 /**
@@ -37,6 +46,7 @@ export function buildTrainableImpressionFilter(
     return and(
         eq(impressions.scoreReliable, true),
         sql`NOT (${contextMismatchCondition()})`,
+        sql`NOT (${restrictedAccessCondition()})`,
         options.sdkOnly ? ne(impressions.measurementMode, 'legacy_tag') : undefined,
     );
 }
@@ -55,6 +65,7 @@ export async function countSampleExclusions(
             unreliable: sql<number>`(count(*) FILTER (WHERE ${impressions.scoreReliable} = false))::int`,
             contextMismatch: sql<number>`(count(*) FILTER (WHERE ${contextMismatchCondition()}))::int`,
             legacy: sql<number>`(count(*) FILTER (WHERE ${impressions.measurementMode} = 'legacy_tag'))::int`,
+            restrictedAccess: sql<number>`(count(*) FILTER (WHERE ${restrictedAccessCondition()}))::int`,
         })
         .from(impressions)
         .where(baseWhere);
@@ -64,5 +75,6 @@ export async function countSampleExclusions(
         unreliable: row?.unreliable ?? 0,
         contextMismatch: row?.contextMismatch ?? 0,
         legacy: options.sdkOnly ? (row?.legacy ?? 0) : 0,
+        restrictedAccess: row?.restrictedAccess ?? 0,
     };
 }

@@ -34,6 +34,8 @@ CPMind — платформа измерения качества рекламн
 
 **Hosted Creative Delivery (основной)** — рекламный материал загружается в CPMind, обрабатывается media-worker'ом и доставляется издателю через единый embed-скрипт. Издатель вставляет одну строку HTML; CPMind монтирует рекламный блок, измеряет показ и раздаёт VAST для видео.
 
+**VAST с верификацией OMID** — для видео на площадках, где код CPMind на странице разместить нельзя. CPMind либо оборачивает сторонний VAST-тег клиента своим `Wrapper`, либо выдаёт собственный `InLine`; в обоих случаях ответ несёт блок `<AdVerifications>` со скриптом верификации IAB OMID. Плеер площадки исполняет скрипт сам — устанавливать на площадке ничего не требуется. Полнота измерения зависит от уровня доступа, который выдаёт плеер.
+
 **Legacy Tag (совместимость)** — JS-тег подключается к произвольному HTML-контейнеру на странице издателя. Тег измеряет показ и отправляет данные напрямую в `/api/collect`.
 
 ### Четыре домена
@@ -58,6 +60,7 @@ graph TD
     player["@cpmind/player<br/><small>VAST + video player + measure</small>"]
     embed["@cpmind/embed<br/><small>Loader: type routing → CDN</small>"]
     bridge["@cpmind/creative-bridge<br/><small>HTML5 iframe postMessage</small>"]
+    omid["@cpmind/omid<br/><small>IAB OMID verification script</small>"]
     backend["@cpmind/backend<br/><small>Fastify API, scoring, delivery</small>"]
     frontend["@cpmind/frontend<br/><small>Next.js панель</small>"]
     worker["@cpmind/media-worker<br/><small>Обработка файлов, FFmpeg</small>"]
@@ -72,16 +75,19 @@ graph TD
     shared --> bridge
     shared --> display
     shared --> player
+    shared --> omid
 
     sdk --> tag
     sdk --> display
     sdk --> player
+    sdk --> omid
 
     display -.->|"inlines at build"| sdk
     player -.->|"inlines at build"| sdk
     embed -.->|"loads from CDN"| display
     embed -.->|"loads from CDN"| player
     display -.->|"iframe"| bridge
+    omid -.->|"inlines at build"| sdk
 
     backend -.->|"runtime build via esbuild"| tag
     backend -.->|"generates embed JS"| embed
@@ -89,6 +95,7 @@ graph TD
     publisher -.->|"publishes"| display
     publisher -.->|"publishes"| player
     publisher -.->|"publishes"| bridge
+    publisher -.->|"publishes"| omid
 
     style shared fill:#e8f5e9,stroke:#43a047
     style sdk fill:#e3f2fd,stroke:#1e88e5
@@ -112,6 +119,7 @@ shared → sdk → backend
                 tag (esbuild IIFE)
                 display-runtime (esbuild IIFE)
                 player (esbuild IIFE)
+                omid (esbuild IIFE ×2)
                 embed (esbuild IIFE)
                 creative-bridge (esbuild IIFE)
                 runtime-publisher (tsc)
@@ -214,6 +222,7 @@ graph LR
 
     subgraph backend_svc["backend:3001"]
         api_collect["POST /api/collect"]
+        api_collect_omid["POST /api/collect/omid"]
         api_rest["GET|POST /api/*"]
         api_embed["GET /e/:token"]
         api_vast["GET /vast/:token"]
@@ -230,6 +239,7 @@ graph LR
     client -->|HTTPS| d_creative
 
     d_app -->|"/api/collect (rate 100r/s)"| api_collect
+    d_app -->|"/api/collect/omid (rate 100r/s)"| api_collect_omid
     d_app -->|"/api/* (rate 30r/s)"| api_rest
     d_app -->|"/"| frontend_svc
     d_app -->|"/tag/ (alias, CORS *)"| tag_static
@@ -249,7 +259,7 @@ graph LR
 
 | Zone | Rate | Burst | Endpoint |
 |---|---|---|---|
-| `beacon` | 100 r/s | 200 | `/api/collect` |
+| `beacon` | 100 r/s | 200 | `/api/collect`, `/api/collect/omid` |
 | `api` | 30 r/s | 60 | `/api/*` панельный |
 | `delivery` | 60 r/s | 30–120 | embed, VAST, tracking |
 

@@ -28,6 +28,7 @@ import type {
   TagUuid,
   UserUuid,
   IvtVerdict,
+  MeasurementMode,
 } from '@cpmind/shared';
 
 import { getLatestApprovedCalibrationForImpression } from './calibration/calibrations.js';
@@ -201,6 +202,13 @@ const ADMIN_ONLY_COLUMNS = {
   segment_index: impressions.segmentIndex,
   video_show_index: impressions.videoShowIndex,
   sdk_runtime_version: impressions.sdkRuntimeVersion,
+
+  // Диагностика неполного показа: режим измерения, уровень доступа, выданный
+  // плеером площадки, и форма VAST-доставки
+  measurement_mode: impressions.measurementMode,
+  omid_access_mode: impressions.omidAccessMode,
+  vast_delivery_kind: impressions.vastDeliveryKind,
+
   skippable: impressions.s6Skippable,
   publisher_domain: impressions.publisherDomain,
   s1_raw_time_in_view: impressions.s1RawTimeInView,
@@ -278,6 +286,9 @@ export interface JoinedImpressionRow {
   subtype: string | null;
   video_show_index: number | null;
   sdk_runtime_version: string | null;
+  measurement_mode: MeasurementMode;
+  omid_access_mode: string | null;
+  vast_delivery_kind: string | null;
   device_type: string;
   skippable: boolean | null;
   publisher_domain: string | null;
@@ -301,8 +312,8 @@ export interface JoinedImpressionRow {
   s5_normalized: number | null;
   s6_normalized: number | null;
   s7_normalized: number | null;
-  f_presence: number;
-  score_final: number;
+  f_presence: number | null;
+  score_final: number | null;
   weights_version: string;
   s1_model_version: string | null;
   s2_model_version: string | null;
@@ -347,7 +358,7 @@ export interface UserVisibleRow {
   s5_normalized: number | null;
   s6_normalized: number | null;
   s7_normalized: number | null;
-  score_final: number;
+  score_final: number | null;
   is_suspicious: boolean;
   ivt_verdict: string;
   ivt_category: string | null;
@@ -392,6 +403,9 @@ function toAdminImpressionRow(row: JoinedImpressionRow): ImpressionRow {
     subtype: row.subtype,
     video_show_index: row.video_show_index,
     sdk_runtime_version: row.sdk_runtime_version,
+    measurement_mode: row.measurement_mode,
+    omid_access_mode: row.omid_access_mode,
+    vast_delivery_kind: row.vast_delivery_kind,
     device_type: row.device_type,
     skippable: row.skippable ?? false,
     publisher_domain: row.publisher_domain ?? 'unknown',

@@ -303,15 +303,20 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
   const s7 = raw?.['s7'] ?? {};
   const pr = raw?.['presence'] as Record<string, unknown> ?? {};
 
+  // Показ ограниченного измерения не имеет композитного Score и F_Presence
+  const scoreValue = imp.score_final;
+
   const scoreColor =
-    imp.score_final >= 70 ? styles.scorePositive :
-      imp.score_final >= 40 ? styles.scoreModerate :
-        styles.scoreNegative;
+    scoreValue === null ? styles.scoreNegative :
+      scoreValue >= 70 ? styles.scorePositive :
+        scoreValue >= 40 ? styles.scoreModerate :
+          styles.scoreNegative;
 
   const scoreBlockColor =
-    imp.score_final >= 70 ? styles.scoreBlockPositive :
-      imp.score_final >= 40 ? styles.scoreBlockModerate :
-        styles.scoreBlockNegative;
+    scoreValue === null ? styles.scoreBlockNegative :
+      scoreValue >= 70 ? styles.scoreBlockPositive :
+        scoreValue >= 40 ? styles.scoreBlockModerate :
+          styles.scoreBlockNegative;
 
   return (
     <div className={styles.container}>
@@ -320,14 +325,16 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
         <div>
           <div className={styles.scoreMetaLabel}>CPMind Score</div>
           <div className={`${styles.scoreValue} ${scoreColor}`}>
-            {imp.score_final.toFixed(1)}
+            {scoreValue !== null ? scoreValue.toFixed(1) : '—'}
           </div>
         </div>
         <div className={styles.scoreMeta}>
           <div className={styles.scoreMetaRow}>
             F_Presence:{' '}
             <span className={imp.f_presence === 1 ? styles.fPresenceValid : styles.fPresenceInvalid}>
-              {imp.f_presence === 1 ? '✓ 1 (валиден)' : '✗ 0 (невалиден)'}
+              {imp.f_presence === null
+                ? '— (не измерялся)'
+                : imp.f_presence === 1 ? '✓ 1 (валиден)' : '✗ 0 (невалиден)'}
             </span>
           </div>
           <div className={styles.scoreMetaRow}>
@@ -365,6 +372,14 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
           <Field label="Campaign ID" value={imp.campaign_id} mono />
           <Field label="Creative ID" value={imp.creative_id} mono />
           <Field label="Creative Type" value={imp.creative_type} />
+          <Field label="Режим измерения" value={imp.measurement_mode} mono />
+          <Field
+            label="Уровень доступа OMID"
+            value={imp.omid_access_mode ?? '—'}
+            mono
+            highlight={imp.omid_access_mode !== null && imp.omid_access_mode !== 'full_page'}
+          />
+          <Field label="Форма VAST-доставки" value={imp.vast_delivery_kind ?? '—'} mono />
           <Field label="Площадка размещения" value={imp.publisher_domain ?? 'Не определено'} mono />
           <Field label="Device Type" value={imp.device_type} />
           <Field label="Timestamp Start" value={safeToIso(imp.timestamp_start)} mono />
@@ -431,7 +446,7 @@ export function ImpressionDetail({ impression: imp, siblingSegments }: Props) {
                       Сегмент {seg.segment_index + 1}
                     </div>
                     <div className={styles.segmentCardScore}>
-                      {seg.score_final.toFixed(1)}
+                      {seg.score_final !== null ? seg.score_final.toFixed(1) : '—'}
                     </div>
                     <div className={styles.segmentCardDate}>{fmtDate(seg.created_at)}</div>
                   </Link>

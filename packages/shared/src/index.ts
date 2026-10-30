@@ -144,9 +144,16 @@ export {
     DEFAULT_IVT_THRESHOLDS,
 } from './schemas/ivt.js';
 
+// Измерение OMID
+export {
+    OmidAccessLevelSchema,
+    OmidPartialImpressionSchema,
+} from './schemas/omid.js';
+
 // Креативы
 export {
     CreativeTypeSchema,
+    CreateExternalVastCreativeSchema,
     CreativeStatusSchema,
     DeviceTypeSchema,
 } from './schemas/creative.js';
@@ -247,6 +254,7 @@ export {
     VastClickThroughUrlSchema,
     VastLinearTrackingEventTypeSchema,
     VastTrackingRequestEventSchema,
+    VastVerificationNotExecutedReasonSchema,
     VastErrorCodeSchema,
     VastTrackingEventParamSchema,
     VastTrackingQuerySchema,
@@ -264,4 +272,16 @@ export {
 } from './schemas/vast.js';
 
 // Типы
+// Полнота измерения показа
+export {
+    resolveMeasurementLevel,
+    MEASUREMENT_LEVEL_LABELS,
+    MEASUREMENT_LEVEL_HINTS,
+} from './access/measurement-level.js';
+
+export type {
+    MeasurementLevel,
+    MeasurementLevelSource,
+} from './access/measurement-level.js';
+
 export type * from './types/index.js';

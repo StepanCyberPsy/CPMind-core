@@ -223,7 +223,9 @@ export function RecalibrationTable({
                     <td className={tableStyles.td}><span className={tableStyles.cellMono}>{row.creative_id}</span></td>
                     <td className={tableStyles.td}>{deviceCell(row.device_type)}</td>
                     <td className={tableStyles.td}>
-                      <span className={`${tableStyles.cellScore} ${scoreClass(row.score_final)}`}>{row.score_final.toFixed(1)}</span>
+                      {row.score_final !== null
+                        ? <span className={`${tableStyles.cellScore} ${scoreClass(row.score_final)}`}>{row.score_final.toFixed(1)}</span>
+                        : <span className={tableStyles.cellNull}>—</span>}
                     </td>
                     <td className={tableStyles.td}>{normalizedCell(row.s1_normalized)}</td>
                     <td className={tableStyles.td}>{normalizedCell(row.s2_normalized)}</td>

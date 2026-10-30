@@ -43,6 +43,8 @@ import type {
     TagConstantsValues,
 } from '@cpmind/shared';
 import type { VastInLineInput, VastRendition } from '../vast/inline.js';
+import type { VastWrapperInput } from '../vast/wrapper.js';
+import type { OmidVerificationParams } from '../vast/verification.js';
 import {
     resolveDeliveryTagConstants,
     type DeliveryTagConstantsFailure,
@@ -864,11 +866,16 @@ export async function advanceAdSessionCreative(
     });
 }
 
+// Форма ответа VAST: собственный InLine либо Wrapper поверх стороннего тега
+export type VastRenderPlan =
+    | { kind: 'inline'; input: VastInLineInput }
+    | { kind: 'wrapper'; input: VastWrapperInput };
+
 export async function resolveVastContext(
     deliveryToken: string,
     publisherDomain: string | null,
     requestedAdSessionId: string | null,
-): Promise<{ input: VastInLineInput; adSessionId: string } | null> {
+): Promise<{ plan: VastRenderPlan; adSessionId: string } | null> {
     const ctx = await resolveDeliveryContext(deliveryToken, 'vast');
     if (!ctx) return null;
 
@@ -883,6 +890,7 @@ export async function resolveVastContext(
     }
 
     let adSessionId: string;
+    let versionId = ctx.versionId;
     let versionUuid = ctx.versionUuid;
     let versionAssets = ctx.versionAssets;
 
@@ -922,17 +930,56 @@ export async function resolveVastContext(
                 return null;
             }
 
+            versionId = sessionVersion.versionId;
             versionUuid = sessionVersion.versionUuid;
             versionAssets = sessionVersion.versionAssets;
         }
     } else {
+        // Запрос без sid приходит от стороннего плеера. Ответ содержит блок
+        // верификации OMID, поэтому сессия заводится измеряемой, а не vast_only:
+        // фактический уровень доступа станет известен из показа
         adSessionId = await createAdSession(buildAdSessionInput(
             ctx,
             publisherDomain,
-            'vast_only',
+            'vast_omid',
             true,
             0,
         ));
+    }
+
+    const verification: OmidVerificationParams = {
+        adSessionId,
+        tagUuid: ctx.tagUuid,
+        tagConstantsVersion: ctx.tagConstantsVersion,
+        campaignKey: ctx.campaignKey,
+        creativeKey: ctx.creativeKey,
+        creativeType: ctx.creativeType,
+        placementUuid: ctx.placementUuid,
+        creativeVersionUuid: versionUuid,
+        deliveryKind: 'inline',
+        collectEndpoint: getCollectEndpoint(),
+        deliveryMode: ctx.mode as DeliveryMode,
+        tagConstants: ctx.tagConstants,
+    };
+
+    // Версия, заданная сторонним тегом, ассетов не имеет: CPMind отдаёт Wrapper
+    // с собственным трекингом и блоком верификации поверх ответа адсервера клиента
+    const externalVastUrl = await loadExternalVastUrl(versionId);
+
+    if (externalVastUrl !== null) {
+        return {
+            adSessionId,
+            plan: {
+                kind: 'wrapper',
+                input: {
+                    adSessionId,
+                    creativeVersionUuid: versionUuid,
+                    vastAdTagUri: externalVastUrl,
+                    skippable: ctx.skippable,
+                    verification: { ...verification, deliveryKind: 'wrapper' },
+                },
+            },
+        };
     }
 
     const renditions: VastRendition[] = versionAssets
@@ -985,15 +1032,35 @@ export async function resolveVastContext(
 
     return {
         adSessionId,
-        input: {
-            adSessionId,
-            creativeVersionUuid: versionUuid,
-            adTitle: ctx.creativeName,
-            clickUrl: ctx.clickUrl,
-            skippable: ctx.skippable,
-            skipOffsetSec: ctx.skipOffsetSec,
-            durationSec,
-            renditions,
+        plan: {
+            kind: 'inline',
+            input: {
+                adSessionId,
+                creativeVersionUuid: versionUuid,
+                adTitle: ctx.creativeName,
+                clickUrl: ctx.clickUrl,
+                skippable: ctx.skippable,
+                skipOffsetSec: ctx.skipOffsetSec,
+                durationSec,
+                renditions,
+
+                // Скрипт верификации исполняется плеером площадки и о сессии ничего
+                // не знает: всё, что ему нужно для показа, передаётся здесь
+                verification,
+            },
         },
     };
+}
+
+// Сторонний VAST-тег версии креатива. Отдельным запросом только на пути VAST:
+// общая выборка контекста доставки используется и другими конечными точками,
+// расширять её ради одного сценария не нужно
+async function loadExternalVastUrl(creativeVersionId: string): Promise<string | null> {
+    const [row] = await db
+        .select({ externalVastUrl: creativeVersions.externalVastUrl })
+        .from(creativeVersions)
+        .where(eq(creativeVersions.id, creativeVersionId))
+        .limit(1);
+
+    return row?.externalVastUrl ?? null;
 }

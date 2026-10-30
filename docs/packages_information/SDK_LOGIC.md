@@ -56,9 +56,11 @@ SDK не имеет собственного bundle — это library package (
 
 Используется тегом при размещении на странице издателя через `<script>` с атрибутами `data-cpmind-*`. Управляет сессией через прямой вызов `initS1`–`initS7`, `initPresence`, `attachUnloadHandlers`.
 
-**Режим 2 — Hosted Creative** (`@cpmind/display-runtime`, `@cpmind/player`):
+**Режим 2 — Hosted Creative** (`@cpmind/display-runtime`, `@cpmind/player`, `@cpmind/omid`):
 
 Использует высокоуровневый `MeasurementSession` API через `prepareMeasurementSession()`. Runtime создаёт сессию и задаёт время начала через `startMeasurement(timestampMs)`. Display-runtime начинает измерение после подтверждения рендеринга и входа в область просмотра; player — после ожидания первого кадра видео; при ошибке ожидания воспроизведение и измерение продолжаются. Видеособытия передаются через `reportVideoEvent()`.
+
+`@cpmind/omid` использует тот же API в ветке коллекторов страницы: когда плеер площадки выдал полный доступ к верхнему окну, показ собирается этим же рантаймом и уходит на штатную точку приёма со всеми семью сигналами. Отличие от двух других потребителей в том, что поверхность принадлежит плееру площадки, а не CPMind, и media-события приходят из OMID, а не из собственного `<video>`.
 
 ### Зависимости
 
@@ -66,6 +68,7 @@ SDK не имеет собственного bundle — это library package (
 @cpmind/shared ← @cpmind/sdk ← @cpmind/tag
                              ← @cpmind/display-runtime
                              ← @cpmind/player
+                             ← @cpmind/omid
 ```
 
 SDK не зависит от DOM framework'ов — только нативные Web API.

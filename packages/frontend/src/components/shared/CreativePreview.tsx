@@ -7,9 +7,37 @@ import styles from '@/styles/creative-preview.module.css';
 interface Props {
     creativeType: string;
     assets: AssetView[];
+
+    // Адрес стороннего VAST-тега, если креатив задан тегом, а не файлом
+    externalVastUrl?: string | null;
 }
 
-export function CreativePreview({ creativeType, assets }: Props): React.ReactElement {
+export function CreativePreview({
+    creativeType,
+    assets,
+    externalVastUrl = null,
+}: Props): React.ReactElement {
+    // Креатив из стороннего тега не имеет ассетов и никогда их не получит:
+    // ролик отдаёт адсервер клиента в момент показа. Общая ветка приняла бы
+    // отсутствие ассета за незавершённую обработку
+    if (externalVastUrl !== null) {
+        return (
+            <div className={styles.root}>
+                <div className={styles.placeholder}>
+                    <span className={styles.placeholderIcon}>▶</span>
+                    <span className={styles.placeholderText}>
+                        Внешний VAST-тег
+                    </span>
+                    <span className={styles.placeholderHint}>
+                        Ролик отдаёт сторонний адсервер в момент показа,
+                        поэтому превью недоступно
+                    </span>
+                    <code className={styles.placeholderUrl}>{externalVastUrl}</code>
+                </div>
+            </div>
+        );
+    }
+
     if (creativeType === 'video_creative') {
         const sourceAsset = assets.find((a) => a.role === 'source');
         const posterAsset = assets.find((a) => a.role === 'poster');

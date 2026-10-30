@@ -1,5 +1,10 @@
 import { getCdnBaseUrl, getDeliveryBaseUrl } from '../../lib/env.js';
 import { escapeXml, formatDuration } from './xml.js';
+import {
+    buildAdVerificationsBlock,
+    buildAdVerificationsExtensionBlock,
+    type OmidVerificationParams,
+} from './verification.js';
 
 export interface VastRendition {
     cdnUrl: string;
@@ -19,6 +24,10 @@ export interface VastInLineInput {
     skipOffsetSec: number | null;
     durationSec: number;
     renditions: VastRendition[];
+
+    // Параметры скрипта верификации OMID. Отсутствуют — блок <AdVerifications>
+    // не выводится, ответ совпадает с прежним
+    verification?: OmidVerificationParams;
 }
 
 function assertTrustedMediaUrl(
@@ -46,6 +55,7 @@ export function generateVastInLine(input: VastInLineInput): string {
         skipOffsetSec,
         durationSec,
         renditions,
+        verification,
     } = input;
 
     if (!Number.isFinite(durationSec) || durationSec <= 0) {
@@ -122,6 +132,8 @@ export function generateVastInLine(input: VastInLineInput): string {
         `      <AdServingId>${escapeXml(adSessionId)}</AdServingId>`,
         `      <Impression id="cpmind"><![CDATA[${trackBase}/impression?sid=${sid}]]></Impression>`,
         `      <Error><![CDATA[${trackBase}/error?sid=${sid}&code=[ERRORCODE]]]></Error>`,
+        ...(verification !== undefined ? buildAdVerificationsExtensionBlock(verification) : []),
+        ...(verification !== undefined ? buildAdVerificationsBlock(verification) : []),
         '      <Creatives>',
         `        <Creative id="${escapeXml(creativeVersionUuid)}" adId="${escapeXml(creativeVersionUuid)}">`,
         `          <UniversalAdId idRegistry="unknown">${escapeXml(creativeVersionUuid)}</UniversalAdId>`,

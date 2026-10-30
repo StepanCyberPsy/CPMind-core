@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "dev": "tsc --project tsconfig.json --watch",
-    "test": "vitest run"
+    "test": "tsc --project tsconfig.test.json && vitest run"
   },
   "dependencies": {
     "zod": "^3.23.0"

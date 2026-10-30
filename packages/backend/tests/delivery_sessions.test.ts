@@ -28,6 +28,7 @@ import {
 } from '../src/db/schema.js';
 import { deliveryRoute } from '../src/routes/delivery.js';
 import { vastRoute } from '../src/routes/vast.js';
+import { createExternalVastCreative } from '../src/services/creatives/external_vast.js';
 
 const VAST_EMPTY_MARKER = '<VAST version="4.3" />';
 
@@ -394,6 +395,139 @@ afterAll(async () => {
     await pool.end();
 });
 
+describe('Сторонний VAST-тег', () => {
+
+    const CLIENT_TAG = 'https://ads.adfox.ru/987654/getCode?p1=zzz&p2=yyy';
+
+    it('выдаёт Wrapper поверх тега клиента с блоком верификации', async () => {
+        const [campaignRow] = await db
+            .select({ uuid: campaigns.uuid })
+            .from(campaigns)
+            .where(eq(campaigns.id, campaignId))
+            .limit(1);
+
+        const created = await createExternalVastCreative(
+            {
+                campaignUuid: campaignRow!.uuid,
+                name: 'Внешний тег',
+                vastTagUrl: CLIENT_TAG,
+            },
+            ownerUserId,
+        );
+
+        expect(created.ok).toBe(true);
+        if (!created.ok) return;
+
+        const [creativeRow] = await db
+            .select({ id: creatives.id })
+            .from(creatives)
+            .where(eq(creatives.uuid, created.creativeUuid))
+            .limit(1);
+
+        createdCreativeIds.push(creativeRow!.id);
+
+        // Версию нужно зарегистрировать отдельно: порядок удаления в teardown
+        // идёт от версий к креативам
+        const [versionRow] = await db
+            .select({ id: creativeVersions.id })
+            .from(creativeVersions)
+            .where(eq(creativeVersions.uuid, created.versionUuid))
+            .limit(1);
+
+        createdVersionIds.push(versionRow!.id);
+
+        const placement = await createPlacement('outstream', creativeRow!.id);
+
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${placement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+
+        // Ответ — обёртка, а не собственный InLine: ролик остаётся у клиента
+        expect(response.body).toContain('<Wrapper followAdditionalWrappers="true"');
+        expect(response.body).toContain(`<VASTAdTagURI><![CDATA[${CLIENT_TAG}]]></VASTAdTagURI>`);
+        expect(response.body).not.toContain('<InLine>');
+        expect(response.body).not.toContain('<MediaFile');
+
+        expect(response.body).toContain('<Verification vendor="cpmind.tech-omid">');
+
+        const match = /<VerificationParameters><!\[CDATA\[([\s\S]*?)\]\]><\/VerificationParameters>/
+            .exec(response.body);
+        expect(match).not.toBeNull();
+        expect((JSON.parse(match![1]!) as Record<string, unknown>)['delivery_kind']).toBe('wrapper');
+    });
+
+    it('фиксирует отказ плеера исполнить скрипт верификации', async () => {
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${outstreamPlacement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const session = await loadLatestSession(outstreamPlacement.placementId);
+
+        const tracking = await app.inject({
+            method: 'GET',
+            url: `/t/vast/verificationNotExecuted?sid=${session.adSessionId}&reason=1`,
+        });
+
+        expect(tracking.statusCode).toBe(204);
+
+        // Пиксель обрабатывается вне цикла ответа
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const updated = await loadLatestSession(outstreamPlacement.placementId);
+
+        // Единственный источник ответа, почему по показу нет данных:
+        // показа при отказе не возникает
+        expect(updated.omidVerificationNotExecutedAt).not.toBeNull();
+        expect(updated.omidNotExecutedReason).toBe('1');
+    });
+
+    it('не принимает недопустимый код причины отказа', async () => {
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${outstreamPlacement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const session = await loadLatestSession(outstreamPlacement.placementId);
+
+        // Коды определены VAST 4.3 §3.17.4 как 1, 2 и 3
+        const tracking = await app.inject({
+            method: 'GET',
+            url: `/t/vast/verificationNotExecuted?sid=${session.adSessionId}&reason=99`,
+        });
+
+        expect(tracking.statusCode).toBe(204);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const updated = await loadLatestSession(outstreamPlacement.placementId);
+        expect(updated.omidVerificationNotExecutedAt).toBeNull();
+    });
+
+    it('отклоняет недопустимый адрес стороннего тега', async () => {
+        const [campaignRow] = await db
+            .select({ uuid: campaigns.uuid })
+            .from(campaigns)
+            .where(eq(campaigns.id, campaignId))
+            .limit(1);
+
+        const result = await createExternalVastCreative(
+            {
+                campaignUuid: campaignRow!.uuid,
+                name: 'Внутренний адрес',
+                vastTagUrl: 'https://169.254.169.254/latest/meta-data',
+            },
+            ownerUserId,
+        );
+
+        expect(result).toEqual({ ok: false, reason: 'VAST_TAG_URL_PRIVATE_HOST' });
+    });
+});
+
 describe('Создание ad_session при доставке', () => {
 
     it('embed display создаёт ровно одну сессию в режиме full_direct_display', async () => {
@@ -509,7 +643,7 @@ describe('Привязка VAST к сессии', () => {
         expect(session?.vastRequestedAt).not.toBeNull();
     });
 
-    it('VAST без sid создаёт отдельную сессию vast_only', async () => {
+    it('VAST без sid создаёт отдельную измеряемую сессию vast_omid', async () => {
         const before = await countSessions(outstreamPlacement.placementId);
 
         const response = await app.inject({
@@ -523,8 +657,39 @@ describe('Привязка VAST к сессии', () => {
         expect(await countSessions(outstreamPlacement.placementId) - before).toBe(1);
 
         const session = await loadLatestSession(outstreamPlacement.placementId);
-        expect(session.measurementMode).toBe('vast_only');
+
+        // Ответ содержит блок верификации OMID, поэтому сессия стороннего плеера
+        // заводится измеряемой. Фактический уровень доступа станет известен
+        // из показа, который пришлёт скрипт
+        expect(session.measurementMode).toBe('vast_omid');
         expect(session.vastRequestedAt).not.toBeNull();
+    });
+
+    it('VAST отдаёт блок верификации с данными выданной сессии', async () => {
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${outstreamPlacement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.body).toContain('<Verification vendor="cpmind.tech-omid">');
+
+        const session = await loadLatestSession(outstreamPlacement.placementId);
+
+        const match = /<VerificationParameters><!\[CDATA\[([\s\S]*?)\]\]><\/VerificationParameters>/
+            .exec(response.body);
+        expect(match).not.toBeNull();
+
+        const params = JSON.parse(match![1]!) as Record<string, unknown>;
+
+        // Значения приходят из выданной ad_session и связанных сущностей,
+        // а не из статического шаблона
+        expect(params['sid']).toBe(session.adSessionId);
+        expect(params['delivery_kind']).toBe('inline');
+        expect(params['creative_type']).toBe(session.creativeType);
+        expect(params['tag_constants_version']).toBe(session.tagConstantsVersion);
+        expect(typeof params['tag_uuid']).toBe('string');
+        expect(typeof params['placement_uuid']).toBe('string');
     });
 
     it('VAST с sid чужого плейсмента отклоняется и не создаёт сессию', async () => {

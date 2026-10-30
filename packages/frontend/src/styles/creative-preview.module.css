@@ -26,6 +26,30 @@
     text-align: center;
 }
 
+.placeholderHint {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    text-align: center;
+    max-width: 320px;
+}
+
+/* Адрес тега бывает длинным и содержит макросы: перенос по любому символу
+   удерживает его внутри блока превью */
+.placeholderUrl {
+    max-width: 100%;
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
+
 .image {
     display: block;
     max-width: 100%;

@@ -178,6 +178,7 @@ export default async function CreativeDetailPage({
                     <CollapsiblePreview
                         creativeType={creative.creativeType}
                         assets={latestAssets}
+                        externalVastUrl={latestVersion?.externalVastUrl ?? null}
                     />
                 </div>
             </div>

@@ -8,9 +8,14 @@ import styles from '@/styles/creative-detail.module.css';
 interface Props {
     creativeType: string;
     assets: AssetView[];
+    externalVastUrl?: string | null;
 }
 
-export function CollapsiblePreview({ creativeType, assets }: Props): React.ReactElement {
+export function CollapsiblePreview({
+    creativeType,
+    assets,
+    externalVastUrl = null,
+}: Props): React.ReactElement {
     const [collapsed, setCollapsed] = useState(false);
 
     return (
@@ -31,6 +36,7 @@ export function CollapsiblePreview({ creativeType, assets }: Props): React.React
                     <CreativePreview
                         creativeType={creativeType}
                         assets={assets}
+                        externalVastUrl={externalVastUrl}
                     />
                 </div>
             )}

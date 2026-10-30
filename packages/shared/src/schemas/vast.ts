@@ -51,13 +51,19 @@ export const VastLinearTrackingEventTypeSchema = z.enum([
     'notUsed',
 ]);
 
-// Событие CPMind VAST tracking endpoint
+// Причина, по которой плеер не исполнил ресурс верификации. VAST 4.3 §3.17.4:
+// 1 — ресурс отклонён площадкой, 2 — фреймворк не поддерживается, 3 — ошибка загрузки
+export const VastVerificationNotExecutedReasonSchema = z.enum(['1', '2', '3']);
+
+// Событие CPMind VAST tracking endpoint. verificationNotExecuted приходит из
+// <Verification><TrackingEvents>, а не из линейных событий креатива
 export const VastTrackingRequestEventSchema = z.union([
     VastLinearTrackingEventTypeSchema,
     z.enum([
         'impression',
         'click',
         'error',
+        'verificationNotExecuted',
     ]),
 ]);
 
@@ -109,6 +115,7 @@ export const VastTrackingEventParamSchema = z.object({
 export const VastTrackingQuerySchema = z.object({
     sid: AdSessionIdSchema,
     code: VastErrorCodeSchema.optional(),
+    reason: VastVerificationNotExecutedReasonSchema.optional(),
 }).strict();
 
 // Нормализованный tracking request
@@ -116,6 +123,10 @@ export const VastTrackingRequestSchema = z.object({
     event: VastTrackingRequestEventSchema,
     sid: AdSessionIdSchema,
     code: VastErrorCodeSchema.optional(),
+
+    // Плеер подставляет макрос [REASON]. Необязательно: часть плееров оставляет
+    // макрос неразвёрнутым, и терять само событие из-за этого нельзя
+    reason: VastVerificationNotExecutedReasonSchema.optional(),
 }).strict().superRefine(
     (request, ctx) => {
         if (request.event === 'error' && request.code === undefined) {
@@ -290,6 +301,7 @@ export type VastLinearTrackingEventType = z.infer<typeof VastLinearTrackingEvent
 export type VastTrackingRequestEvent = z.infer<typeof VastTrackingRequestEventSchema>;
 export type VastErrorCode = z.infer<typeof VastErrorCodeSchema>;
 export type VastTrackingEventParam = z.infer<typeof VastTrackingEventParamSchema>;
+export type VastVerificationNotExecutedReason = z.infer<typeof VastVerificationNotExecutedReasonSchema>;
 export type VastTrackingQuery = z.infer<typeof VastTrackingQuerySchema>;
 export type VastTrackingRequest = z.infer<typeof VastTrackingRequestSchema>;
 export type VastTimeOffset = z.infer<typeof VastTimeOffsetSchema>;

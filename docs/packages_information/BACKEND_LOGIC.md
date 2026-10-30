@@ -18,7 +18,8 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 10. [IVT — детекция невалидного трафика](#ivt--детекция-невалидного-трафика)
 11. [Фоновые задачи (jobs)](#фоновые-задачи-jobs)
 11. [Безопасность](#безопасность)
-12. [База данных — миграции и схема](#база-данных--миграции-и-схема)
+12. [Логирование новых путей приёма](#логирование-новых-путей-приёма)
+13. [База данных — миграции и схема](#база-данных--миграции-и-схема)
 
 ---
 
@@ -122,6 +123,7 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [FILE] impressions.ts
                 ├── [FILE] ivt_lists.ts
                 ├── [FILE] ivt_thresholds.ts
+                ├── [FILE] omid.ts
                 ├── [FILE] placements.ts
                 ├── [FILE] s1_weibull.ts
                 ├── [FILE] s2_config.ts
@@ -157,6 +159,8 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                     ├── [FILE] weibull_config.ts
                     ├── [FILE] weights_config.ts
                 ├── [FILE] creatives.ts
+                ├── [DIR] creatives
+                    ├── [FILE] external_vast.ts
                 ├── [FILE] csv.ts
                 ├── [DIR] delivery
                     ├── [FILE] embed.ts
@@ -171,6 +175,9 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [DIR] ivt
                     ├── [FILE] ivt_list.ts
                     ├── [FILE] ivt_thresholds.ts
+                ├── [DIR] omid
+                    ├── [FILE] partial_record.ts
+                    ├── [FILE] partial_signals.ts
                 ├── [FILE] placements.ts
                 ├── [FILE] scoring.ts
                 ├── [DIR] storage
@@ -192,7 +199,10 @@ API-сервер на Fastify (Node.js). Принимает данные от т
                 ├── [DIR] vast
                     ├── [FILE] inline.ts
                     ├── [FILE] tracking.ts
+                    ├── [FILE] url_policy.ts
                     ├── [FILE] validator.ts
+                    ├── [FILE] verification.ts
+                    ├── [FILE] wrapper.ts
                     ├── [FILE] xml.ts
         ├── [FILE] tsconfig.json
 ```
@@ -213,6 +223,22 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 - `ON CONFLICT DO UPDATE` обновляет только промежуточный снимок того же владельца и рекламной сессии при неубывающем времени окончания; финальная запись не перезаписывается
 - Rate limit: 100 req/s с одного IP, burst 200 (настроен в NGINX, не в Fastify)
 - CORS: `Access-Control-Allow-Origin: *` — работает с любого домена
+
+### `POST /api/collect/omid`
+
+Приём показа, измеренного скриптом верификации OMID в плеере площадки. Отдельная точка: контракт `/api/collect` и его обработчик не затрагиваются.
+
+- Zod-валидация `OmidPartialImpressionSchema` (строгая, канонические имена полей)
+- 202 при успехе; `onConflictDoNothing` по `impressions.impressionId`
+- Контекст показа проверяется тем же `evaluateImpressionContext`, что и hosted-показ
+- Нормализованные значения считаются теми же функциями и теми же активными конфигурациями, что и для показов со скриптом: в кабинете видны только они
+- `measurement_mode` записи — `vast_omid`; `omid_access_mode` фиксирует уровень доступа, фактически выданный плеером
+- S3 и S7 остаются пустыми и в сыром, и в нормализованном виде: прокрутки и окружения рекламы в таких режимах не существует
+- `score_final` и `f_presence` остаются пустыми — веса предполагают полный набор сигналов
+- Rate limit: 100 req/s с одного IP, burst 200 (зона `beacon` в NGINX — отдельный `location = /api/collect/omid`, так как `location = /api/collect` совпадает точно)
+- CORS: `Access-Control-Allow-Origin: *`, `credentials: false` — скрипт исполняется в окне чужой площадки
+
+Если плеер выдал полный доступ к странице и ветка коллекторов подключилась, показ собирается штатным рантаймом и приходит на `/api/collect` со всеми семью сигналами — эта точка его не получает.
 
 ### `GET /api/health`
 
@@ -275,7 +301,7 @@ API-сервер на Fastify (Node.js). Принимает данные от т
 
 ### `GET /vast/:token`
 
-VAST 4.3 InLine XML для видео placement'а.
+VAST 4.3 XML для видео placement'а: `InLine` для креатива из загруженного файла, `Wrapper` — для креатива, заданного сторонним VAST-тегом.
 
 - `Cache-Control: no-store`
 - `Content-Type: application/xml; charset=utf-8`
@@ -286,7 +312,11 @@ VAST 4.3 InLine XML для видео placement'а.
 
 **Tracking URLs** генерируются с паттерном `{DELIVERY_BASE_URL}/t/vast/{event}?sid={adSessionId}`. Для `error` — дополнительный параметр `&code=[ERRORCODE]` (IAB macro, заменяется плеером).
 
-**`ad_session`:** VAST с допустимым `sid` привязывается к ранее выданной сессии и использует её зафиксированную версию; без `sid` создаётся отдельная сессия `vast_only`.
+**`ad_session`:** VAST с допустимым `sid` привязывается к ранее выданной сессии и использует её зафиксированную версию; без `sid` создаётся отдельная сессия. Сессия заводится измеряемой (`vast_omid`), поскольку ответ несёт блок верификации OMID; режим `vast_only` остаётся для доставки без него.
+
+**Блок верификации OMID:** в ответ добавляются `<AdVerifications>` со скриптом `@cpmind/omid` и — тем же содержимым — `<Extensions><Extension type="AdVerifications">` для потребителей ниже VAST 4.1. Ключ вендора `cpmind.tech-omid`, `browserOptional="false"`. Параметры показа доставляются через `<VerificationParameters>`: уникальный адрес скрипта на каждый показ лишил бы бандл кэширования на CDN. Вложенный `<TrackingEvents>` содержит `verificationNotExecuted` с макросами `[REASON]` и `[CACHEBUSTING]`.
+
+**Wrapper:** версия креатива, заданная сторонним тегом, ассетов не имеет — CPMind отдаёт `Wrapper` с `<VASTAdTagURI>` на адрес клиента, собственным трекингом и тем же блоком верификации. Порядок элементов соответствует VAST 4.3 §3.19 (он отличается от §3.3 для `InLine`); `MediaFiles` и `Duration` в `Wrapper` не выводятся. Адрес стороннего тега проходит `validateExternalVastTagUrl`: только `https`, без учётных данных в URL, без приватных диапазонов IPv4/IPv6, `localhost`, `.local` и `.internal`, не длиннее 2048 символов.
 
 ---
 
@@ -311,7 +341,10 @@ VAST tracking pixel. Обновляет временны́е метки виде
 | `complete` | `completedAt` |
 | `skip` | `skippedAt` |
 | `error` | `errorAt`, `errorCode` |
+| `verificationNotExecuted` | `omidVerificationNotExecutedAt`, `omidNotExecutedReason` |
 | остальные (pause, resume, mute, click...) | только `lastSeenAt` |
+
+**`verificationNotExecuted`** приходит из `<Verification><TrackingEvents>`, а не из линейных событий креатива. Это отказ плеера исполнить ресурс верификации, и единственный источник ответа на вопрос, почему по сеансу нет данных: показа при отказе не возникает, и записать причину больше некуда. Код причины хранится как прислан (VAST 4.3 §3.17.4: `1` — вендор отклонён площадкой, `2` — фреймворк не поддержан, `3` — ошибка загрузки); расшифровка выполняется при отображении, чтобы новые коды IAB не обесценили накопленные записи. Параметр `reason` необязателен: часть плееров оставляет макрос `[REASON]` неразвёрнутым, и терять само событие из-за этого нельзя.
 
 ---
 
@@ -333,6 +366,7 @@ VAST tracking pixel. Обновляет временны́е метки виде
 | `GET` | `/api/creatives` | список creatives, фильтр `notInArray(['draft','archived'])` |
 | `GET` | `/api/creatives/:uuid` | детальный вид: версии DESC + ассеты по `priority ASC` с CDN URL |
 | `POST` | `/api/creatives/:uuid/archive` | архивировать creative (только `status='active'`) |
+| `POST` | `/api/creatives/external-vast` | создать видеокреатив из стороннего VAST-тега: файла нет, версия сразу `ready`. 404 при неизвестной кампании, 409 при занятом ключе креатива, 422 при отклонённом адресе тега |
 | `POST` | `/api/creative-uploads` | создать upload session; возвращает presigned URL (single) или part URLs (multipart) |
 | `POST` | `/api/creative-uploads/:uuid/complete` | завершить upload → атомарная транзакция: session+version+creative→processing, insert job |
 | `GET` | `/api/creative-uploads/:uuid` | статус сессии; `creativeVersionUuid` возвращается при `ready` или `failed` |
@@ -787,9 +821,43 @@ interface UploadSessionStatus {
 
 `assertTrustedMediaUrl` вызывается для каждого rendition перед генерацией XML — CDN hostname берётся из `getCdnBaseUrl()` динамически. Несоответствие origin → `throw` → empty VAST в route handler. `formatDuration` конвертирует через целые миллисекунды (`Math.round(sec * 1000)`) — исключает carry-ошибку при `frac*1000 === 1000`.
 
+### `services/vast/wrapper.ts`
+
+`generateVastWrapper` строит `Wrapper` для версии, заданной сторонним тегом. Порядок дочерних элементов соответствует VAST 4.3 §3.19 и отличается от §3.3 для `InLine`: `Impression`, `VASTAdTagURI`, `AdSystem`, `Error`, `AdVerifications`, `Extensions`, `Creatives`. `MediaFiles` и `Duration` не выводятся — медиа отдаёт адсервер клиента. Трекинг CPMind добавляется поверх ответа клиента, исходный тег не изменяется.
+
+### `services/vast/verification.ts`
+
+`buildAdVerificationsBlock` и `buildAdVerificationsExtensionBlock` формируют блок верификации для `InLine` и для `Wrapper`. Ключ вендора `CPMIND_OMID_VENDOR` = `cpmind.tech-omid` (формат `[domain]-[useCase]`, VAST 4.3 §3.17): он попадает в `sessionStart` и используется скриптом при `registerSessionObserver` — параметры доставляются только наблюдателю с совпавшим ключом.
+
+`browserOptional="false"`: скрипт использует DOM и браузерные API, в окружении без них исполнять его нельзя. По VAST 4.3 §3.17.1 такой плеер обязан отправить `verificationNotExecuted` с кодом `2` — для нас это достоверный сигнал непригодной среды, а не потеря показа.
+
+Расширение `<Extensions><Extension type="AdVerifications">` дублирует тот же блок для потребителей ниже VAST 4.1, где `<AdVerifications>` ещё не входил в `InLine`. Плеер, понимающий 4.1 и выше, прочитает оба и исполнит ресурс один раз: ключ вендора совпадает, а дедупликация вендоров предусмотрена спецификацией.
+
+`wrapCdata` разрывает последовательность `]]>` на две секции: CDATA завершается первым же её вхождением, а разрыв сохраняет исходный текст и не ломает разбор.
+
+### `services/vast/url_policy.ts`
+
+`validateExternalVastTagUrl` — политика адресов стороннего тега. Отклоняет всё, кроме `https`, учётные данные в URL, приватные диапазоны IPv4 и IPv6, `localhost`, `.local`, `.internal` и адреса длиннее 2048 символов. Ответ адсервера с макросами и таргетингом бывает длинным, но не безразмерным.
+
 ### `services/vast/tracking.ts`
 
 COALESCE-паттерн аналогичен `events.ts`. События без специфического поля (pause, resume, mute, unmute, rewind, click и др.) обновляют только `lastSeenAt`. `error` дополнительно записывает `errorCode` через COALESCE (первый код авторитетен).
+
+### `services/omid/partial_record.ts`
+
+`buildPartialImpressionRecord` собирает запись показа, измеренного через OMID без доступа к странице издателя. Чистая функция, как `processImpression`: нормализованные значения рассчитывает вызывающая сторона, потому что доступ к активным конфигурациям требует обращения к БД.
+
+Сырые сигналы хранятся в канонической форме — панель администратора читает их теми же путями, что и у показов со скриптом. S3 и S7 остаются пустыми и в сыром, и в нормализованном виде, как S3 у показа в кросс-доменном iframe. `score_final` и `f_presence` остаются пустыми: веса предполагают полный набор.
+
+`downgradeWhenCollectorsMissing` понижает `full_page` до `creative`, если ветка коллекторов не догрузилась: такой показ не выдаётся за полное измерение.
+
+### `services/omid/partial_signals.ts`
+
+`toCanonicalS1`–`toCanonicalS6` приводят частичные сигналы к каноническим именам полей `ImpressionPayload`. `mrc_compliant` выводится как `max_continuous_view_sec >= 2 && visible_pixels_pct >= 75`. Ненаблюдаемые в этих режимах величины задокументированы явно: `replay_count` = 0, `visibility_state_history` = `[]`, `completion_rate_pct` = `null`.
+
+### `services/creatives/external_vast.ts`
+
+`createExternalVastCreative` создаёт видеокреатив, заданный сторонним VAST-тегом. Отличия от загрузки файла: ассетов нет, обработки нет, версия создаётся сразу со статусом `ready`. Всё остальное — та же цепочка кампания → креатив → версия, поэтому ротация, атрибуция показов и аналитика работают без изменений. Конфликт ключа креатива распознаётся по ограничению `uidx_creatives_campaign_creative_key`.
 
 ### `services/vast/validator.ts`
 
@@ -896,7 +964,7 @@ WHERE deletion_scheduled_at IS NOT NULL
 
 ### `jobs/s1_weibull_recalibration.ts` (новый)
 
-Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней; используется общий фильтр пригодных SDK-показов. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions` через `inArray(impressions.creativeType, matchingCreativeTypes)`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skipped — insufficient sample size` если выборка мала.
+Cron `0 4 * * 0` (еженедельно, воскресенье 04:00 UTC). Окно: последние 30 дней; используется общий фильтр пригодных SDK-показов (`jobs/recalibration_sample.ts`). Показы с ограниченным доступом OMID из выборки исключаются — условие `omid_access_mode IS NOT NULL AND <> 'full_page'`, счётчик `restrictedAccess` в `SampleExclusions`. Фильтр общий для всех семи сигналов: модели калибруются только на полных показах. `MIN_SAMPLE_SIZE=1000` на сегмент. По каждому из 9 сегментов (`{device}×{creative_group}`): выборка `s1_raw_time_in_view` из `impressions` через `inArray(impressions.creativeType, matchingCreativeTypes)`, `fitWeibullMLE(samples)` из `@cpmind/shared`, INSERT нового конфига (inactive). Логирует `skipped — insufficient sample size` если выборка мала.
 
 ### `jobs/s2_calibration.ts`
 
@@ -966,12 +1034,31 @@ Path A (текущая реализация): поведенческая дет�
 
 - **JWT:** httpOnly cookie `cpmind_token`, 7 дней. Payload `{uuid, id, role}`.
 - **bcrypt:** rounds=10. Constant-time сравнение даже при несуществующем логине (dummy-хэш, защита от timing-атаки user enumeration).
-- **CORS:** wildcard только для `/api/collect`. Все остальные — reflect origin + credentials.
+- **CORS:** wildcard для `/api/collect` и `/api/collect/omid` (скрипт верификации исполняется в окне чужой площадки, origin произвольный). Все остальные — reflect origin + credentials.
 - **Security headers:** `@fastify/helmet` на уровне backend, дополнительные на уровне NGINX.
 - **IDOR:** владелец из JWT, не из URL. Несуществующий или чужой ресурс → 404.
 - **Нераскрытый пробел (MVP):** `tag_uuid` виден в HTML-разметке страницы клиента. Отправка показов под чужим `tag_uuid` физически возможна — засоряет данные владельца, не даёт доступа к чтению. Принятый риск, не закрыт.
 - **Delivery token:** `randomBytes(24).toString('base64url')` = 32 символа base64url = 192 бит энтропии. Непредсказуем, не является UUID (нет структурных атак). Единственный способ получить embed script или VAST — знать token, который выдаётся только аутентифицированному владельцу placement через `GET /api/placements/:uuid`.
 - **`allowedDomains`:** список доменов проверяется при приёме hosted-показа согласно `domainEnforcement`: `off`, `monitor` или `block`.
+- **Адрес стороннего VAST-тега:** `validateExternalVastTagUrl` отклоняет всё, кроме `https`, блокирует приватные диапазоны IPv4/IPv6, `localhost`, `.local`, `.internal` и учётные данные в URL. Адрес задаёт пользователь кабинета, и без этой проверки он стал бы вектором SSRF-подобного сканирования внутренней сети через плееры площадок.
+
+---
+
+## Логирование новых путей приёма
+
+Все сообщения — `pino` через `request.log`, уровень `warn` для отклонённого или подозрительного показа и `error` для сбоя записи.
+
+| Путь | Сообщение | Уровень | Контекст |
+|---|---|---|---|
+| `POST /api/collect/omid` | `Rejected OMID impression — validation failed` | `warn` | `errors` |
+| `POST /api/collect/omid` | `Rejected OMID impression — unknown or inactive tag` | `warn` | `tagUuid`, `code: 'UNKNOWN_TAG'` |
+| `POST /api/collect/omid` | `Rejected OMID impression — invalid delivery context` | `warn` | `adSessionId`, `code` |
+| `POST /api/collect/omid` | `OMID impression accepted with delivery context violations` | `warn` | `adSessionId`, `violations` |
+| `POST /api/collect/omid` | `Failed to store OMID impression` | `error` | `err`, `adSessionId` |
+| `GET /t/vast/:event` | `OMID verification script not executed by player` | `warn` | `sid`, `reason` |
+| `POST /api/creatives/external-vast` | `Failed to create external VAST creative` | `error` | `err` |
+
+Отказ плеера исполнить скрипт верификации логируется отдельно, а не как ошибка показа: без этой записи непонятно, почему по сеансу не пришли сигналы.
 
 ---
 
@@ -1035,8 +1122,9 @@ Drizzle ORM. Миграции применяются автоматически 
 | `full_cpmind_player` | player (video_creative) |
 | `partial_embedded_iframe` | HTML5 в iframe без полного SDK |
 | `vast_only` | только VAST без SDK measurement |
+| `vast_omid` | VAST со скриптом верификации OMID: показ приходит от плеера площадки |
 
-### Миграции 0022–0031
+### Миграции 0022–0033
 
 | Миграция | Назначение |
 |---|---|
@@ -1050,6 +1138,8 @@ Drizzle ORM. Миграции применяются автоматически 
 | 0029 | AUC для моделей S3/S5/S6 |
 | 0030 | конфигурации S2 и версия модели в показе |
 | 0031 | параметры и доля положительных меток S5/S6 |
+| 0032 | режим `vast_omid`, необязательность `score_final` и `f_presence` с CHECK-ограничениями, адрес стороннего VAST-тега у версии, уровень доступа OMID и форма VAST-доставки в показе |
+| 0033 | отметка и причина отказа плеера исполнить скрипт верификации в `ad_sessions` |
 
 ### Коды миграций
 
@@ -2235,6 +2325,56 @@ ALTER TABLE "s6_logistic_configs" ADD COLUMN "label_params" jsonb;--> statement-
 ALTER TABLE "s6_logistic_configs" ADD COLUMN "label_positive_rate" real;
 ```
 
+#### 32. packages/backend/drizzle/migrations/0032_nice_blink.sql
+
+```sql
+ALTER TYPE "measurement_mode" ADD VALUE 'vast_omid';--> statement-breakpoint
+ALTER TABLE "impressions" ALTER COLUMN "f_presence" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "impressions" ALTER COLUMN "score_final" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "creative_versions" ADD COLUMN "external_vast_url" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "omid_access_mode" text;--> statement-breakpoint
+ALTER TABLE "impressions" ADD COLUMN "vast_delivery_kind" text;--> statement-breakpoint
+-- Обязательность score_final и f_presence сохраняется для всех режимов измерения,
+-- кроме vast_omid: показ, измеренный через OMID без доступа к верхнему окну, не имеет
+-- части сигналов, поэтому композитный Score и presence для него не рассчитываются.
+--
+-- Сравнение ведётся по текстовому представлению намеренно. Drizzle применяет все
+-- миграции в одной транзакции, а Postgres запрещает использовать значение enum,
+-- добавленное в этой же транзакции ("unsafe use of new value of enum type").
+-- Приведение к text этого ограничения не нарушает.
+--
+-- NOT VALID + VALIDATE: добавление берёт ACCESS EXCLUSIVE лишь на правку каталога,
+-- а проверка существующих строк идёт под SHARE UPDATE EXCLUSIVE и не блокирует
+-- чтение и запись таблицы.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_score_final_required'
+  ) THEN
+    ALTER TABLE "impressions" ADD CONSTRAINT "chk_score_final_required"
+      CHECK (measurement_mode::text = 'vast_omid' OR score_final IS NOT NULL) NOT VALID;
+    ALTER TABLE "impressions" VALIDATE CONSTRAINT "chk_score_final_required";
+  END IF;
+END $$;--> statement-breakpoint
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_f_presence_required'
+  ) THEN
+    ALTER TABLE "impressions" ADD CONSTRAINT "chk_f_presence_required"
+      CHECK (measurement_mode::text = 'vast_omid' OR f_presence IS NOT NULL) NOT VALID;
+    ALTER TABLE "impressions" VALIDATE CONSTRAINT "chk_f_presence_required";
+  END IF;
+END $$;
+```
+
+#### 33. packages/backend/drizzle/migrations/0033_organic_agent_zero.sql
+
+```sql
+ALTER TABLE "ad_sessions" ADD COLUMN "omid_verification_not_executed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "ad_sessions" ADD COLUMN "omid_not_executed_reason" text;
+```
+
 #### Журнал миграций packages/backend/drizzle/migrations/meta/_journal.json
 
 ```json
@@ -2464,6 +2604,20 @@ ALTER TABLE "s6_logistic_configs" ADD COLUMN "label_positive_rate" real;
       "version": "7",
       "when": 1791373394831,
       "tag": "0031_mighty_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793190301525,
+      "tag": "0032_nice_blink",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793203556664,
+      "tag": "0033_organic_agent_zero",
       "breakpoints": true
     }
   ]

@@ -80,23 +80,44 @@ export interface ImpressionDeliveryContext {
     contextViolations: ImpressionContextViolation[];
 }
 
+/**
+ * Поля показа, по которым определяется контекст доставки.
+ *
+ * Структурное подмножество ImpressionPayload: тот удовлетворяет ему целиком,
+ * поэтому существующие вызовы не затронуты. Вынесено отдельно, чтобы показ,
+ * измеренный через OMID, проходил те же проверки владельца, срока жизни сессии,
+ * пригодности режима и доменной политики — без второй копии этих правил.
+ */
+export interface ImpressionContextClaim {
+    ad_session_id?: string | undefined;
+    measurement_mode?: MeasurementMode | undefined;
+    placement_uuid?: string | undefined;
+    creative_version_uuid?: string | undefined;
+    delivery_mode?: DeliveryMode | undefined;
+    tag_constants_version?: string | undefined;
+    creative_type: CreativeType;
+    publisher_domain?: string | undefined;
+}
+
 export type ImpressionContextResolution =
     | { kind: 'legacy' }
     | { kind: 'hosted'; context: ImpressionDeliveryContext }
     | { kind: 'rejected'; reason: ImpressionContextRejection };
 
-// Режимы, в которых SDK отправляет показы. vast_only — только VAST-трекинг внешнего плеера
+// Режимы, в которых присылается показ. vast_only — только VAST-трекинг внешнего
+// плеера, без скрипта верификации; vast_omid — показ от скрипта верификации OMID
 const MEASURABLE_MODES: ReadonlySet<MeasurementMode> = new Set([
     'full_direct_display',
     'full_cpmind_player',
     'partial_embedded_iframe',
+    'vast_omid',
 ]);
 
 // Домен площадки: переопределение в плейсменте, затем определённый сервером
 // из Referer при выдаче, затем определённый SDK на странице.
 // Отсутствующее значение приводится к null — источник домена не найден
 function resolvePublisherDomain(
-    payload: ImpressionPayload,
+    payload: ImpressionContextClaim,
     row: AdSessionContextRow,
 ): string | null {
     if (row.placementPublisherDomain !== null) return row.placementPublisherDomain;
@@ -106,7 +127,7 @@ function resolvePublisherDomain(
 
 // Клиентские значения контекста используются только для сверки с ad_session
 function collectContextViolations(
-    payload: ImpressionPayload,
+    payload: ImpressionContextClaim,
     row: AdSessionContextRow,
     creativeId: string,
     creativeVersionUuid: string,
@@ -150,7 +171,7 @@ function collectContextViolations(
  * берётся исключительно из ad_session и связанных сущностей.
  */
 export function evaluateImpressionContext(
-    payload: ImpressionPayload,
+    payload: ImpressionContextClaim,
     row: AdSessionContextRow | null,
     ownerUserId: number,
     nowMs: number,

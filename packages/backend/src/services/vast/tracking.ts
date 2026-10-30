@@ -73,6 +73,15 @@ export async function processVastTrackingEvent(
         case 'notUsed': {
             break;
         }
+        case 'verificationNotExecuted': {
+            updateFields['omidVerificationNotExecutedAt'] =
+                sql`COALESCE(${adSessions.omidVerificationNotExecutedAt}, NOW())`;
+            if (request.reason !== undefined) {
+                updateFields['omidNotExecutedReason'] =
+                    sql`COALESCE(${adSessions.omidNotExecutedReason}, ${request.reason})`;
+            }
+            break;
+        }
     }
 
     await db

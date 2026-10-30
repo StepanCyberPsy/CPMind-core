@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 
 import { healthRoute } from './routes/health.js';
 import { impressionsRoute } from './routes/impressions.js';
+import { omidRoute } from './routes/omid.js';
 import { authRoute } from './routes/auth.js';
 import { weightsConfigRoute } from './routes/weights_config.js';
 import { usersRoute } from './routes/users.js';
@@ -94,6 +95,17 @@ export function buildServer(): FastifyInstance {
         });
       }
 
+      // Скрипт верификации исполняется в окне чужой площадки: источник
+      // произвольный, как и у остальных точек доставки
+      if (path === '/api/collect/omid') {
+        return callback(null, {
+          origin: '*',
+          methods: ['POST', 'OPTIONS'],
+          allowedHeaders: ['Content-Type'],
+          credentials: false,
+        });
+      }
+
       if (path === '/api/collect') {
         return callback(null, {
           origin: true,
@@ -120,6 +132,7 @@ export function buildServer(): FastifyInstance {
 
   app.register(healthRoute, { prefix: '/api' });
   app.register(impressionsRoute, { prefix: '/api' });
+  app.register(omidRoute, { prefix: '/api' });
   app.register(authRoute, { prefix: '/api' });
   app.register(weightsConfigRoute, { prefix: '/api' });
   app.register(usersRoute, { prefix: '/api' });

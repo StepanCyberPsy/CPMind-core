@@ -51,8 +51,15 @@ function buildRow(
     };
 }
 
+// Явный undefined в переопределении нужен, чтобы проверить отсутствие поля.
+// Partial при exactOptionalPropertyTypes его не допускает, поэтому тип
+// допускающий undefined выписан явно
+type PayloadOverrides = {
+    [K in keyof ImpressionPayload]?: ImpressionPayload[K] | undefined;
+};
+
 function buildPayload(
-    overrides: Partial<ImpressionPayload> = {},
+    overrides: PayloadOverrides = {},
 ): ImpressionPayload {
     return {
         creative_type: 'video_creative',

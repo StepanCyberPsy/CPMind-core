@@ -5,6 +5,7 @@ import {
 } from '@cpmind/shared';
 import { resolveVastContext } from '../services/delivery/embed.js';
 import { generateVastInLine } from '../services/vast/inline.js';
+import { generateVastWrapper } from '../services/vast/wrapper.js';
 import { processVastTrackingEvent } from '../services/vast/tracking.js';
 import { extractPublisherDomain } from '../services/delivery/publisher.js';
 
@@ -53,7 +54,9 @@ export const vastRoute: FastifyPluginAsync = async (app) => {
         }
 
         try {
-            const xml = generateVastInLine(context.input);
+            const xml = context.plan.kind === 'wrapper'
+                ? generateVastWrapper(context.plan.input)
+                : generateVastInLine(context.plan.input);
             return reply.status(200).send(xml);
         } catch (err) {
             request.log.error({ err, token }, 'VAST generation failed');
@@ -72,9 +75,19 @@ export const vastRoute: FastifyPluginAsync = async (app) => {
             event,
             sid: query['sid'],
             ...(query['code'] !== undefined && { code: query['code'] }),
+            ...(query['reason'] !== undefined && { reason: query['reason'] }),
         });
 
         if (!parsed.success) return;
+
+        // Отказ исполнить скрипт верификации — диагностический сигнал площадки,
+        // а не ошибка показа: без него непонятно, почему сигналы не пришли
+        if (parsed.data.event === 'verificationNotExecuted') {
+            request.log.warn(
+                { sid: parsed.data.sid, reason: parsed.data.reason ?? null },
+                'OMID verification script not executed by player',
+            );
+        }
 
         void processVastTrackingEvent(parsed.data).catch((err) => {
             app.log.warn({ err }, 'VAST tracking event processing failed');
