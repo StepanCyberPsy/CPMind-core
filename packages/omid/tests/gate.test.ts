@@ -1,41 +1,64 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAccessLevel, shouldUsePageCollectors } from '../src/gate.js';
+import { getAccessibleTopWindow, resolveAccessLevel, shouldUsePageCollectors } from '../src/gate.js';
 import type { OmidContext } from '../src/types.js';
 
 function ctx(partial: Partial<OmidContext>): OmidContext {
     return { environment: 'web', ...partial };
 }
 
+const topWindow = { document: { documentElement: {} } } as unknown as Window;
+
 describe('resolveAccessLevel', () => {
-
-    it('полный доступ к странице — только при подтверждённом верхнем окне', () => {
-        expect(resolveAccessLevel(ctx({ accessMode: 'full', friendlyToTop: true })))
-            .toBe('full_page');
+    it.each([undefined, false, true])('использует фактический доступ при friendlyToTop=%s', (friendlyToTop) => {
+        const context = ctx({
+            accessMode: 'full',
+            ...(friendlyToTop === undefined ? {} : { friendlyToTop }),
+        });
+        expect(resolveAccessLevel(context, topWindow)).toBe('full_page');
     });
 
-    it('full без верхнего окна — это доступ только к креативу', () => {
-        expect(resolveAccessLevel(ctx({ accessMode: 'full', friendlyToTop: false })))
-            .toBe('creative');
-
-        // Поле может отсутствовать — повышать уровень на догадке нельзя
-        expect(resolveAccessLevel(ctx({ accessMode: 'full' })))
-            .toBe('creative');
+    it.each([undefined, false, true])('не доверяет диагностике без доступного документа: %s', (friendlyToTop) => {
+        expect(resolveAccessLevel(ctx({
+            accessMode: 'full',
+            ...(friendlyToTop === undefined ? {} : { friendlyToTop }),
+        }), null)).toBe('creative');
     });
 
-    it('песочница и устаревший domain сводятся к ограниченному уровню', () => {
-        expect(resolveAccessLevel(ctx({ accessMode: 'limited' }))).toBe('limited');
-        expect(resolveAccessLevel(ctx({ accessMode: 'domain' }))).toBe('limited');
+    it.each(['limited', 'domain', 'unknown', undefined])('не повышает режим %s при доступном DOM', (accessMode) => {
+        const context = ctx({
+            ...(accessMode === undefined ? {} : { accessMode: accessMode as NonNullable<OmidContext['accessMode']> }),
+            friendlyToTop: true,
+        });
+        expect(resolveAccessLevel(context, topWindow)).toBe('limited');
+        expect(resolveAccessLevel(context, null)).toBe('limited');
     });
 
-    it('неизвестный или отсутствующий контекст трактуется консервативно', () => {
-        expect(resolveAccessLevel(undefined)).toBe('limited');
-        expect(resolveAccessLevel(ctx({}))).toBe('limited');
-        expect(resolveAccessLevel(ctx({ accessMode: 'unknown' as never }))).toBe('limited');
+    it('отсутствующий контекст остаётся ограниченным', () => {
+        expect(resolveAccessLevel(undefined, topWindow)).toBe('limited');
+    });
+});
+
+describe('getAccessibleTopWindow', () => {
+    it('возвращает верхнее окно из доступного дочернего', () => {
+        expect(getAccessibleTopWindow({ top: topWindow } as Window)).toBe(topWindow);
     });
 
-    it('domain с friendlyToTop не повышается до полного уровня', () => {
-        expect(resolveAccessLevel(ctx({ accessMode: 'domain', friendlyToTop: true })))
-            .toBe('limited');
+    it('поддерживает запуск в самом верхнем окне', () => {
+        const direct = { document: topWindow.document } as Window;
+        Object.defineProperty(direct, 'top', { value: direct });
+        expect(getAccessibleTopWindow(direct)).toBe(direct);
+    });
+
+    it('отказ доступа не выбрасывает исключение', () => {
+        const denied = { top: { get document() { throw new Error('SecurityError'); } } };
+        expect(getAccessibleTopWindow(denied as unknown as Window)).toBeNull();
+    });
+
+    it('не принимает отсутствующее окно или документ без корневого элемента', () => {
+        expect(getAccessibleTopWindow({ top: null } as unknown as Window)).toBeNull();
+        expect(getAccessibleTopWindow({
+            top: { document: { documentElement: null } },
+        } as unknown as Window)).toBeNull();
     });
 });
 

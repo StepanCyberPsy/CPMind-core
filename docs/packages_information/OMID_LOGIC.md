@@ -31,6 +31,8 @@
             ├── [FILE] types.ts
             ├── [FILE] vendor.ts
         ├── [DIR] tests
+            ├── [FILE] browser_access.mjs
+            ├── [FILE] entry_access.test.ts
             ├── [FILE] full_mapping.test.ts
             ├── [FILE] gate.test.ts
             ├── [FILE] limited.test.ts
@@ -82,13 +84,16 @@ client.registerSessionObserver(handler, CPMIND_OMID_VENDOR);
 
 ## Уровень доступа (`gate.ts`)
 
-OMID 1.5 определяет только два режима доступа — `full` и `limited`. Различие «полная страница или только креатив» несёт отдельный признак `friendlyToTop`.
+The player must report `accessMode: full` before CPMind checks access to the top document. `friendlyToTop` is diagnostic metadata computed by IAB compliance/validation scripts; it is not guaranteed in the original `sessionStart` context. Missing metadata must not override a successful DOM check.
 
 ```ts
-export function resolveAccessLevel(context: OmidContext | undefined): AccessLevel {
+export function resolveAccessLevel(
+    context: OmidContext | undefined,
+    topWindow: Window | null,
+): AccessLevel {
     if (context === undefined) return 'limited';
     if (context.accessMode === 'full') {
-        return context.friendlyToTop === true ? 'full_page' : 'creative';
+        return topWindow !== null ? 'full_page' : 'creative';
     }
     return 'limited';
 }
@@ -96,11 +101,11 @@ export function resolveAccessLevel(context: OmidContext | undefined): AccessLeve
 
 | Уровень | Условие | Что доступно |
 |---|---|---|
-| `full_page` | `accessMode: 'full'` и `friendlyToTop: true` | Верхнее окно издателя — все семь сигналов |
-| `creative` | `accessMode: 'full'`, но без `friendlyToTop` | Только окно креатива |
+| `full_page` | Reported `full` and accessible top document | Eligible for page collectors, subject to successful element validation and initialization |
+| `creative` | Reported `full`, but top document inaccessible | OMID events; no complete page measurement |
 | `limited` | `accessMode: 'limited'` либо контекста нет | Только события OMID |
 
-Доступ к странице подтверждается дважды: объявлением в контексте и фактической достижимостью верхнего окна через `isTopWindowReachable()`. Плеер может объявить `full`, но реальный доступ закрыть политикой iframe.
+For reported `full` only, `getAccessibleTopWindow()` reads the actual top document and catches access errors. Other modes remain partial even when a DOM happens to be reachable. Accessibility does not change the verification script's current window.
 
 **Уровень выдаёт плеер площадки, а не CPMind.** Это решение площадки, и повлиять на него со стороны тега невозможно.
 
@@ -129,7 +134,11 @@ export function resolveAccessLevel(context: OmidContext | undefined): AccessLeve
 
 ### Полная ветка (`full.ts`, `loader.ts`, `global.ts`)
 
-Подключается только при `full_page`. `loadFullBranch()` подгружает второй бандл обычным тегом `script` с CDN; бандл публикует себя в глобале `__cpmindOmidFullV1`, а `readFullBranch()` проверяет контракт перед вызовом.
+For `full_page`, `loadFullBranch(targetWindow)` loads the CDN bundle into the verified top document and reads the factory from that same window. Factories use `__cpmindOmidFullV1_<runtimeVersion>`; an old version or the legacy unversioned global is not reused. Concurrent callers share a bounded window/version load, but each factory call creates its own ad session. Failure or timeout leaves partial collection active.
+
+The full branch retains the exact element supplied by OMID. Before initializing the unchanged SDK it requires a connected element owned by its executing document, whose defaultView is the executing window. Missing or other-document elements stay partial; no arbitrary video search or frame-coordinate conversion is attempted. This keeps sticky geometry and page context in one coordinate system. Shared factory code does not merge state between creatives.
+
+Startup callbacks are ignored after the run has finalized or been replaced; initialization exceptions retain partial fallback. Successful startup delegates finalization to the full branch, without sending an additional partial impression.
 
 Внутри — `prepareMeasurementSession` из `@cpmind/sdk`: показ собирается тем же рантаймом, что и при hosted-доставке, со всеми семью сигналами, и уходит полным payload'ом на штатную точку приёма `/api/collect`. Дублировать его частичной записью нельзя — получились бы два показа, поэтому `finalize()` при активной полной ветке только передаёт ей управление.
 
@@ -228,7 +237,7 @@ HTML-оболочку креатива плеер загружает в iframe. 
 
 | Ограничение | Описание |
 |---|---|
-| Полнота измерения | S3 и S7 требуют кода в верхнем окне издателя. Доступ туда выдаёт плеер площадки (`full` + `friendlyToTop`), и повлиять на это CPMind не может. При ограниченном доступе собираются S1, S2, S4, S5, S6, композитный Score не рассчитывается |
+| Полнота измерения | Full measurement requires reported `full`, accessible top DOM, the supplied element in that document, and successful SDK startup there. Missing diagnostic `friendlyToTop` is not a denial. Restricted or unsuccessful initialization retains partial signals without composite Score. CPMind does not bypass player/browser access restrictions. |
 | S5 | Из доступных событий OMID фиксируется только факт клика. Наведение, жесты и прокрутка внутри креатива не наблюдаемы |
 | `replay_count` | Не наблюдаем: повторный просмотр записывается нулём |
 | CSP издателя | Догрузка ветки коллекторов — внедрение `script` в верхнее окно. Строгий `script-src` площадки её заблокирует; показ уходит с `page_collectors_loaded: false` |

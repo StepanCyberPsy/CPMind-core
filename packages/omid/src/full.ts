@@ -15,11 +15,14 @@ import type {
     OmidMediaEvent,
 } from './types.js';
 
+declare const OMID_RUNTIME_VERSION: string;
+
 /**
  * Ветка коллекторов страницы.
  *
  * Загружается вторым бандлом и только при подтверждённом доступе к верхнему
- * окну. Здесь глобальные window и document принадлежат странице издателя,
+ * окну. Загрузчик размещает этот бандл в документе страницы: его window/document
+ * должны совпадать с документом переданного рекламного элемента,
  * поэтому коллекторы @cpmind/sdk работают так же, как в hosted-доставке:
  * собирается полный набор S1–S7 и F_Presence, а показ уходит на штатную
  * точку приёма тем же payload, что у скрипта на странице.
@@ -118,12 +121,14 @@ export function startFullMeasurement(input: {
     context: OmidContext;
     startedAt: number;
 }): CpmindOmidFullSession | null {
-    const creativeEl = resolveCreativeElement(input.context);
-    if (creativeEl === null) return null;
-
     let session: MeasurementSession;
 
     try {
+        const creativeEl = resolveCreativeElement(input.context);
+        if (creativeEl === null || !creativeEl.isConnected
+            || creativeEl.ownerDocument !== document || document.defaultView !== window) {
+            return null;
+        }
         session = prepareMeasurementSession({
             creativeEl,
             meta: buildMeta(input.params, false),
@@ -157,4 +162,4 @@ export function startFullMeasurement(input: {
     };
 }
 
-publishFullBranch({ start: startFullMeasurement });
+publishFullBranch({ start: startFullMeasurement }, OMID_RUNTIME_VERSION);

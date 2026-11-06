@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { toVideoEvent, resolveCreativeElement } from '../src/full.js';
-import type { OmidContext, OmidMediaEvent } from '../src/types.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toVideoEvent, resolveCreativeElement, startFullMeasurement } from '../src/full.js';
+import type { CpmindVerificationParams, OmidContext, OmidMediaEvent } from '../src/types.js';
+
+const sdk = vi.hoisted(() => {
+    vi.stubGlobal('OMID_RUNTIME_VERSION', 'test');
+    return { prepare: vi.fn() };
+});
+vi.mock('@cpmind/sdk', () => ({ prepareMeasurementSession: sdk.prepare }));
 
 function media(type: string, data?: OmidMediaEvent['data']): OmidMediaEvent {
     return { type, timestamp: 1700, ...(data !== undefined ? { data } : {}) };
@@ -75,5 +81,82 @@ describe('выбор измеряемого элемента', () => {
 
     it('без ссылок на элементы возвращает null', () => {
         expect(resolveCreativeElement({ environment: 'web' })).toBeNull();
+    });
+});
+
+describe('полная сессия и документ элемента', () => {
+    const localWindow = {} as Window;
+    const doc = { defaultView: localWindow } as Document;
+    const params: CpmindVerificationParams = {
+        sid: 'ad-one', tag_uuid: 'tag', tag_constants_version: 'v4',
+        campaign_id: 'campaign', creative_id: 'creative', creative_type: 'video_creative',
+        placement_uuid: 'placement', creative_version_uuid: 'version', delivery_kind: 'inline',
+        collect_endpoint: 'https://collector.test/api/collect', delivery_mode: 'hosted_video',
+        tag_constants: {},
+    };
+    const element = (ownerDocument: Document = doc, isConnected = true) => ({
+        nodeType: 1, ownerDocument, isConnected,
+    }) as unknown as HTMLVideoElement;
+    const session = () => ({
+        startMeasurement: vi.fn(), reportVideoEvent: vi.fn(), finalize: vi.fn(),
+    });
+
+    beforeEach(() => {
+        sdk.prepare.mockReset();
+        sdk.prepare.mockImplementation(session);
+        vi.stubGlobal('window', localWindow);
+        vi.stubGlobal('document', doc);
+    });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it('сохраняет точный элемент, метаданные и время начала', () => {
+        const video = element();
+        const result = startFullMeasurement({ params, context: { videoElement: video }, startedAt: 1200 });
+        expect(result).not.toBeNull();
+        expect(sdk.prepare.mock.calls[0]![0].creativeEl).toBe(video);
+        expect(sdk.prepare.mock.calls[0]![0].meta.adSessionIdentity.adSessionId).toBe('ad-one');
+        expect(sdk.prepare.mock.results[0]!.value.startMeasurement).toHaveBeenCalledWith(1200);
+    });
+
+    it('не создаёт SDK для отсутствующего, отсоединённого или чужого элемента', () => {
+        for (const context of [
+            {}, { videoElement: element(doc, false) }, { videoElement: element({} as Document) },
+        ]) {
+            expect(startFullMeasurement({ params, context, startedAt: 0 })).toBeNull();
+        }
+        expect(sdk.prepare).not.toHaveBeenCalled();
+    });
+
+    it('не принимает документ, не принадлежащий исполняющему окну', () => {
+        vi.stubGlobal('window', {});
+        expect(startFullMeasurement({
+            params, context: { videoElement: element() }, startedAt: 0,
+        })).toBeNull();
+        expect(sdk.prepare).not.toHaveBeenCalled();
+    });
+
+    it('отказ инициализации оставляет возможность partial', () => {
+        sdk.prepare.mockImplementation(() => { throw new Error('init failed'); });
+        expect(startFullMeasurement({
+            params, context: { videoElement: element() }, startedAt: 0,
+        })).toBeNull();
+    });
+
+    it('два креатива имеют независимые события и однократную финализацию', () => {
+        const first = startFullMeasurement({ params, context: { videoElement: element() }, startedAt: 0 })!;
+        const second = startFullMeasurement({
+            params: { ...params, sid: 'ad-two' }, context: { videoElement: element() }, startedAt: 0,
+        })!;
+        const firstSdk = sdk.prepare.mock.results[0]!.value;
+        const secondSdk = sdk.prepare.mock.results[1]!.value;
+        first.reportMediaEvent(media('pause'));
+        expect(firstSdk.reportVideoEvent).toHaveBeenCalledOnce();
+        expect(secondSdk.reportVideoEvent).not.toHaveBeenCalled();
+        first.finalize();
+        first.finalize();
+        expect(firstSdk.finalize).toHaveBeenCalledOnce();
+        expect(secondSdk.finalize).not.toHaveBeenCalled();
+        second.finalize();
+        expect(secondSdk.finalize).toHaveBeenCalledOnce();
     });
 });

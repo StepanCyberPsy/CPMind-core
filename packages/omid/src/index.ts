@@ -4,7 +4,7 @@ import { CPMIND_OMID_VENDOR } from './vendor.js';
 import {
     resolveAccessLevel,
     shouldUsePageCollectors,
-    isTopWindowReachable,
+    getAccessibleTopWindow,
     type AccessLevel,
 } from './gate.js';
 import {
@@ -154,11 +154,10 @@ function startMeasurement(client: OmidVerificationClientLike, event: OmidSession
     const params = parseParams(event.data.verificationParameters);
     if (params === null) return;
 
-    const level = resolveAccessLevel(event.data.context);
-
-    // Доступ к странице подтверждается дважды: объявлением в контексте
-    // и фактической достижимостью верхнего окна
-    const pageLevel = shouldUsePageCollectors(level) && isTopWindowReachable();
+    const context = event.data.context;
+    const targetWindow = context?.accessMode === 'full' ? getAccessibleTopWindow() : null;
+    const level = resolveAccessLevel(context, targetWindow);
+    const pageLevel = shouldUsePageCollectors(level);
 
     const current: MeasurementRun = {
         params,
@@ -185,12 +184,12 @@ function startMeasurement(client: OmidVerificationClientLike, event: OmidSession
 
     attachUnloadHandlers();
 
-    if (!pageLevel) return;
+    if (!pageLevel || targetWindow === null) return;
 
     // Ограниченный сбор уже идёт: если догрузка не состоится или опоздает,
     // показ не теряется, а отправляется с честной отметкой о неполноте
-    void loadFullBranch().then((branch) => {
-        if (branch === null || current.sent) return;
+    void loadFullBranch(targetWindow).then((branch) => {
+        if (branch === null || current.sent || run !== current) return;
 
         const session = branch.start({
             params: current.params,
@@ -202,6 +201,8 @@ function startMeasurement(client: OmidVerificationClientLike, event: OmidSession
 
         current.full = session;
         current.pageCollectorsLoaded = true;
+    }).catch(() => {
+        // Отказ полной инициализации не отменяет уже идущий частичный сбор.
     });
 }
 

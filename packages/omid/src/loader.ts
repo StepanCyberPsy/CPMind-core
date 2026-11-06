@@ -1,4 +1,4 @@
-import { readFullBranch } from './global.js';
+import { getFullBranchKey, readFullBranch } from './global.js';
 import type { CpmindOmidFullBranch } from './types.js';
 
 declare const CDN_BASE_URL: string;
@@ -15,46 +15,66 @@ export function buildFullBranchUrl(): string {
 /**
  * Подключение ветки коллекторов страницы отдельным бандлом.
  *
- * Вызывается только при подтверждённом доступе к верхнему окну, поэтому вставка
- * тега script допустима: мы находимся в документе издателя. Политика безопасности
- * площадки может её запретить — тогда отказ возвращается честно, и показ
- * остаётся на ограниченной ветке.
+ * Скрипт верификации может находиться в дочернем окне. Полную ветку грузим
+ * в проверенный документ страницы и читаем фабрику из того же окна.
+ * Политика безопасности страницы может запретить загрузку — остаётся partial.
  */
-export function loadFullBranch(): Promise<CpmindOmidFullBranch | null> {
-    const existing = readFullBranch();
-    if (existing !== null) return Promise.resolve(existing);
+export function loadFullBranch(targetWindow: Window): Promise<CpmindOmidFullBranch | null> {
+    try {
+        const version = OMID_RUNTIME_VERSION;
+        const existing = readFullBranch(targetWindow, version);
+        if (existing !== null) return Promise.resolve(existing);
 
-    return new Promise<CpmindOmidFullBranch | null>((resolve) => {
+        // Общая загрузка не хранит сессии: её используют независимые iframe
+        // верификации одного окна, но только для одной версии runtime.
+        const holder = targetWindow as unknown as Record<string, unknown>;
+        const pendingKey = getFullBranchKey(version) + '_loading';
+        const pending = holder[pendingKey] as Promise<CpmindOmidFullBranch | null> | undefined;
+        if (pending && typeof pending.then === 'function') return pending;
+
+        let resolvePending!: (branch: CpmindOmidFullBranch | null) => void;
+        const promise = new Promise<CpmindOmidFullBranch | null>((resolve) => {
+            resolvePending = resolve;
+        });
+        holder[pendingKey] = promise;
         let settled = false;
+        let timer: number | undefined;
+        let script: HTMLScriptElement | undefined;
 
+        const onLoad = (): void => finish(readFullBranch(targetWindow, version));
+        const onError = (): void => finish(null);
         const finish = (branch: CpmindOmidFullBranch | null): void => {
             if (settled) return;
             settled = true;
-            resolve(branch);
+            try {
+                if (timer !== undefined) targetWindow.clearTimeout(timer);
+                script?.removeEventListener('load', onLoad);
+                script?.removeEventListener('error', onError);
+                script?.remove();
+                if (holder[pendingKey] === promise) delete holder[pendingKey];
+            } catch {
+                // Окно могло сменить документ; результат загрузки всё равно завершаем.
+            } finally {
+                resolvePending(branch);
+            }
         };
 
-        const timer = setTimeout(() => finish(null), LOAD_TIMEOUT_MS);
-
         try {
-            const script = document.createElement('script');
+            // Таймер принадлежит странице, а не удаляемому iframe верификации.
+            timer = targetWindow.setTimeout(() => finish(null), LOAD_TIMEOUT_MS);
+            const doc = targetWindow.document;
+            script = doc.createElement('script');
             script.src = buildFullBranchUrl();
             script.async = true;
-
-            script.addEventListener('load', () => {
-                clearTimeout(timer);
-                finish(readFullBranch());
-            });
-
-            script.addEventListener('error', () => {
-                clearTimeout(timer);
-                finish(null);
-            });
-
-            const parent = document.head ?? document.documentElement;
+            script.addEventListener('load', onLoad);
+            script.addEventListener('error', onError);
+            const parent = doc.head ?? doc.documentElement;
             parent.appendChild(script);
         } catch {
-            clearTimeout(timer);
             finish(null);
         }
-    });
+        return promise;
+    } catch {
+        return Promise.resolve(null);
+    }
 }

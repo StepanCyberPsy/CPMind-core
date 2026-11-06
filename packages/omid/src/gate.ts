@@ -9,21 +9,23 @@ export type AccessLevel = 'full_page' | 'creative' | 'limited' | 'not_executed';
 /**
  * Разбор контекста сессии в уровень доступа.
  *
- * В API OMID значений режима всего два — "full" и "limited". Различие между
- * полным доступом к странице и доступом только к элементу креатива в accessMode
- * не выражено: оно зависит от того, изолирован ли плеер площадки в iframe.
- * Единственный достоверный признак — friendlyToTop (OMID 1.5, sessionStart).
+ * accessMode: full допускает как полный доступ, так и доступ только к креативу.
+ * Различие подтверждается чтением верхнего документа, а не наличием
+ * friendlyToTop: диагностические скрипты IAB вычисляют это поле самостоятельно.
  *
  * "domain" помечен IAB как устаревший с февраля 2025 и работает как песочница,
  * поэтому приравнивается к limited. Неизвестное значение трактуется так же:
  * занижение уровня безопаснее завышения — при завышении коллекторы измерили бы
  * документ iframe и выдали бы правдоподобные, но неверные значения S2 и S7.
  */
-export function resolveAccessLevel(context: OmidContext | undefined): AccessLevel {
+export function resolveAccessLevel(
+    context: OmidContext | undefined,
+    topWindow: Window | null,
+): AccessLevel {
     if (context === undefined) return 'limited';
 
     if (context.accessMode === 'full') {
-        return context.friendlyToTop === true ? 'full_page' : 'creative';
+        return topWindow !== null ? 'full_page' : 'creative';
     }
 
     return 'limited';
@@ -32,21 +34,21 @@ export function resolveAccessLevel(context: OmidContext | undefined): AccessLeve
 /**
  * Запускать ли коллекторы @cpmind/sdk, измеряющие страницу.
  *
- * Строго только при подтверждённом доступе к верхнему окну. Это требование
- * корректности, а не полноты: в любом другом режиме глобальные window и document
- * принадлежат не странице издателя, и те же коллекторы вернут геометрию iframe.
+ * Строго только при подтверждённом доступе к верхнему окну. Саму ветку также
+ * необходимо загрузить в это окно: доступ к нему не меняет текущий document.
  */
 export function shouldUsePageCollectors(level: AccessLevel): boolean {
     return level === 'full_page';
 }
 
-// Дополнительная проверка перед запуском коллекторов: контекст может объявлять
-// доступ к верхнему окну, а фактического доступа не быть
-export function isTopWindowReachable(): boolean {
+// Вызывается только для объявленного full; исключение доступа оставляет
+// измерение частичным. Возвращаем окно, чтобы загрузчик использовал тот же DOM.
+export function getAccessibleTopWindow(currentWindow: Window = window): Window | null {
     try {
-        if (window.self === window.top) return true;
-        return window.top?.document !== undefined;
+        const topWindow = currentWindow.top;
+        if (topWindow === null || !topWindow.document.documentElement) return null;
+        return topWindow;
     } catch {
-        return false;
+        return null;
     }
 }

@@ -1,6 +1,67 @@
 # CPMind Session Handoff — VAST Delivery with OMID Verification
 
-## Current snapshot — measurement over VAST without publisher-side code
+## Follow-up — 2026-11-06: AdWebs measurement and limited S5
+
+Recorded at the user's request; investigation notes only. No changes to measurement code, models, or configuration are authorized by this entry.
+
+- The user deployed commits `17e6e61` (VAST rendition roles) and `7ae417b` (credentialed CORS for OMID collection). User-provided checks showed a healthy backend/database, successful preflights, and a stored impression. This does not establish complete signal coverage across players.
+- Client clarification, relayed by the user: outstream commonly has no close button, timeline/seeking, play/pause, or mute/unmute controls. This is context about the observed player, not proof of a universal default or of incorrect implementation. Missing controls do not explain all measurement results by themselves.
+- Direction: report actual measurement coverage and uncertainties transparently; avoid player-specific workarounds that could affect working script integrations. Validate the observations below before proposing changes.
+
+### Observations to verify before changes
+
+| Observation | Evidence and remaining check |
+|---|---|
+| Video duration may be missed | `packages/omid/src/limited.ts:onMediaEvent` and `packages/omid/src/full.ts:toVideoEvent` read duration from `loaded`, but ignore it in `start`. OM SDK supplies duration with `start(duration, volume)`; muted volume `0` is valid independently of duration. Verify actual player events and both OMID branches before changing the adapters. |
+| Final observation interval may be omitted | Limited S1/S2/S4 accumulate between `geometryChange` events; `packages/omid/src/index.ts:buildPayload` finalizes audio only. A local synthetic sequence with one geometry event reproduced zero accumulated time/average share despite visible geometry. The original event stream for the production impression was not captured; verify event timing and finalization boundaries before changing interval accounting. |
+| Full access detection depended on a diagnostic field | Baseline gate required `context.friendlyToTop === true`. IAB compliance/validation scripts add this field themselves. The user's IMA breakpoint showed `{accessMode: "full", friendlyToTop: undefined, friendlyToTopType: "undefined", topDocumentAccessible: true}`, confirming false downgrade in that run. The approved local implementation now uses actual top-document access and coherent full-branch document binding; see validation below. The paused video was expected debugger behavior. |
+| Limited S5 can score a recorded click as zero | User-provided DB row: impression `5e575d4a-717e-4143-a7c0-16b63d2fbfd8`, `vast_omid`, `limited`, desktop, constants `v4`; `clicked=true`, other S5 features `null`. Model `43866bc8-e559-45e8-af33-a9929444a55b` has `beta0=-6.468453208357614`, `beta1=0`. Normalization substitutes zero for unavailable hover/cursor inputs: the reproduced result is approximately `0.154922`, rounded to `0`. Determine why the click coefficient is zero and how incomplete observations should be scored; do not infer that the user did not interact. |
+
+The user reports moving the cursor, hovering, and clicking several times. Currently, the limited collector stores only a boolean click flag. Signal normalization functions/model selection are shared with script collection; active DB parameters can override `signal_defaults.ts`. Tag collection constants, signal-model parameters, and aggregate Score weights are distinct. For partial OMID, `omid:1` is a runtime provenance marker in `weights_version`, not a weight profile; aggregate Score is intentionally absent.
+
+Google IMA Inspector follow-up, from the user's DB output: in-stream/out-stream LIMITED impressions `a74fa003-8e55-45ef-9e7a-b386510d8283` / `313378df-fb0a-47b0-ade6-8d9a31c1fbbc` stored `limited`; FULL impressions `aa732f94-4a24-4934-a2b1-84ce11a089f2` / `0e265f9a-9a11-4e3b-8c59-f83dc6cfd286` stored `creative`. All four have partial signals, null Score, and null video duration. Stored `creative` does not prove iframe isolation: the backend also downgrades `full_page` when collectors did not load. The in-stream FULL record ended at 12.638 seconds, before the user's IMA playback log completed; investigate early finalization separately. [IAB access-mode documentation](https://interactiveadvertisingbureau.github.io/Open-Measurement-SDKJS/accessmodes.html) identifies `friendlyToTop` as a compliance-script signal. These are pre-change production observations; local implementation results follow.
+
+### Active task — OMID-access-r1
+
+Stages 1–5 were explicitly approved in conversation. [OMID-access-P1 revision 1](IMPLEMENTATION_PLAN.md) is implemented; local Stage 8 validation is PASS, awaiting user acceptance. Baseline: `7ae417b`; worktree contains approved OMID source/tests and documentation only. No commit, push, runtime publication, deployment or server environment change was performed. Duration, interval accounting, and S5 remain separate.
+
+- Baseline source used the verification document for loading and factory lookup, while SDK collectors use global `window`/`document`. The implementation now loads/reads in the verified top window, validates element ownership, isolates runtime-version factories and guards late startup; SDK source and formulas remain unchanged.
+- Additional user-observed IMA FULL context: `currentWindowIsTop=false`, `videoElementNodeType=1`, `videoInTopDocument=true`; no `slotElement`, and no `friendlyToTop` key. This document arrangement is now covered locally in Chromium. A new-runtime Google IMA run and production Score remain unverified until separately authorized publication.
+- Baseline checks on Node `v22.23.2`: `pnpm --filter @cpmind/omid test` (typecheck + 36 tests, exit 0); `pnpm --filter @cpmind/sdk test` (typecheck + 14 tests, exit 0). No product code changed; these passes do not validate the missing real-player scenario.
+- Release dependency: OMID bundles are built by `runtime-publisher`, not the backend image; runtime version selection is shared with backend VAST delivery. Deployment remains outside current authorization.
+
+Stage 3 map was preserved: changes are in `gate.ts`, `index.ts`, `loader.ts`, `global.ts`, `full.ts`, `types.ts`, focused tests and `OMID_LOGIC.md`. No SDK, backend, scoring, player, ordinary tag, dependency, infrastructure or DB changes. Each ad retains its exact supplied element and independent SDK session.
+
+Approved M1/P1 preserves partial fallback for restricted/unknown modes, inaccessible DOM, incompatible elements, failed/late loading and failed initialization. Release/rollback requires a separate commit and new immutable runtime version, retaining previous assets and compatible backend configuration. Publication/deployment/model changes remain unauthorized.
+
+Final local evidence: Node 22.23.2, pnpm 10.17.1, Chrome 150.0.7871.125. OMID typecheck + 69 tests, SDK typecheck + 14 tests, runtime v2 build and diff checks passed. All 16 browser scenarios passed: 17 final payloads, seven full payloads with finite Scores using shared defaults, no Runtime exceptions, one bundle request for two independent creatives. Browser events are simulated OMID, while DOM/layout, SDK and ordinary tag source are real; no production DB was used. Evidence: `/private/tmp/cpmind-omid-access.njhaIS/` and `/private/tmp/cpmind-omid-access-browser-k9X3Eo/results.json`; detailed AC/review results and initial tooling/fixture corrections are in the plan. Next safe action: user acceptance of the local implementation, then separate release authorization and actual IMA retest.
+
+### S5 reference for possible future changes
+
+In genuine `LIMITED` mode, the verification script cannot access the creative or publisher DOM. It can consume interactions reported by the player through OMID; it cannot attach hover/cursor listeners to the actual video.
+
+| Data | Availability in limited collection |
+|---|---|
+| Advertising click | Available if the player reports `adUserInteraction: click`; observed in this impression |
+| Number of received click events | Could be added; currently only `clicked: true/false` is stored |
+| First/last click event timestamps | Could be stored; not currently retained |
+| Time from session start to first click | Could be derived from event timestamps |
+| `invitationAccept` interaction | Could be recorded separately if the player emits it; currently ignored |
+| Hover count and duration | Unavailable through the standard OMID event stream |
+| Cursor coordinates, trajectory, and proximity | Unavailable through that stream |
+| Physical taps, swipes, pinch/zoom | Unavailable through that stream |
+
+Count received events, not assumed physical clicks. Missing events do not prove absence of user interaction. Time to first click is not hover-to-click latency. Pause/resume, volume, and fullscreen events are separate observations; they do not reconstruct missing S5 features. Additional fields would require an explicit collection/schema/scoring proposal; they are not implemented by these notes.
+
+References to retain for future S5 work:
+
+- [Google IMA — Open Measurement access modes](https://developers.google.com/interactive-media-ads/docs/sdks/html5/client-side/omsdk): `LIMITED` isolation and player-controlled access rules.
+- [IAB — OM SDK for Web Video integration](https://interactiveadvertisingbureau.github.io/Open-Measurement-SDKJS/): media start and player-reported advertising interactions. The installed OM SDK also defines `click` and `invitationAccept`.
+- Current collection/conversion: `packages/omid/src/limited.ts`, `packages/backend/src/services/omid/partial_signals.ts`; normalization: `packages/shared/src/scoring/normalize.ts`.
+
+Next safe action: inspect the actual player event stream and the S5 model's training provenance before selecting any code or model changes. Ordinary script collection must remain a regression-check case. No new product changes or player-specific adaptation were made during this follow-up.
+
+## Historical snapshot — 2026-10-28: measurement over VAST without publisher-side code
 
 ### State, authority, and baseline
 
