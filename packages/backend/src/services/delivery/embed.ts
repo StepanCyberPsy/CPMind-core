@@ -79,8 +79,11 @@ const VAST_RENDITION_ROLES = new Set([
     'source',
     'primary',
     'rendition_360',
+    'rendition_360p',
     'rendition_720',
+    'rendition_720p',
     'rendition_1080',
+    'rendition_1080p',
 ]);
 
 // Порядок поиска ассета, несущего durationSec и являющегося основным медиафайлом.

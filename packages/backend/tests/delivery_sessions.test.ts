@@ -196,6 +196,55 @@ async function createCreativeWithVersion(
     };
 }
 
+async function attachVersionAsset(
+    versionId: string,
+    input: {
+        role: string;
+        width: number;
+        height: number;
+        mimeType?: string;
+        priority?: number;
+    },
+): Promise<string> {
+    const mimeType = input.mimeType ?? 'video/mp4';
+    const isVideo = mimeType.startsWith('video/');
+    const extension = isVideo ? 'mp4' : 'jpg';
+    const storageKey = `test/${randomUUID()}.${extension}`;
+
+    const [asset] = await db
+        .insert(assets)
+        .values({
+            sha256: randomBytes(32).toString('hex'),
+            mimeType,
+            extension,
+            sizeBytes: 1024,
+            storageKey,
+            assetClass: isVideo ? 'video' : 'video_poster',
+            width: input.width,
+            height: input.height,
+            durationSec: isVideo ? 30 : null,
+            codec: isVideo ? 'avc1.64001f' : null,
+            bitrateBps: isVideo ? 1_000_000 : null,
+            status: 'ready',
+        })
+        .returning({ id: assets.id });
+
+    if (!asset) {
+        throw new Error('Не удалось создать дополнительный ассет-фикстуру');
+    }
+
+    createdAssetIds.push(asset.id);
+
+    await db.insert(creativeVersionAssets).values({
+        creativeVersionId: versionId,
+        assetId: asset.id,
+        role: input.role,
+        priority: input.priority ?? 1,
+    });
+
+    return storageKey;
+}
+
 const MODE_TAXONOMY: Readonly<Record<string, { format: string; subtype: string | null }>> = {
     display: { format: 'banner', subtype: null },
     outstream: { format: 'outstream', subtype: 'inpage' },
@@ -608,6 +657,124 @@ describe('Создание ad_session при доставке', () => {
 
         expect(refused.statusCode).toBe(404);
         expect(await countSessions(displayPlacement.placementId) - beforeDisplay).toBe(0);
+    });
+});
+
+describe('Видеофайлы в VAST', () => {
+
+    it.each(['instream_preroll', 'outstream'] as const)(
+        'выдаёт все три видеофайла worker без постера для %s',
+        async (mode) => {
+            const creative = await createCreativeWithVersion('video_creative', 1);
+            const [source] = await db
+                .update(assets)
+                .set({ width: 1920, height: 1080 })
+                .where(eq(assets.id, creative.assetId))
+                .returning({ storageKey: assets.storageKey });
+
+            if (!source) {
+                throw new Error('Не найден source-ассет фикстуры');
+            }
+
+            const rendition720 = await attachVersionAsset(creative.versionId, {
+                role: 'rendition_720p',
+                width: 1280,
+                height: 720,
+                priority: 1,
+            });
+            const rendition360 = await attachVersionAsset(creative.versionId, {
+                role: 'rendition_360p',
+                width: 640,
+                height: 360,
+                priority: 2,
+            });
+            const poster = await attachVersionAsset(creative.versionId, {
+                role: 'poster',
+                width: 1920,
+                height: 1080,
+                mimeType: 'image/jpeg',
+                priority: 99,
+            });
+            const placement = await createPlacement(mode, creative.creativeId);
+
+            const response = await app.inject({
+                method: 'GET',
+                url: `/vast/${placement.deliveryToken}`,
+            });
+
+            expect(response.statusCode).toBe(200);
+            expect(response.body).toContain('<InLine>');
+
+            const mediaFiles = response.body.match(/<MediaFile\b[^>]*>[\s\S]*?<\/MediaFile>/g) ?? [];
+            expect(mediaFiles).toHaveLength(3);
+
+            const expected = [
+                { storageKey: source.storageKey, width: 1920, height: 1080 },
+                { storageKey: rendition720, width: 1280, height: 720 },
+                { storageKey: rendition360, width: 640, height: 360 },
+            ];
+
+            for (const [index, asset] of expected.entries()) {
+                expect(mediaFiles[index]).toContain(`width="${asset.width}" height="${asset.height}"`);
+                expect(mediaFiles[index]).toContain(
+                    `<![CDATA[${process.env['CDN_BASE_URL']}/${asset.storageKey}]]>`,
+                );
+            }
+
+            expect(response.body).not.toContain(poster);
+        },
+    );
+
+    it.each([
+        ['primary', 1920, 1080],
+        ['rendition_1080p', 1920, 1080],
+        ['rendition_720p', 1280, 720],
+        ['rendition_360p', 640, 360],
+        ['rendition_1080', 1920, 1080],
+        ['rendition_720', 1280, 720],
+        ['rendition_360', 640, 360],
+    ] as const)('сохраняет source и включает видео с ролью %s', async (role, width, height) => {
+        const creative = await createCreativeWithVersion('video_creative', 1);
+        const storageKey = await attachVersionAsset(creative.versionId, { role, width, height });
+        const placement = await createPlacement('instream_preroll', creative.creativeId);
+
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${placement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        const mediaFiles = response.body.match(/<MediaFile\b[^>]*>[\s\S]*?<\/MediaFile>/g) ?? [];
+        expect(mediaFiles).toHaveLength(2);
+        expect(mediaFiles[1]).toContain(
+            `<![CDATA[${process.env['CDN_BASE_URL']}/${storageKey}]]>`,
+        );
+    });
+
+    it('исключает неподходящий MIME и неизвестную роль видео', async () => {
+        const creative = await createCreativeWithVersion('video_creative', 1);
+        const image = await attachVersionAsset(creative.versionId, {
+            role: 'rendition_360p',
+            width: 640,
+            height: 360,
+            mimeType: 'image/jpeg',
+        });
+        const preview = await attachVersionAsset(creative.versionId, {
+            role: 'preview',
+            width: 640,
+            height: 360,
+        });
+        const placement = await createPlacement('outstream', creative.creativeId);
+
+        const response = await app.inject({
+            method: 'GET',
+            url: `/vast/${placement.deliveryToken}`,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.body.match(/<MediaFile\b/g)).toHaveLength(1);
+        expect(response.body).not.toContain(image);
+        expect(response.body).not.toContain(preview);
     });
 });
 
