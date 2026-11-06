@@ -95,14 +95,14 @@ export function buildServer(): FastifyInstance {
         });
       }
 
-      // Скрипт верификации исполняется в окне чужой площадки: источник
-      // произвольный, как и у остальных точек доставки
+      // JSON через sendBeacon использует credentials: include. Нужен точный
+      // origin, в том числе строка null из изолированного iframe, вместо wildcard
       if (path === '/api/collect/omid') {
         return callback(null, {
-          origin: '*',
+          origin: true,
           methods: ['POST', 'OPTIONS'],
           allowedHeaders: ['Content-Type'],
-          credentials: false,
+          credentials: true,
         });
       }
 

@@ -4,8 +4,9 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
-import Fastify, { type FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db, pool } from '../src/db/index.js';
@@ -19,7 +20,12 @@ import {
     tags,
     users,
 } from '../src/db/schema.js';
-import { omidRoute } from '../src/routes/omid.js';
+import { buildServer } from '../src/server.js';
+
+// Проверяем реальную регистрацию маршрутов и CORS без запуска фоновых задач.
+vi.mock('node-cron', () => ({ default: { schedule: vi.fn() } }));
+
+const ORIGINS = ['https://onlinetrailer.ru', 'null'] as const;
 
 let app: FastifyInstance;
 let ownerUserId: number;
@@ -38,6 +44,7 @@ let placementUuid: string;
 
 const createdImpressionIds: string[] = [];
 const createdSessionIds: string[] = [];
+const createdUserIds: number[] = [];
 
 function buildPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -80,7 +87,10 @@ function buildPayload(overrides: Record<string, unknown> = {}): Record<string, u
     };
 }
 
-async function createSession(sid: string): Promise<void> {
+async function createSession(
+    sid: string,
+    overrides: Partial<Pick<typeof adSessions.$inferInsert, 'createdAt' | 'userId'>> = {},
+): Promise<void> {
     await db.insert(adSessions).values({
         adSessionId: sid,
         placementId,
@@ -94,15 +104,24 @@ async function createSession(sid: string): Promise<void> {
         measurementMode: 'vast_omid',
         tagConstantsVersion,
         vastRequestedAt: new Date(),
+        ...overrides,
     });
     createdSessionIds.push(sid);
 }
 
-async function post(payload: Record<string, unknown>) {
-    return app.inject({ method: 'POST', url: '/api/collect/omid', payload });
+async function post(payload: Record<string, unknown>, origin?: string) {
+    return app.inject({
+        method: 'POST',
+        url: '/api/collect/omid',
+        headers: origin === undefined ? {} : { origin },
+        payload,
+    });
 }
 
 beforeAll(async () => {
+    vi.stubEnv('COOKIE_SECRET', 'omid-collect-test-cookie-secret');
+    vi.stubEnv('LOG_LEVEL', 'silent');
+
     const [owner] = await db
         .select({ tagId: tags.id, userId: tags.userId, uuid: tags.uuid })
         .from(tags)
@@ -170,8 +189,7 @@ beforeAll(async () => {
     placementId = placement!.id;
     placementUuid = placement!.uuid;
 
-    app = Fastify({ logger: false });
-    await app.register(omidRoute, { prefix: '/api' });
+    app = buildServer();
     await app.ready();
 });
 
@@ -186,9 +204,107 @@ afterAll(async () => {
     await db.delete(creativeVersions).where(eq(creativeVersions.id, versionId));
     await db.delete(creatives).where(eq(creatives.id, creativeId));
     await db.delete(campaigns).where(eq(campaigns.id, campaignId));
+    if (createdUserIds.length > 0) {
+        await db.delete(users).where(inArray(users.id, createdUserIds));
+    }
 
     await app.close();
     await pool.end();
+    vi.unstubAllEnvs();
+});
+
+describe('CORS OMID на настоящем сервере', () => {
+
+    it.each(ORIGINS)('разрешает JSON sendBeacon из origin %s', async (origin) => {
+        const response = await app.inject({
+            method: 'OPTIONS',
+            url: '/api/collect/omid',
+            headers: {
+                origin,
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'content-type',
+            },
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['access-control-allow-origin']).toBe(origin);
+        expect(response.headers['access-control-allow-credentials']).toBe('true');
+        expect(response.headers['access-control-allow-methods']).toBe('POST, OPTIONS');
+        expect(response.headers['access-control-allow-headers']).toBe('Content-Type');
+        expect(response.headers['vary']).toContain('Origin');
+    });
+
+    it.each(ORIGINS)('принимает и сохраняет измерение из origin %s', async (origin) => {
+        const sid = randomUUID();
+        await createSession(sid);
+        createdImpressionIds.push(sid);
+
+        const response = await post(buildPayload({ sid }), origin);
+
+        expect(response.statusCode).toBe(202);
+        expect(response.headers['access-control-allow-origin']).toBe(origin);
+        expect(response.headers['access-control-allow-credentials']).toBe('true');
+
+        const rows = await db.select({ id: impressions.id })
+            .from(impressions)
+            .where(eq(impressions.impressionId, sid));
+        expect(rows).toHaveLength(1);
+    });
+
+    it('отклоняет preflight без обязательного метода', async () => {
+        const response = await app.inject({
+            method: 'OPTIONS',
+            url: '/api/collect/omid',
+            headers: { origin: ORIGINS[0] },
+        });
+
+        expect(response.statusCode).toBe(400);
+    });
+
+    it('сохраняет CORS основного коллектора', async () => {
+        const response = await app.inject({
+            method: 'OPTIONS',
+            url: '/api/collect',
+            headers: {
+                origin: ORIGINS[0],
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'content-type',
+            },
+        });
+
+        expect(response.statusCode).toBe(204);
+        expect(response.headers['access-control-allow-origin']).toBe(ORIGINS[0]);
+        expect(response.headers['access-control-allow-credentials']).toBe('true');
+    });
+
+    it.each(['/vast/test-token', '/t/vast/start', '/api/delivery/event', '/e/test-token.js'])(
+        'сохраняет wildcard без credentials для %s',
+        async (url) => {
+            const response = await app.inject({
+                method: 'OPTIONS',
+                url,
+                headers: {
+                    origin: ORIGINS[0],
+                    'access-control-request-method': 'POST',
+                    'access-control-request-headers': 'content-type',
+                },
+            });
+
+            expect(response.statusCode).toBe(204);
+            expect(response.headers['access-control-allow-origin']).toBe('*');
+            expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+        },
+    );
+
+    it('сохраняет требование авторизации для защищённого маршрута', async () => {
+        const response = await app.inject({
+            method: 'GET',
+            url: '/api/auth/me',
+            headers: { origin: ORIGINS[0] },
+        });
+
+        expect(response.statusCode).toBe(401);
+    });
 });
 
 describe('POST /api/collect/omid', () => {
@@ -288,10 +404,53 @@ describe('POST /api/collect/omid', () => {
     });
 
     it('отклоняет показ без существующей сессии', async () => {
-        const response = await post(buildPayload({ sid: randomUUID() }));
+        const response = await post(buildPayload({ sid: randomUUID() }), ORIGINS[0]);
 
         expect(response.statusCode).toBe(422);
         expect(response.json()).toMatchObject({ code: 'AD_SESSION_NOT_FOUND' });
+        expect(response.headers['access-control-allow-origin']).toBe(ORIGINS[0]);
+        expect(response.headers['access-control-allow-credentials']).toBe('true');
+    });
+
+    it('отклоняет чужую сессию с разрешённым CORS', async () => {
+        const [otherOwner] = await db.insert(users).values({
+            login: `omid_other_${randomBytes(8).toString('hex')}`,
+            passwordHash: 'unused-test-only',
+            role: 'user',
+        }).returning({ id: users.id });
+
+        if (!otherOwner) throw new Error('Не удалось создать владельца-фикстуру');
+        createdUserIds.push(otherOwner.id);
+
+        const sid = randomUUID();
+        await createSession(sid, { userId: otherOwner.id });
+        createdImpressionIds.push(sid);
+        const response = await post(buildPayload({ sid }), 'null');
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json()).toMatchObject({ code: 'AD_SESSION_OWNER_MISMATCH' });
+        expect(response.headers['access-control-allow-origin']).toBe('null');
+        expect(response.headers['access-control-allow-credentials']).toBe('true');
+
+        const rows = await db.select({ id: impressions.id })
+            .from(impressions)
+            .where(eq(impressions.impressionId, sid));
+        expect(rows).toHaveLength(0);
+    });
+
+    it('отклоняет просроченную сессию с разрешённым CORS', async () => {
+        const sid = randomUUID();
+        await createSession(sid, { createdAt: new Date(Date.now() - 169 * 60 * 60 * 1000) });
+        createdImpressionIds.push(sid);
+        const response = await post(buildPayload({ sid }), ORIGINS[0]);
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json()).toMatchObject({ code: 'AD_SESSION_EXPIRED' });
+
+        const rows = await db.select({ id: impressions.id })
+            .from(impressions)
+            .where(eq(impressions.impressionId, sid));
+        expect(rows).toHaveLength(0);
     });
 
     it('отклоняет показ с неизвестным тегом', async () => {
