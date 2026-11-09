@@ -27,6 +27,8 @@ export interface SignalsS3State {
 
 // Состояние S6 — Video Engagement accumulator (без DOM-ссылок)
 export interface S6AccumulatorState {
+    // Необязательное поле сохраняет совместимость ранее созданных накопителей.
+    quartileSource?: 'progress' | 'events';
     // Tracking
     duration: number;
     lastSeekTime: number;

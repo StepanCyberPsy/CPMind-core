@@ -125,14 +125,19 @@ export interface CpmindVerificationParams {
 /**
  * Контракт между загрузчиком и веткой коллекторов страницы.
  * Ветка публикует фабрику в глобале проверенного окна страницы с ключом версии
- * runtime. Отдельный вызов start создаёт отдельную рекламную сессию.
+ * runtime. Повторный вызов start для того же OMID-показа возвращает пассивный
+ * handle: он не запускает SDK и не дублирует partial, media или финализацию.
  */
+export interface CpmindOmidFullInput {
+    params: CpmindVerificationParams;
+    context: OmidContext;
+    startedAt: number;
+    omidSessionId?: string;
+}
+
 export interface CpmindOmidFullBranch {
-    start(input: {
-        params: CpmindVerificationParams;
-        context: OmidContext;
-        startedAt: number;
-    }): CpmindOmidFullSession | null;
+    start(input: CpmindOmidFullInput): CpmindOmidFullSession | null;
+    hasRun?(input: CpmindOmidFullInput): boolean;
 }
 
 export interface CpmindOmidFullSession {

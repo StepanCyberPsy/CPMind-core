@@ -69,15 +69,15 @@ function checkQuartiles(
     const pct = state.watchedFrontierSec / state.duration;
     const audible = isAudible(isMuted, volume);
 
-    if (!state.quartile_25 && pct >= 0.25) {
+    if (state.quartileSource !== 'events' && !state.quartile_25 && pct >= 0.25) {
         state.quartile_25 = true;
         if (audible) state.audible_quartile_25 = true;
     }
-    if (!state.quartile_50 && pct >= 0.50) {
+    if (state.quartileSource !== 'events' && !state.quartile_50 && pct >= 0.50) {
         state.quartile_50 = true;
         if (audible) state.audible_quartile_50 = true;
     }
-    if (!state.quartile_75 && pct >= 0.75) {
+    if (state.quartileSource !== 'events' && !state.quartile_75 && pct >= 0.75) {
         state.quartile_75 = true;
         if (audible) state.audible_quartile_75 = true;
     }
@@ -101,8 +101,10 @@ function updateMutedStatus(state: S6AccumulatorState): void {
 export function createS6AccumulatorState(
     audioConnection: AudioConnection = 'unknown',
     initialVolume = 0,
+    quartileSource: 'progress' | 'events' = 'progress',
 ): S6AccumulatorState {
     return {
+        quartileSource,
         duration: 0,
         lastSeekTime: 0,
         isSeeking: false,
@@ -134,6 +136,21 @@ export function createS6AccumulatorState(
         closed_by_user: false,
         start_muted: null,
     };
+}
+
+// Только явный событийный режим: отдельное событие не доказывает нижние квартили.
+export function onS6Quartile(
+    state: S6AccumulatorState,
+    quarter: 25 | 50 | 75 | 100,
+    isMuted: boolean,
+    volume: number,
+): void {
+    // Завершение и audible_quartile_100 по-прежнему подтверждает complete.
+    if (state.quartileSource !== 'events' || quarter === 100) return;
+    const flag = `quartile_${quarter}` as const;
+    if (state[flag]) return;
+    state[flag] = true;
+    state[`audible_quartile_${quarter}`] = isAudible(isMuted, volume);
 }
 
 // Длительность live-потока (Infinity) и невалидные значения не принимаются

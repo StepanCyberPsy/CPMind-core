@@ -10,6 +10,7 @@ const fixture = vi.hoisted(() => {
     const session = { reportMediaEvent: vi.fn(), finalize: vi.fn() };
     return {
         observer: null as ((event: OmidSessionEvent) => void) | null,
+        omidId: 'session',
         listeners: {} as Record<string, Array<(event: unknown) => void>>,
         session,
         start: vi.fn((_input: Parameters<CpmindOmidFullBranch['start']>[0]): CpmindOmidFullSession | null => session),
@@ -36,9 +37,10 @@ vi.mock('../src/transport.js', async (importOriginal) => ({
     sendMeasurement: fixture.send,
 }));
 
-function start(sid = 'ad-one', context: OmidContext = { accessMode: 'full' }) {
+function start(sid = 'ad-one', context: OmidContext = { accessMode: 'full' }, omidId = sid) {
+    fixture.omidId = omidId;
     fixture.observer!({
-        type: 'sessionStart', adSessionId: sid, timestamp: 1000,
+        type: 'sessionStart', adSessionId: omidId, timestamp: 1000,
         data: {
             context,
             verificationParameters: JSON.stringify({
@@ -52,9 +54,9 @@ function start(sid = 'ad-one', context: OmidContext = { accessMode: 'full' }) {
     });
 }
 
-function finish() {
+function finish(omidId = fixture.omidId) {
     fixture.observer!({
-        type: 'sessionFinish', adSessionId: 'session', timestamp: 5000, data: {},
+        type: 'sessionFinish', adSessionId: omidId, timestamp: 5000, data: {},
     });
 }
 
@@ -169,5 +171,72 @@ describe('выбор полной ветки и завершение показ�
         expect(fixture.start.mock.calls[0]![0]).toMatchObject({ params: { sid: 'new' } });
         finish();
         expect(fixture.session.finalize).toHaveBeenCalledOnce();
+    });
+
+    it('не создаёт новую сессию на повторный sessionStart до и после завершения', async () => {
+        start();
+        start();
+        await settle();
+        finish();
+        start();
+        await settle();
+        finish();
+        expect(fixture.load).toHaveBeenCalledOnce();
+        expect(fixture.start).toHaveBeenCalledOnce();
+        expect(fixture.listeners['media']).toHaveLength(1);
+        expect(fixture.session.finalize).toHaveBeenCalledOnce();
+        expect(fixture.send).not.toHaveBeenCalled();
+    });
+
+    it('не завершает новый запуск уведомлением от старой OMID-сессии', async () => {
+        start('same-delivery', { accessMode: 'full' }, 'old-omid');
+        await settle();
+        finish();
+        fixture.session.finalize.mockClear();
+        start('same-delivery', { accessMode: 'full' }, 'new-omid');
+        await settle();
+        finish('old-omid');
+        expect(fixture.session.finalize).not.toHaveBeenCalled();
+        finish('new-omid');
+        expect(fixture.session.finalize).toHaveBeenCalledOnce();
+    });
+
+    it('передаёт ранние медиасобытия после загрузки FULL ровно один раз', async () => {
+        let resolve!: (value: CpmindOmidFullBranch) => void;
+        fixture.load.mockReturnValue(new Promise<CpmindOmidFullBranch>((done) => { resolve = done; }));
+        start();
+        const events = [{ type: 'start', timestamp: 1100 }, { type: 'firstQuartile', timestamp: 1200 }];
+        for (const event of events) for (const listener of fixture.listeners['media']!) listener(event);
+        resolve(branch());
+        await settle();
+        expect(fixture.session.reportMediaEvent.mock.calls.map(([event]) => event)).toEqual(events);
+        finish();
+        for (const listener of fixture.listeners['media']!) listener(events[1]);
+        expect(fixture.session.reportMediaEvent).toHaveBeenCalledTimes(2);
+    });
+
+    it('при переполнении буфера сохраняет partial вместо неполного FULL', async () => {
+        let resolve!: (value: CpmindOmidFullBranch) => void;
+        fixture.load.mockReturnValue(new Promise<CpmindOmidFullBranch>((done) => { resolve = done; }));
+        start();
+        for (let n = 0; n < 257; n++) {
+            for (const listener of fixture.listeners['media']!) listener({ type: 'pause', timestamp: 1100 + n });
+        }
+        resolve(branch());
+        await settle();
+        finish();
+        expect(fixture.start).not.toHaveBeenCalled();
+        expect(fixture.send).toHaveBeenCalledOnce();
+    });
+
+    it('не отправляет partial, если другой клиент уже владеет FULL', async () => {
+        fixture.load.mockResolvedValue(null);
+        start();
+        await settle();
+        Object.assign(topWindow, {
+            __cpmindOmidFullV1_test: { start: fixture.start, hasRun: () => true },
+        });
+        finish();
+        expect(fixture.send).not.toHaveBeenCalled();
     });
 });

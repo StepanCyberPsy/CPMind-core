@@ -8,8 +8,10 @@ import type {
     VideoMeasurementEvent,
 } from '@cpmind/shared';
 import { publishFullBranch } from './global.js';
+import { getFullSessionRegistry } from './full_sessions.js';
 import type {
     CpmindOmidFullSession,
+    CpmindOmidFullInput,
     CpmindVerificationParams,
     OmidContext,
     OmidMediaEvent,
@@ -116,50 +118,46 @@ export function toVideoEvent(event: OmidMediaEvent): VideoMeasurementEvent[] {
     }
 }
 
-export function startFullMeasurement(input: {
-    params: CpmindVerificationParams;
-    context: OmidContext;
-    startedAt: number;
-}): CpmindOmidFullSession | null {
-    let session: MeasurementSession;
-
+export function startFullMeasurement(input: CpmindOmidFullInput): CpmindOmidFullSession | null {
     try {
+        const registry = getFullSessionRegistry(window);
         const creativeEl = resolveCreativeElement(input.context);
-        if (creativeEl === null || !creativeEl.isConnected
-            || creativeEl.ownerDocument !== document || document.defaultView !== window) {
-            return null;
-        }
-        session = prepareMeasurementSession({
-            creativeEl,
-            meta: buildMeta(input.params, false),
-            config: {
-                debug: false,
-                constants: input.params.tag_constants as unknown as TagConstantsValues,
-                explicitStart: true,
-            },
+        return registry.start(input, creativeEl, (onFinalized) => {
+            if (creativeEl === null || !creativeEl.isConnected
+                || creativeEl.ownerDocument !== document || document.defaultView !== window) {
+                return null;
+            }
+            const session: MeasurementSession = prepareMeasurementSession({
+                creativeEl,
+                meta: buildMeta(input.params, false),
+                config: {
+                    debug: false,
+                    constants: input.params.tag_constants as unknown as TagConstantsValues,
+                    explicitStart: true,
+                },
+                videoQuartileSource: 'events',
+                onFinalized,
+            });
+            session.startMeasurement(input.startedAt);
+            return {
+                reportMediaEvent(event: OmidMediaEvent): void {
+                    for (const videoEvent of toVideoEvent(event)) {
+                        session.reportVideoEvent(videoEvent);
+                    }
+                },
+                finalize(): void {
+                    session.finalize('complete');
+                },
+            };
         });
     } catch {
+        // Реестр снимает владение. destroy() здесь отправил бы финальный показ
+        // перед partial-fallback, поэтому не используется как отмена инициализации.
         return null;
     }
-
-    // Момент начала измерения — время события sessionStart, а не время загрузки
-    // этой ветки: догрузка второго бандла не должна смещать отсчёт
-    session.startMeasurement(input.startedAt);
-
-    let finalized = false;
-
-    return {
-        reportMediaEvent(event: OmidMediaEvent): void {
-            for (const videoEvent of toVideoEvent(event)) {
-                session.reportVideoEvent(videoEvent);
-            }
-        },
-        finalize(): void {
-            if (finalized) return;
-            finalized = true;
-            session.finalize('complete');
-        },
-    };
 }
 
-publishFullBranch({ start: startFullMeasurement }, OMID_RUNTIME_VERSION);
+publishFullBranch({
+    start: startFullMeasurement,
+    hasRun: (input) => getFullSessionRegistry(window).hasRun(input),
+}, OMID_RUNTIME_VERSION);

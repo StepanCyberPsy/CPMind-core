@@ -16,9 +16,12 @@ import {
     type LimitedState,
 } from './limited.js';
 import { loadFullBranch } from './loader.js';
+import { readFullBranch } from './global.js';
+import { getOmidRunKey } from './full_sessions.js';
 import { buildPartialEndpoint, sendMeasurement } from './transport.js';
 import type {
     CpmindOmidFullSession,
+    CpmindOmidFullInput,
     CpmindVerificationParams,
     OmidGeometryChangeEvent,
     OmidMediaEvent,
@@ -29,6 +32,13 @@ import type {
 declare const OMID_RUNTIME_VERSION: string;
 
 interface MeasurementRun {
+    key: string;
+    input: CpmindOmidFullInput;
+    targetWindow: Window | null;
+    pendingMedia: OmidMediaEvent[];
+    fullPending: boolean;
+    mediaOverflow: boolean;
+    cleanup: () => void;
     params: CpmindVerificationParams;
     accessLevel: AccessLevel;
 
@@ -119,31 +129,42 @@ function buildPayload(current: MeasurementRun, endTimestamp: number): unknown {
     };
 }
 
-function finalize(endTimestamp: number): void {
-    if (run === null || run.sent) return;
-    run.sent = true;
+function finalize(current: MeasurementRun, endTimestamp: number): void {
+    if (current.sent) return;
+    current.sent = true;
+    current.cleanup();
+    current.pendingMedia = [];
 
     // Ветка коллекторов отправляет показ сама — полным payload на штатную точку
     // приёма. Дублировать его частичной записью нельзя: получились бы два показа
-    if (run.full !== null) {
-        run.full.finalize();
+    if (current.full !== null) {
+        current.full.finalize();
         return;
     }
 
+    // Другой клиент той же верификации мог успешно запустить FULL после нашего отказа.
+    if (current.targetWindow !== null
+        && readFullBranch(current.targetWindow, OMID_RUNTIME_VERSION)?.hasRun?.(current.input)) return;
+
     sendMeasurement(
-        buildPartialEndpoint(run.params.collect_endpoint),
-        buildPayload(run, endTimestamp),
+        buildPartialEndpoint(current.params.collect_endpoint),
+        buildPayload(current, endTimestamp),
     );
 }
 
-function attachUnloadHandlers(): void {
-    const onHide = (): void => finalize(Date.now());
+function attachUnloadHandlers(current: MeasurementRun): void {
+    const onHide = (): void => finalize(current, Date.now());
+    const onVisibility = (): void => {
+        if (document.visibilityState === 'hidden') onHide();
+    };
 
     try {
         window.addEventListener('pagehide', onHide, { once: true });
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') onHide();
-        });
+        document.addEventListener('visibilitychange', onVisibility);
+        current.cleanup = () => {
+            window.removeEventListener('pagehide', onHide);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
     } catch {
         // В песочнице часть обработчиков может быть недоступна —
         // финализацию в любом случае выполнит sessionFinish
@@ -158,8 +179,22 @@ function startMeasurement(client: OmidVerificationClientLike, event: OmidSession
     const targetWindow = context?.accessMode === 'full' ? getAccessibleTopWindow() : null;
     const level = resolveAccessLevel(context, targetWindow);
     const pageLevel = shouldUsePageCollectors(level);
+    const input: CpmindOmidFullInput = {
+        params, context: context ?? {}, startedAt: event.timestamp,
+        ...(event.adSessionId ? { omidSessionId: event.adSessionId } : {}),
+    };
+    const key = getOmidRunKey(input);
+    if (run?.key === key) return;
+    if (targetWindow !== null && readFullBranch(targetWindow, OMID_RUNTIME_VERSION)?.hasRun?.(input)) return;
 
     const current: MeasurementRun = {
+        key,
+        input,
+        targetWindow,
+        pendingMedia: [],
+        fullPending: pageLevel && targetWindow !== null,
+        mediaOverflow: false,
+        cleanup: () => {},
         params,
         accessLevel: level,
         pageCollectorsLoaded: false,
@@ -172,36 +207,50 @@ function startMeasurement(client: OmidVerificationClientLike, event: OmidSession
     run = current;
 
     client.addEventListener('geometryChange', (raw) => {
-        if (run !== current) return;
+        if (run !== current || current.sent) return;
         onGeometryChange(current.state, raw as OmidGeometryChangeEvent);
     });
 
     client.addEventListener('media', (raw) => {
-        if (run !== current) return;
-        onMediaEvent(current.state, raw as OmidMediaEvent);
-        current.full?.reportMediaEvent(raw as OmidMediaEvent);
+        if (run !== current || current.sent) return;
+        const media = raw as OmidMediaEvent;
+        onMediaEvent(current.state, media);
+        if (current.full !== null) current.full.reportMediaEvent(media);
+        else if (current.fullPending && !current.mediaOverflow) {
+            if (current.pendingMedia.length >= 256) {
+                current.mediaOverflow = true;
+                current.pendingMedia = [];
+            } else current.pendingMedia.push(media);
+        }
     });
 
-    attachUnloadHandlers();
+    attachUnloadHandlers(current);
 
     if (!pageLevel || targetWindow === null) return;
 
     // Ограниченный сбор уже идёт: если догрузка не состоится или опоздает,
     // показ не теряется, а отправляется с честной отметкой о неполноте
     void loadFullBranch(targetWindow).then((branch) => {
-        if (branch === null || current.sent || run !== current) return;
+        current.fullPending = false;
+        if (branch === null || current.sent || run !== current || current.mediaOverflow) {
+            current.pendingMedia = [];
+            return;
+        }
+        const session = branch.start(current.input);
 
-        const session = branch.start({
-            params: current.params,
-            context: event.data.context ?? {},
-            startedAt: current.startedAt,
-        });
-
-        if (session === null) return;
+        if (session === null) {
+            current.pendingMedia = [];
+            return;
+        }
 
         current.full = session;
         current.pageCollectorsLoaded = true;
+        const buffered = current.pendingMedia;
+        current.pendingMedia = [];
+        for (const media of buffered) session.reportMediaEvent(media);
     }).catch(() => {
+        current.fullPending = false;
+        current.pendingMedia = [];
         // Отказ полной инициализации не отменяет уже идущий частичный сбор.
     });
 }
@@ -218,7 +267,9 @@ function bootstrap(): void {
         }
 
         if (event.type === 'sessionFinish' || event.type === 'sessionError') {
-            finalize(event.timestamp);
+            if (run !== null && (!run.input.omidSessionId || event.adSessionId === run.input.omidSessionId)) {
+                finalize(run, event.timestamp);
+            }
         }
     }, CPMIND_OMID_VENDOR);
 }

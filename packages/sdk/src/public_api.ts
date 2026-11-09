@@ -32,6 +32,7 @@ import {
     onS6Close,
     onS6LoadedMetadata,
     onS6AudioConnectionDetected,
+    onS6Quartile,
     resetS6Accumulator,
 } from './signals/s6.js';
 
@@ -67,6 +68,8 @@ export interface PrepareMeasurementSessionInput {
     meta: SessionPayloadMeta;
     config: SdkSignalConfig;
     video?: VideoSessionInitialState;
+    // OMID сообщает достигнутые квартили; обычный плеер измеряет progress.
+    videoQuartileSource?: 'progress' | 'events';
     onFinalized?: (reason: MeasurementFinalizationReason) => void;
 }
 
@@ -88,6 +91,7 @@ class MeasurementSessionImpl implements MeasurementSession {
     private readonly session: Session;
     private readonly meta: SessionPayloadMeta;
     private readonly isVideo: boolean;
+    private readonly videoQuartileSource: 'progress' | 'events';
     private readonly videoState: VideoPlaybackState;
     private readonly onFinalized: ((reason: MeasurementFinalizationReason) => void) | null;
 
@@ -101,6 +105,7 @@ class MeasurementSessionImpl implements MeasurementSession {
         this.meta = input.meta;
         this.onFinalized = input.onFinalized ?? null;
         this.isVideo = input.video !== undefined;
+        this.videoQuartileSource = input.videoQuartileSource ?? 'progress';
         this.videoState = {
             isMuted: input.video?.muted ?? true,
             volume: input.video?.volume ?? 0,
@@ -290,7 +295,7 @@ class MeasurementSessionImpl implements MeasurementSession {
                 break;
             }
             case 'quartile': {
-                // Квартили вычисляются по просмотренному отрезку из progress-событий
+                onS6Quartile(s6, event.value, vs.isMuted, vs.volume);
                 break;
             }
             case 'audio_connection': {
@@ -348,7 +353,7 @@ class MeasurementSessionImpl implements MeasurementSession {
     private ensureVideoAccumulator(): S6AccumulatorState {
         if (this.session.s6 === null) {
             const vs = this.videoState;
-            const s6 = createS6AccumulatorState(vs.audioConnection, vs.volume);
+            const s6 = createS6AccumulatorState(vs.audioConnection, vs.volume, this.videoQuartileSource);
             if (vs.durationSec !== null) {
                 onS6LoadedMetadata(s6, vs.durationSec);
             }

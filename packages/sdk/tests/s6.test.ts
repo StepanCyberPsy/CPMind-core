@@ -16,6 +16,7 @@ import {
     onS6Seeking,
     onS6TimeUpdate,
     onS6VolumeChange,
+    onS6Quartile,
     resetS6Accumulator,
 } from '../src/signals/s6.js';
 import type { S6AccumulatorState } from '../src/types.js';
@@ -72,6 +73,24 @@ describe('S6 accumulator', () => {
         expect(data.completion_rate_pct).toBe(100);
         expect(data.quartile_75).toBe(true);
         expect(data.audible_quartile_100).toBe(true);
+    });
+
+    it('событийный режим не выводит квартили из progress и complete', () => {
+        const state = createS6AccumulatorState('unknown', 1, 'events');
+        onS6LoadedMetadata(state, DURATION_SEC);
+        onS6Play(state, false, 1, 0);
+        playRange(state, 0, DURATION_SEC);
+        onS6Ended(state, false, 1);
+        expect(getS6Data(state)).toMatchObject({
+            completion: true, quartile_25: false, quartile_50: false, quartile_75: false,
+        });
+        resetS6Accumulator(state, 0, false, false, true, 1);
+        onS6Quartile(state, 50, true, 1);
+        onS6Quartile(state, 50, false, 1);
+        expect(getS6Data(state)).toMatchObject({
+            quartile_25: false, quartile_50: true, audible_quartile_50: false,
+        });
+        expect(state.quartileSource).toBe('events');
     });
 
     it('не увеличивает досмотр перемоткой вперёд', () => {

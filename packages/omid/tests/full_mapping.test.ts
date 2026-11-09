@@ -159,4 +159,21 @@ describe('полная сессия и документ элемента', () =>
         second.finalize();
         expect(secondSdk.finalize).toHaveBeenCalledOnce();
     });
+
+    it('повторная верификация одного запуска не создаёт второй SDK или partial', () => {
+        const video = element();
+        const input = { params, context: { videoElement: video }, startedAt: 1234 };
+        const first = startFullMeasurement(input)!;
+        const second = startFullMeasurement(input)!;
+        expect(second).not.toBeNull();
+        expect(sdk.prepare).toHaveBeenCalledOnce();
+        first.reportMediaEvent(media('pause'));
+        second.reportMediaEvent(media('pause'));
+        const owner = sdk.prepare.mock.results[0]!.value;
+        expect(owner.reportVideoEvent).toHaveBeenCalledOnce();
+        second.finalize();
+        expect(owner.finalize).not.toHaveBeenCalled();
+        first.finalize();
+        expect(owner.finalize).toHaveBeenCalledOnce();
+    });
 });

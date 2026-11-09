@@ -13,8 +13,8 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const require = createRequire(new URL('../package.json', import.meta.url));
 const { build } = require('esbuild');
 const shared = await import(pathToFileURL(path.join(root, 'packages/shared/dist/index.js')));
-const artifactDir = await mkdtemp('/private/tmp/cpmind-omid-access-browser-');
-const version = '2';
+const artifactDir = await mkdtemp('/private/tmp/cpmind-omid-integrity-browser-');
+const version = '3';
 const factoryKey = '__cpmindOmidFullV1_' + version;
 const observations = [];
 const results = [];
@@ -29,6 +29,10 @@ let otherOrigin;
 let entryBundle;
 let fullBundle;
 let tagBundle;
+let embedBundle;
+let playerBundle;
+let videoBytes;
+let mediaUrl;
 let browserVersion;
 
 const cases = [
@@ -48,19 +52,33 @@ const cases = [
     { name: 'two-creatives', full: true, count: 2 },
     { name: 'old-factory', full: true, oldFactory: true },
     { name: 'ordinary-script', ordinary: true },
+    { name: 'omid-instream-quarters', full: true, quarters: [25, 50, 75], format: 'instream', noDuration: true },
+    { name: 'omid-outstream-quarters', full: true, quarters: [25, 50, 75], noDuration: true },
+    { name: 'omid-missing-quarters', full: true, quarters: [], noDuration: true },
+    { name: 'omid-out-of-order', full: true, quarters: [75, 25, 75], noDuration: true },
+    { name: 'omid-delayed-media', full: true, quarters: [25, 50, 75], noDuration: true, assetDelay: 400, earlyMedia: true },
+    { name: 'duplicate-verifications', full: true, count: 2, duplicate: true, quarters: [25, 50, 75], noDuration: true },
+    { name: 'embed-outstream', embed: true },
+    { name: 'embed-instream', embed: true, format: 'instream' },
+    { name: 'embed-seek', embed: true, seek: true },
+    { name: 'embed-two-cycles', embed: true, cycles: 2 },
 ];
 for (const test of cases) {
     test.frames = Array.from({ length: test.count ?? 1 }, (_, index) => ({
         index, caseName: test.name, access: test.access ?? 'full',
         missing: test.missing, otherDocument: test.otherDocument, detached: test.detached,
+        elementIndex: test.duplicate ? 0 : index,
+        quarters: test.quarters, noDuration: test.noDuration, earlyMedia: test.earlyMedia,
         params: {
             sid: randomUUID(), tag_uuid: randomUUID(), tag_constants_version: 'browser-test',
             campaign_id: 'browser-campaign', creative_id: test.name + '-' + index,
             creative_type: 'video_creative', placement_uuid: randomUUID(),
-            creative_version_uuid: randomUUID(), delivery_kind: 'inline', delivery_mode: 'outstream',
+            creative_version_uuid: randomUUID(), delivery_kind: 'inline',
+            delivery_mode: test.format === 'instream' ? 'instream_preroll' : 'outstream',
             tag_constants: shared.DEFAULT_TAG_CONSTANTS,
         },
     }));
+    if (test.duplicate) test.frames[1].params = test.frames[0].params;
 }
 
 // This class is bundled instead of the IAB client solely for producing fixture events.
@@ -83,7 +101,7 @@ class FixtureVerificationClient {
             try {
                 videoElement = cfg.otherDocument
                     ? document.getElementById('local-video')
-                    : window.top.document.getElementById('creative-' + cfg.index);
+                    : window.top.document.getElementById('creative-' + cfg.elementIndex);
                 if (cfg.detached) videoElement = window.top.document.createElement('video');
             } catch {
                 videoElement = document.getElementById('local-video');
@@ -97,6 +115,7 @@ class FixtureVerificationClient {
             },
         });
         this.geometry();
+        if (cfg.earlyMedia) this.media();
         window.parent.postMessage({ fixtureReady: cfg.caseName, index: cfg.index }, '*');
     }
     addEventListener(type, listener) { (this.listeners[type] ??= []).push(listener); }
@@ -114,9 +133,14 @@ class FixtureVerificationClient {
         });
     }
     media() {
+        const cfg = window.__fixtureConfig;
+        const quarters = { 25: 'firstQuartile', 50: 'midpoint', 75: 'thirdQuartile' };
         for (const event of [
-            { type: 'loaded', data: { duration: 30 } },
+            ...(cfg.noDuration ? [] : [{ type: 'loaded', data: { duration: 30 } }]),
             { type: 'start', data: { mediaPlayerVolume: 0 } },
+            ...(cfg.quarters === undefined ? [] : [
+                ...cfg.quarters.map((value) => ({ type: quarters[value] })), { type: 'complete' },
+            ]),
         ]) {
             for (const callback of this.listeners.media ?? []) callback({ ...event, timestamp: Date.now() });
         }
@@ -184,6 +208,62 @@ async function serve(request, response) {
     response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (request.method === 'OPTIONS') { response.writeHead(204).end(); return; }
+    if (url.pathname === '/api/delivery/event') {
+        for await (const _chunk of request) { /* Drain fixture delivery telemetry. */ }
+        response.writeHead(202).end('{}'); return;
+    }
+    if (url.pathname === '/api/delivery/session') {
+        const test = cases.find((candidate) => candidate.name === url.searchParams.get('case'));
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ adSessionId: test.frames[0].params.sid })); return;
+    }
+    if (url.pathname === '/api/delivery/advance') {
+        const test = cases.find((candidate) => candidate.name === url.searchParams.get('case'));
+        test.advances = (test.advances ?? 0) + 1;
+        if (test.advances < (test.cycles ?? 1)) {
+            response.setHeader('Content-Type', 'application/json');
+            response.end(JSON.stringify({ videoShowIndex: test.advances, creativeVersionUuid: test.frames[0].params.creative_version_uuid }));
+        }
+        // Hold the next rotation until navigation: count only the requested cycles.
+        return;
+    }
+    if (url.pathname === '/fixture.vast') {
+        response.setHeader('Content-Type', 'application/xml');
+        response.end('<VAST version="4.3"><Ad><InLine><AdSystem>fixture</AdSystem><AdTitle>Local video</AdTitle>'
+            + '<Creatives><Creative><Linear><Duration>00:00:08</Duration><MediaFiles>'
+            + '<MediaFile delivery="progressive" type="video/mp4" width="320" height="180">'
+            + mediaUrl + '</MediaFile></MediaFiles></Linear></Creative></Creatives></InLine></Ad></VAST>');
+        return;
+    }
+    if (url.pathname === '/e/fixture.js') {
+        const test = cases.find((candidate) => candidate.name === url.searchParams.get('case'));
+        const p = test.frames[0].params;
+        // Synthetic backend response; loader, player, media playback and SDK are real.
+        const cfg = shared.DeliveryRuntimeConfigSchema.parse({
+            adSessionId: test.format === 'instream' ? null : p.sid,
+            placementUuid: p.placement_uuid, deliveryToken: 'f'.repeat(32),
+            creativeVersionUuid: p.creative_version_uuid, creativeType: 'video_creative',
+            deliveryMode: p.delivery_mode, format: test.format ?? 'outstream',
+            subtype: test.format === 'instream' ? 'preroll' : 'inpage', measurementMode: 'full_cpmind_player',
+            campaignId: p.campaign_id, creativeId: p.creative_id, tagUuid: p.tag_uuid,
+            tagConstantsVersion: p.tag_constants_version, tagConstants: p.tag_constants,
+            collectEndpoint: origin + '/api/collect', deliveryEventEndpoint: origin + '/api/delivery/event',
+            sessionEndpoint: origin + '/api/delivery/session?case=' + test.name,
+            advanceEndpoint: origin + '/api/delivery/advance?case=' + test.name,
+            vastUrl: origin + '/fixture.vast', clickUrl: null, slotId: 'embed-slot', videoSelector: '#content',
+            width: 320, height: 180, stickyCorner: null, stickyOffsetX: null, stickyOffsetY: null,
+            stickyWidth: null, stickyHeight: null, plcmt: null, autoplay: true, initialMuted: true,
+            skippable: false, skipOffsetSec: null, timeouts: {},
+        });
+        Object.assign(cfg, { displayRuntimeVersion: 'fixture', playerRuntimeVersion: 'fixture', assetUrl: mediaUrl });
+        response.setHeader('Content-Type', 'application/javascript');
+        response.end('(function(){window.__CPMIND_QUEUE__=window.__CPMIND_QUEUE__||[];var cfg='
+            + JSON.stringify(cfg) + ';cfg.container=document.getElementById("embed-slot");'
+            + 'window.__CPMIND_QUEUE__.push(cfg);if(!window.__CPMIND_LOADER__){window.__CPMIND_LOADER__=true;'
+            + 'var s=document.createElement("script");s.async=true;s.src="/runtime/cpmind-loader_fixture.min.js";'
+            + 'document.head.appendChild(s);}})();');
+        return;
+    }
     if (url.pathname.startsWith('/api/collect')) {
         let body = '';
         for await (const chunk of request) body += chunk;
@@ -197,6 +277,12 @@ async function serve(request, response) {
         return;
     }
     if (url.pathname.startsWith('/runtime/')) {
+        if (url.pathname.includes('loader_fixture')) {
+            response.setHeader('Content-Type', 'application/javascript'); response.end(embedBundle); return;
+        }
+        if (url.pathname.includes('cpmind-player_vfixture')) {
+            response.setHeader('Content-Type', 'application/javascript'); response.end(playerBundle); return;
+        }
         const referrer = new URL(request.headers.referer ?? origin);
         const test = cases.find((candidate) => candidate.name === referrer.searchParams.get('case'));
         assets.push({ caseName: test?.name, path: url.pathname });
@@ -211,6 +297,12 @@ async function serve(request, response) {
     const test = cases.find((candidate) => candidate.name === url.searchParams.get('case'));
     if (!test) { response.writeHead(404).end(); return; }
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (test.embed) {
+        response.end('<!doctype html><div id="embed-slot" style="width:320px;height:180px">'
+            + (test.format === 'instream' ? '<video id="content" muted src="' + mediaUrl + '" style="width:320px;height:180px"></video>' : '')
+            + '</div><script async src="/e/fixture.js?case=' + test.name + '"></script>');
+        return;
+    }
     if (url.pathname === '/frame') {
         const config = test.frames[Number(url.searchParams.get('index'))];
         response.end('<!doctype html><video id="local-video"></video><script>window.__fixtureConfig='
@@ -252,6 +344,25 @@ async function connect(url) {
     const pending = new Map();
     socket.addEventListener('message', (event) => {
         const message = JSON.parse(event.data);
+        if (message.method === 'Fetch.requestPaused') {
+            // Fulfil the trusted HTTPS media URL locally, before any TLS/network access.
+            const header = Object.entries(message.params.request.headers).find(([name]) => name.toLowerCase() === 'range');
+            const range = header?.[1].match(/^bytes=(\d+)-(\d*)$/);
+            const start = range ? Number(range[1]) : 0;
+            const end = range?.[2] ? Math.min(Number(range[2]), videoBytes.length - 1) : videoBytes.length - 1;
+            const bytes = videoBytes.subarray(start, end + 1);
+            assets.push({ path: message.params.request.url, range: header?.[1] ?? null });
+            void cdp('Fetch.fulfillRequest', {
+                requestId: message.params.requestId, responseCode: range ? 206 : 200,
+                responseHeaders: [
+                    { name: 'Content-Type', value: 'video/mp4' },
+                    { name: 'Accept-Ranges', value: 'bytes' },
+                    { name: 'Content-Length', value: String(bytes.length) },
+                    ...(range ? [{ name: 'Content-Range', value: `bytes ${start}-${end}/${videoBytes.length}` }] : []),
+                ],
+                body: bytes.toString('base64'),
+            }).catch((error) => exceptions.push({ fixtureNetworkError: String(error) }));
+        }
         if (message.method === 'Runtime.exceptionThrown') exceptions.push(message.params);
         if (message.id === undefined) return;
         const call = pending.get(message.id);
@@ -295,10 +406,11 @@ function recordsFor(test) {
     ).filter(({ payload }) => payload.checkpoint !== true);
 }
 
-function validateFull(payload) {
+function validateFull(payload, format = 'outstream') {
     const parsed = shared.ImpressionPayloadSchema.parse(payload);
     const weights = parsed.creative_type === 'video_creative'
-        ? shared.DEFAULT_VIDEO_OUTSTREAM_WEIGHTS : shared.DEFAULT_BANNER_WEIGHTS;
+        ? format === 'instream' ? shared.DEFAULT_VIDEO_INSTREAM_WEIGHTS : shared.DEFAULT_VIDEO_OUTSTREAM_WEIGHTS
+        : shared.DEFAULT_BANNER_WEIGHTS;
     const result = shared.computeScore(
         parsed, weights, shared.DEFAULT_WEIBULL_PARAMS, shared.DEFAULT_S2_PARAMS,
         shared.DEFAULT_LOGISTIC_PARAMS, parsed.creative_type === 'video_creative'
@@ -311,7 +423,67 @@ function validateFull(payload) {
     return result.score_final;
 }
 
+async function runEmbedCase(test) {
+    await waitFor('window.CPMindPlayer !== undefined', test.name + ' actual player loaded');
+    if (test.format === 'instream') {
+        await evaluate('document.getElementById("content").play()');
+    }
+    await waitFor('document.querySelector("[data-cpmind-surface] video")?.currentTime > 0.8', test.name + ' first real frames');
+    await evaluate('window.__adVideo=document.querySelector("[data-cpmind-surface] video");'
+        + 'window.__endedEvents=[];window.__adVideo.addEventListener("ended",e=>window.__endedEvents.push(e.isTrusted))');
+    if (test.seek) {
+        await evaluate('new Promise(resolve=>{window.__adVideo.addEventListener("seeked",()=>resolve(),{once:true});'
+            + 'window.__adVideo.currentTime=7})');
+        assert.ok(await evaluate('window.__adVideo.currentTime >= 6.8'), 'real seek must reach its destination');
+        await evaluate('window.__adVideo.play()');
+    } else {
+        const position = await evaluate('window.__adVideo.pause();window.__adVideo.currentTime');
+        await delay(200);
+        assert.equal(await evaluate('window.__adVideo.paused'), true);
+        assert.ok(Math.abs(await evaluate('window.__adVideo.currentTime') - position) < 0.1);
+        await evaluate('window.__adVideo.muted=false;window.__adVideo.play()');
+    }
+    const expected = test.cycles ?? 1;
+    const until = Date.now() + expected * 12000;
+    while (recordsFor(test).length < expected && Date.now() < until) await delay(100);
+    await delay(200);
+    const records = recordsFor(test);
+    assert.equal(records.length, expected, test.name + ' genuine final payloads');
+    assert.equal(new Set(records.map(({ payload }) => payload.impression_id)).size, expected);
+    assert.equal(new Set(records.map(({ payload }) => payload.session_group_id)).size, expected);
+    assert.equal(new Set(records.map(({ payload }) => payload.ad_session_id)).size, 1);
+    assert.ok((await evaluate('window.__endedEvents')).includes(true), 'real browser media ended event');
+    for (const [index, record] of records.entries()) {
+        assert.equal(record.route, '/api/collect');
+        assert.equal(record.payload.measurement_mode, 'full_cpmind_player');
+        const s6 = record.payload.signals.s6;
+        assert.ok(Math.abs(s6.duration_sec - 8) < 0.2);
+        assert.equal(s6.quartile_25, !test.seek);
+        assert.equal(s6.quartile_50, !test.seek);
+        assert.equal(s6.quartile_75, !test.seek);
+        assert.equal(s6.completion, !test.seek);
+        if (!test.seek && index === 0) assert.ok(s6.audible_time_sec > 0);
+        if (index > 0) assert.equal(s6.muted_throughout, true, 'new cycle keeps its configured initial mute');
+    }
+    if (!test.seek) {
+        assert.equal(records[0].payload.signals.s6.pause_initiated, true);
+        assert.equal(records[0].payload.signals.s6.muted_status, 'mixed');
+    }
+    return { name: test.name, status: 'PASS', scores: records.map(({ payload }) => validateFull(payload, test.format)), records };
+}
+
 try {
+    const mediaPath = path.join(artifactDir, 'fixture.mp4');
+    await new Promise((resolve, reject) => {
+        const encoder = spawn('/usr/local/bin/ffmpeg', [
+            '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=navy:s=320x180:r=20',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '8',
+            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', mediaPath,
+        ], { stdio: ['ignore', 'ignore', 'inherit'] });
+        encoder.once('error', reject);
+        encoder.once('exit', (code) => code === 0 ? resolve() : reject(new Error('ffmpeg exit ' + code)));
+    });
+    videoBytes = await readFile(mediaPath);
     await new Promise((resolve, reject) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', resolve);
@@ -321,6 +493,7 @@ try {
         otherServer.listen(0, '127.0.0.1', resolve);
     });
     origin = 'http://127.0.0.1:' + server.address().port;
+    mediaUrl = origin.replace('http:', 'https:') + '/fixture.mp4';
     otherOrigin = 'http://127.0.0.1:' + otherServer.address().port;
     for (const test of cases) for (const config of test.frames) config.params.collect_endpoint = origin + '/api/collect';
     const options = {
@@ -352,12 +525,17 @@ try {
             __CPMIND_TAG_VERSION__: '"browser-test"',
         },
     })).outputFiles[0].text;
+    embedBundle = (await build({ ...options, entryPoints: ['packages/embed/src/index.ts'] })).outputFiles[0].text;
+    playerBundle = (await build({ ...options, entryPoints: ['packages/player/src/index.ts'], define: {
+        ...options.define, CDN_HOSTNAME: '"127.0.0.1"', PLAYER_RUNTIME_VERSION: '"fixture"',
+    } })).outputFiles[0].text;
     chromeLog = await open(path.join(artifactDir, 'chrome.log'), 'w');
     browser = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
         '--headless=new', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
         '--user-data-dir=' + path.join(artifactDir, 'chrome-profile'),
         '--disable-background-networking', '--disable-component-update', '--disable-sync',
         '--disable-extensions', '--no-first-run', '--no-default-browser-check', 'about:blank',
+        '--autoplay-policy=no-user-gesture-required',
     ], { stdio: ['ignore', chromeLog.fd, chromeLog.fd] });
     let port;
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -372,12 +550,22 @@ try {
     cdp = await connect(page.webSocketDebuggerUrl);
     await cdp('Page.enable');
     await cdp('Runtime.enable');
+    await cdp('Fetch.enable', { patterns: [{ urlPattern: mediaUrl, requestStage: 'Request' }] });
     await cdp('Emulation.setDeviceMetricsOverride', { width: 1000, height: 800, deviceScaleFactor: 1, mobile: false });
     browserVersion = await cdp('Browser.getVersion');
     console.log('Browser: ' + browserVersion.product);
-    for (const test of cases) {
+    const requestedCases = process.argv.slice(2);
+    for (const name of requestedCases) assert.ok(cases.some((test) => test.name === name), 'unknown case: ' + name);
+    for (const test of cases.filter((item) => requestedCases.length === 0 || requestedCases.includes(item.name))) {
         const exceptionCount = exceptions.length;
         await cdp('Page.navigate', { url: origin + '/?case=' + test.name });
+        if (test.embed) {
+            const result = await runEmbedCase(test);
+            assert.equal(exceptions.length, exceptionCount, test.name + ' unexpected runtime exception');
+            results.push(result);
+            console.log('PASS ' + test.name);
+            continue;
+        }
         if (test.ordinary) {
             await waitFor('document.querySelector("[data-cpmind-creative]") !== null', test.name);
         } else {
@@ -387,15 +575,16 @@ try {
                 await delay(700);
                 assert.equal(await evaluate('window.__fullStarts.length'), 0);
             } else if (test.full) {
-                await waitFor('window.__fullStarts?.filter(x => x.accepted).length === ' + test.frames.length, test.name + ' full');
+                await waitFor('window.__fullStarts?.filter(x => x.accepted).length >= '
+                    + (test.duplicate ? 1 : test.frames.length), test.name + ' full');
                 assert.equal(await evaluate('window.__fullStarts.every(x => x.isTopWindow && x.documentMatches)'), true);
-                await evaluate('(' + commandFixture.toString() + ')("media")');
+                if (!test.earlyMedia) await evaluate('(' + commandFixture.toString() + ')("media")');
             } else {
                 await delay(test.assetDelay ? 5700 : 300);
             }
         }
         await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 100, y: 120 });
-        if (test.count === 2) {
+        if (test.count === 2 && !test.duplicate) {
             await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: 100, y: 120, button: 'left', clickCount: 1 });
             await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 100, y: 120, button: 'left', clickCount: 1 });
         }
@@ -409,7 +598,7 @@ try {
         if (test.ordinary) {
             await evaluate('window.dispatchEvent(new Event("pagehide"))');
         } else if (!test.earlyFinish) {
-            if (test.count === 2) {
+            if (test.count === 2 && !test.duplicate) {
                 await evaluate('(' + commandFixture.toString() + ')("finish",0)');
                 await delay(150);
                 assert.equal(recordsFor(test).length, 1, 'second ad must remain active');
@@ -419,14 +608,28 @@ try {
             }
             await evaluate('(' + commandFixture.toString() + ')("finish")');
         }
-        for (let attempt = 0; attempt < 100 && recordsFor(test).length < test.frames.length; attempt++) await delay(50);
+        const expectedCount = test.duplicate ? 1 : test.frames.length;
+        for (let attempt = 0; attempt < 100 && recordsFor(test).length < expectedCount; attempt++) await delay(50);
+        if (test.duplicate) {
+            await evaluate('new Promise(resolve=>{const f=document.createElement("iframe");f.className="verify";'
+                + 'f.dataset.index="0";f.onload=resolve;f.src="/frame?case=duplicate-verifications&index=0&late=1";'
+                + 'document.body.appendChild(f)})');
+            await evaluate('(' + commandFixture.toString() + ')("media")');
+            await evaluate('(' + commandFixture.toString() + ')("finish")');
+            await delay(250);
+        }
         const records = recordsFor(test);
-        assert.equal(records.length, test.frames.length, test.name + ' final payload count');
+        assert.equal(records.length, expectedCount, test.name + ' final payload count');
         const scores = [];
         for (const record of records) {
             if (test.full || test.ordinary) {
                 assert.equal(record.route, '/api/collect');
-                scores.push(validateFull(record.payload));
+                scores.push(validateFull(record.payload, test.format));
+                if (test.quarters !== undefined) {
+                    for (const quarter of [25, 50, 75]) {
+                        assert.equal(record.payload.signals.s6['quartile_' + quarter], test.quarters.includes(quarter));
+                    }
+                }
                 assert.ok(record.payload.signals.s2.share_of_screen_max_pct > 6);
                 assert.ok(record.payload.signals.s2.share_of_screen_max_pct < 9);
                 assert.ok(record.payload.signals.s7.competing_ads_visible >= 1);
@@ -436,7 +639,7 @@ try {
                 assert.equal(record.payload.page_collectors_loaded, false);
             }
         }
-        if (test.count === 2) {
+        if (test.count === 2 && !test.duplicate) {
             assert.equal(new Set(records.map(({ payload }) => payload.ad_session_id)).size, 2);
             const first = records.find(({ payload }) => payload.ad_session_id === test.frames[0].params.sid);
             const second = records.find(({ payload }) => payload.ad_session_id === test.frames[1].params.sid);
